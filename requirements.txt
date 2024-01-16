@@ -1,0 +1,6 @@
+googlemaps
+graphviz
+networkx
+openpyxl
+streamlit
+unidecode
