@@ -7,8 +7,14 @@ def get_most_recent_file(directory, pattern):
     Helper function to get the most recent file matching a specific pattern.
     Returns a tuple of the file path and an error message.
     """
-    files = glob.glob(os.path.join(directory, pattern))
-    files = [f for f in files if "hyperlinks" not in f and not f.endswith("Zone.Identifier")]
+    # files = glob.glob(os.path.join(directory, pattern)) # ONLY data main folder
+    files = glob.glob(
+        os.path.join(directory, "**", pattern), recursive=True
+    )  # data and all subfolders
+
+    files = [
+        f for f in files if "hyperlinks" not in f and not f.endswith("Zone.Identifier")
+    ]
     files.sort(key=os.path.getmtime, reverse=True)
 
     if files:
@@ -34,7 +40,17 @@ def detect_raw_files():
         "organisationservicerolle": "_EGov_Organisationen_Servicerolle*",
         "personen": "_EGov_Personen_Analyse*",
         "personenservicerolle": "_EGov_Personen_Servicerolle*",
-        "personenrollen": "_EGov_Personenrollenanalyse_MDG*"
+        "personenrollen": "_EGov_Personenrollenanalyse_MDG*",
+        "Geschaeftspartern_Organisationen_BAFU": "*Geschaeftspartner*Organisationen*BAFU*",
+        "Geschaeftspartern_Organisationen_BAZL": "*Geschaeftspartner*Organisationen*BAZL*",
+        "Geschaeftspartern_Organisationen_BFE": "*Geschaeftspartner*Organisationen*BFE*",
+        "Geschaeftspartern_Organisationen_ELCOM": "*Geschaeftspartner*Organisationen*ELCOM*",
+        "Geschaeftspartern_Organisationen_POSTCOM": "*Geschaeftspartner*Organisationen*POSTCOM*",
+        "Geschaeftspartern_Personen_BAFU": "*Geschaeftspartner*Personen*BAFU*",
+        "Geschaeftspartern_Personen_BAZL": "*Geschaeftspartner*Personen*BAZL*",
+        "Geschaeftspartern_Personen_BFE": "*Geschaeftspartner*Personen*BFE*",
+        "Geschaeftspartern_Personen_ELCOM": "*Geschaeftspartner*Personen*ELCOM*",
+        "Geschaeftspartern_Personen_POSTCOM": "*Geschaeftspartner*Personen*POSTCOM*",
     }
 
     # Initialize a list to collect error messages and a dict for the results

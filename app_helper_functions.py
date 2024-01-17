@@ -394,3 +394,55 @@ def get_geschaeftspartner(input_df, folder_path):
             input_df.at[index, "Geschaeftspartner"].extend(partners)
 
     return input_df
+
+
+
+#  ----- Functions related to app file upload ----
+import streamlit as st
+import fnmatch
+
+def upload_files():
+    uploaded_files = st.file_uploader("Upload File", accept_multiple_files=True, type=["xlsx"])
+    
+    if uploaded_files is not None and not st.session_state['clear_data']:
+        
+        for uploaded_file in uploaded_files:
+            # For backwards compatibility, put Geschaeftspartner files into appropriate subfolders.
+            if fnmatch.fnmatch(uploaded_file.name, "*Geschaeftspartner*_Organisationen*.xlsx"):
+                data_dir = 'data/mandanten/organisationen'
+            elif fnmatch.fnmatch(uploaded_file.name, "*Geschaeftspartner*_Personen*.xlsx"):
+                data_dir = 'data/mandanten/personen'
+            else:
+                data_dir = 'data'
+
+            # Ensure the directory exists
+            if not os.path.exists(data_dir):
+                os.makedirs(data_dir)
+
+            # Define the full file path
+            file_path = os.path.join(data_dir, uploaded_file.name)
+                    
+            # Write the file to the specified location
+            with open(file_path, "wb") as f:
+                f.write(uploaded_file.getbuffer())
+    
+        st.success(f"{len(uploaded_files)} files saved")
+  
+    
+def clear_data_directory(directory="data"):
+    # Check if the directory exists
+    if os.path.exists(directory):
+        # Remove all files in the directory
+        for filename in os.listdir(directory):
+            file_path = os.path.join(directory, filename)
+            try:
+                if os.path.isfile(file_path) or os.path.islink(file_path):
+                    os.unlink(file_path)
+                elif os.path.isdir(file_path):
+                    shutil.rmtree(file_path)
+            except Exception as e:
+                st.error(f'Failed to delete {file_path}. Reason: {e}')
+        st.success("Data directory cleared.")
+        st.session_state['clear_data'] = True
+    else:
+        st.warning("Data directory does not exist.")

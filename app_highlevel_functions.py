@@ -24,6 +24,7 @@ from organisationen_helper_functions import (
 import pandas as pd
 import streamlit as st
 import pickle
+import os
 
 @st.cache_data
 def load_data(file):
@@ -104,7 +105,11 @@ def raw_cleanup(toggle_gmaps=False):
     
     # Store dataframes as pickle
     dfs = {'personen': df_personen, 'organisationen': df_organisationen}
-    with open("data/calculated/personen_organisationen_dfs_processed.pickle", 'wb') as file:
+    
+    # Create the directory if it doesn't exist
+    directory = "data/calculated"
+    os.makedirs(directory, exist_ok=True)
+    with open(os.path.join(directory, "personen_organisationen_dfs_processed.pickle"), 'wb') as file:
         pickle.dump(dfs, file)
         
     st.success("Processing finished!", icon="✅")
@@ -157,8 +162,11 @@ def create_edges_and_clusters():
     all_clusters = find_clusters_all(all_edges, special_nodes, skip_singular_clusters=False)
 
     # Store dataframes as pickle
-    dfs = {'edges': all_edges, 'clusters': all_clusters}
-    with open("data/calculated/edges_clusters_dfs.pickle", 'wb') as file:
+    dfs = {'edges': all_edges, 'clusters': all_clusters}   
+    # Create the directory if it doesn't exist
+    directory = "data/calculated"
+    os.makedirs(directory, exist_ok=True)
+    with open(os.path.join(directory, "edges_clusters_dfs.pickle"), 'wb') as file:
         pickle.dump(dfs, file)
 
     st.success("Cluster data stored!", icon="✅")
