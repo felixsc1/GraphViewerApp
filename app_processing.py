@@ -20,7 +20,14 @@ def find_all_data():
 
     st.session_state["file_paths"] = raw_files
     st.success("All data found!", icon="✅")
-
+    
+    
+def run_processing_steps():
+    with st.status("Processing..."):
+        st.write("Loading data and basic cleaning steps...")
+        raw_cleanup()
+        st.write("Calculating edges and nodes to generate clusters...")
+        create_edges_and_clusters()
 
 # --------------------Main App Structure--------------------------
 def show():
@@ -28,19 +35,18 @@ def show():
     
     upload_files()
     
-    if st.button("Clear Data Directory"):
+    if st.button("🗑️ Clear Data Directory", type="primary"):
         clear_data_directory()
 
-    if st.button("Check Data"):
+    if st.button("🔎 1. Check Data"):
         find_all_data()
     
     # Reset the flag after the Clear button is clicked
     if st.session_state['clear_data']:
         st.session_state['clear_data'] = False
 
-    if st.button("Run Basic cleanup"):
-        raw_cleanup()
+    if st.button("💻 2. Run Processing"):
+        run_processing_steps()
+        st.success("Processing finished!", icon="✅")
 
-    if st.button("Create Edges and Clusters"):
-        create_edges_and_clusters()
 

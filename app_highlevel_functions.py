@@ -112,8 +112,6 @@ def raw_cleanup(toggle_gmaps=False):
     with open(os.path.join(directory, "personen_organisationen_dfs_processed.pickle"), 'wb') as file:
         pickle.dump(dfs, file)
         
-    st.success("Processing finished!", icon="✅")
-
     return df_organisationen, df_personen
 
 

@@ -1,6 +1,7 @@
 import streamlit as st
 import app_graph
 import app_processing
+import app_search
 import pandas as pd
 
 st.set_page_config(layout="wide")
@@ -8,7 +9,7 @@ st.set_page_config(layout="wide")
 # Sidebar
 st.sidebar.title("Navigation")
 selection = st.sidebar.selectbox(
-    "Go to", ["Data Processing", "Graph Viewer"]
+    "Go to", ["Data Processing", "Search RefID", "Graph Viewer"]
 )
 
 
@@ -24,9 +25,12 @@ def load_data(file_path, csv=False):
 
 # Main Content
 if selection == "Data Processing":
-    st.title("Data Processing")
+    st.title("🗄️ Data Processing")
     app_processing.show()
 
 elif selection == "Graph Viewer":
     # st.title("Organisationen")
     app_graph.show()
+    
+elif selection == "Search RefID":
+    app_search.show()

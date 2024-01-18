@@ -426,9 +426,11 @@ def upload_files():
             with open(file_path, "wb") as f:
                 f.write(uploaded_file.getbuffer())
     
-        st.success(f"{len(uploaded_files)} files saved")
+        if len(uploaded_files) > 0:
+            st.success(f"{len(uploaded_files)} files saved")
   
-    
+
+import shutil  
 def clear_data_directory(directory="data"):
     # Check if the directory exists
     if os.path.exists(directory):

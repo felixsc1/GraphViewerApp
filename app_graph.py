@@ -3,28 +3,28 @@ import pickle
 import pandas as pd
 from graphviz_helper_functions import GraphvizWrapper_organisationen
 
+
 @st.cache_data
 def load_data():
-    with open(
-        "data/calculated/edges_clusters_dfs.pickle", "rb"
-    ) as file:
-        cluster_dfs = pickle.load(file)
-    # df_edges = cluster_dfs["edges"]
-    # df_clusters = cluster_dfs["clusters"]
+    try:
+        with open("data/calculated/edges_clusters_dfs.pickle", "rb") as file:
+            cluster_dfs = pickle.load(file)
 
-    with open(
-        "data/calculated/personen_organisationen_dfs_processed.pickle", "rb"
-    ) as file:
-        data_dfs = pickle.load(file)
-    # df_personen = data_dfs["personen"]
-    # df_organisationen = data_dfs["organisationen"]
-    
-    return cluster_dfs, data_dfs
+        with open(
+            "data/calculated/personen_organisationen_dfs_processed.pickle", "rb"
+        ) as file:
+            data_dfs = pickle.load(file)
+            st.success("Data loaded", icon="✅")
+        return cluster_dfs, data_dfs
+    except FileNotFoundError:
+        print("No data found. Please upload and process data.")
+        return None, None
+
 
 def controls():
     st.text_input("ReferenceID", key="ReferenceID")
-    
-    
+
+
 def convert_special_string(row):
     # Modify the row for special cases where the 'source' or 'target' is a string that needs to be converted
     # Assuming for now, this is only necessary for Produkte/Organisationsrollen.
@@ -73,28 +73,35 @@ def process_produkte_strings(input_string):
     number = int(number_part.strip())
 
     return list_part, name, number
-    
+
+
 def generate_graph(cluster_dfs, data_dfs, filter_refid):
     df_clusters = cluster_dfs["clusters"]
     df_edges = cluster_dfs["edges"]
     df_personen = data_dfs["personen"]
     df_organisationen = data_dfs["organisationen"]
-    
+
     if filter_refid != "":
         # lets get all nodes that are part of filter_refid's cluster
-        node_list = df_clusters.loc[df_clusters["nodes"].apply(lambda x: filter_refid in x), "nodes"].iloc[0]
-        
+        node_list = df_clusters.loc[
+            df_clusters["nodes"].apply(lambda x: filter_refid in x), "nodes"
+        ].iloc[0]
+
         # Display Dataframes of Personen & Organisationen of that cluster
-        organisationen_of_cluster = df_organisationen[df_organisationen["ReferenceID"].isin(node_list)]
+        organisationen_of_cluster = df_organisationen[
+            df_organisationen["ReferenceID"].isin(node_list)
+        ]
         personen_of_cluster = df_personen[df_personen["ReferenceID"].isin(node_list)]
         st.write("Personen:")
         st.write(personen_of_cluster)
         st.write("Organisationen:")
         st.write(organisationen_of_cluster)
-        
+
         # Generate nodes of that cluster (reminder: graphviz wrapper function expects dataframe with Name, RefID)
-        node_data = pd.concat([organisationen_of_cluster, personen_of_cluster], axis=0, sort=False)
-        
+        node_data = pd.concat(
+            [organisationen_of_cluster, personen_of_cluster], axis=0, sort=False
+        )
+
         # Add new rows for special entries in cluster_nodes that are not organizations
         # Here the code to add Produkte, which based on cleanup steps appear in the form of: "[1000299836, 1000300252, 2]", i.e. the produkt ids and the number of products.
         for node in node_list:
@@ -109,32 +116,31 @@ def generate_graph(cluster_dfs, data_dfs, filter_refid):
                     }
                 )
                 node_data = pd.concat([node_data, new_row], ignore_index=True)
-        
+
         edge_data = df_edges[
-        (df_edges["source"].isin(node_list))
-        & (df_edges["target"].isin(node_list))
+            (df_edges["source"].isin(node_list)) & (df_edges["target"].isin(node_list))
         ]
         edge_data = edge_data.apply(
-        convert_special_string, axis=1
+            convert_special_string, axis=1
         )  # Modify Produkte entries
         edge_data = edge_data.drop_duplicates(subset=["source", "target", "match_type"])
-        
+
         # Generate Graph
         graph = GraphvizWrapper_organisationen()
         graph.add_nodes(node_data)
         graph.add_edges(edge_data)
-        
+
         return graph
-        
+
 
 def show():
     cluster_dfs, data_dfs = load_data()
-    st.success("Data loaded", icon="✅")
-    
+
     controls()
-    filter_refid = st.session_state.get("ReferenceID", "") # this session state is automatically created by st.text_input
-    
-    g = generate_graph(cluster_dfs, data_dfs, filter_refid)
-    st.write(g.graph)
-    
-    
+    filter_refid = st.session_state.get(
+        "ReferenceID", ""
+    )  # this session state is automatically created by st.text_input
+
+    if cluster_dfs and data_dfs:
+        g = generate_graph(cluster_dfs, data_dfs, filter_refid)
+        st.write(g.graph)
