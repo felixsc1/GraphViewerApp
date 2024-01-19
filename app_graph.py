@@ -75,6 +75,25 @@ def process_produkte_strings(input_string):
     return list_part, name, number
 
 
+def show_subset_of_columns(df):
+    columns_to_keep = [
+        "ReferenceID",
+        "Name",
+        "UID_CHID",
+        "address_full",
+        "Versandart",
+        "AnzahlGeschaeftsobjekte",
+        "CreatedAt",
+        "Servicerole",
+        "Geschaeftspartner",
+        "Verknuepfungsart",
+        "VerknuepftesObjekt",
+        "VerknuepftesObjektID",
+        "score",
+    ]
+    return df[columns_to_keep]
+
+
 def generate_graph(cluster_dfs, data_dfs, filter_refid):
     df_clusters = cluster_dfs["clusters"]
     df_edges = cluster_dfs["edges"]
@@ -93,9 +112,9 @@ def generate_graph(cluster_dfs, data_dfs, filter_refid):
         ]
         personen_of_cluster = df_personen[df_personen["ReferenceID"].isin(node_list)]
         st.write("Personen:")
-        st.write(personen_of_cluster)
+        st.dataframe(show_subset_of_columns(personen_of_cluster))
         st.write("Organisationen:")
-        st.write(organisationen_of_cluster)
+        st.write(show_subset_of_columns(organisationen_of_cluster))
 
         # Generate nodes of that cluster (reminder: graphviz wrapper function expects dataframe with Name, RefID)
         node_data = pd.concat(

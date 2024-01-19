@@ -33,4 +33,5 @@ elif selection == "Graph Viewer":
     app_graph.show()
     
 elif selection == "Search RefID":
+    st.title("🔍 Search ReferenceIDs")
     app_search.show()
