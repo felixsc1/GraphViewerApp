@@ -104,7 +104,7 @@ def raw_cleanup(toggle_gmaps=False):
     df_personen = calculate_scores_personen(df_personen)
     
     # Store dataframes as pickle
-    dfs = {'personen': df_personen, 'organisationen': df_organisationen}
+    dfs = {'personen': df_personen, 'organisationen': df_organisationen, 'file_versions': st.session_state['file_versions']}
     
     # Create the directory if it doesn't exist
     directory = "data/calculated"

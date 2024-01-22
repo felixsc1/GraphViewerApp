@@ -15,6 +15,13 @@ def load_data():
         ) as file:
             data_dfs = pickle.load(file)
             st.success("Data loaded", icon="✅")
+            
+            # Store it in session state for later use
+            st.session_state["file_versions"] = {}
+            st.session_state["file_versions"]["earliest_date"] = data_dfs["file_versions"]["earliest_date"]
+            st.session_state["file_versions"]["latest_date"] = data_dfs["file_versions"]["latest_date"]
+            st.session_state["file_versions"]["ordered_filenames"] = data_dfs["file_versions"]["ordered_filenames"]      
+                    
         return cluster_dfs, data_dfs
     except FileNotFoundError:
         print("No data found. Please upload and process data.")
@@ -154,6 +161,9 @@ def generate_graph(cluster_dfs, data_dfs, filter_refid):
 
 def show():
     cluster_dfs, data_dfs = load_data()
+    
+    with st.expander(f"oldest file: {st.session_state['file_versions']['earliest_date']}, newest file: {st.session_state['file_versions']['latest_date']}"):
+            st.write(st.session_state["file_versions"]["ordered_filenames"])
 
     controls()
     filter_refid = st.session_state.get(
@@ -162,4 +172,5 @@ def show():
 
     if cluster_dfs and data_dfs:
         g = generate_graph(cluster_dfs, data_dfs, filter_refid)
-        st.write(g.graph)
+        if g:
+            st.write(g.graph)

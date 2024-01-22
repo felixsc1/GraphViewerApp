@@ -398,6 +398,7 @@ def get_geschaeftspartner(input_df, folder_path):
 
 
 #  ----- Functions related to app file upload ----
+# -------------------------------
 import streamlit as st
 import fnmatch
 
@@ -448,3 +449,51 @@ def clear_data_directory(directory="data"):
         st.session_state['clear_data'] = True
     else:
         st.warning("Data directory does not exist.")
+        
+        
+# ----------------- other app only related function -----
+import re
+from datetime import datetime
+
+
+def get_data_version():
+    # Check if 'file_paths' exists in the session state and is not empty
+    if "file_paths" not in st.session_state or not st.session_state["file_paths"]:
+        # Handle the empty or missing case
+        return "No data", "No data", []
+    
+    filenames = st.session_state["file_paths"]
+    date_pattern = r"\d{4}-\d{2}-\d{2}"
+    
+    dates = set()
+    filenames_with_dates = []
+
+    for key, value in filenames.items():
+        match = re.search(date_pattern, value)
+        filename_with_extension = os.path.basename(value)
+        filename_without_extension = os.path.splitext(filename_with_extension)[0]
+        
+        if match:
+            date_str = match.group()
+            date_obj = datetime.strptime(date_str, "%Y-%m-%d")
+            dates.add(date_obj)
+            # Add a tuple of (date_obj, filename_without_extension) to the list
+            filenames_with_dates.append((date_obj, filename_without_extension))
+
+    # Sort the list by dates
+    filenames_with_dates.sort(key=lambda x: x[0])
+
+    # Extract just the filenames in order
+    ordered_filenames = [filename for date, filename in filenames_with_dates]
+
+    # Find the earliest and latest date
+    earliest_date = min(dates).strftime("%Y-%m-%d")
+    latest_date = max(dates).strftime("%Y-%m-%d")
+    
+    # Store it in session state for later use
+    st.session_state["file_versions"] = {}
+    st.session_state["file_versions"]["earliest_date"] = earliest_date
+    st.session_state["file_versions"]["latest_date"] = latest_date
+    st.session_state["file_versions"]["ordered_filenames"] = ordered_filenames
+
+    return earliest_date, latest_date, ordered_filenames
