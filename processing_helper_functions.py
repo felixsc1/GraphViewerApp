@@ -22,7 +22,7 @@ def get_most_recent_file(directory, pattern):
     else:
         return None, f"File missing: {pattern}"
 
-
+import streamlit as st
 def detect_raw_files():
     """
     For app_processing.py
@@ -30,7 +30,8 @@ def detect_raw_files():
     Returns the most recent files of different types as specified.
     Concatenates error messages if multiple files are missing.
     """
-    directory = "data/"
+    # Combine the stored cwd with the relative directory
+    directory = os.path.join(st.session_state['cwd'], "data/")
 
     # Dictionary to hold file patterns
     file_patterns = {

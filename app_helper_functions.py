@@ -410,11 +410,14 @@ def upload_files():
         for uploaded_file in uploaded_files:
             # For backwards compatibility, put Geschaeftspartner files into appropriate subfolders.
             if fnmatch.fnmatch(uploaded_file.name, "*Geschaeftspartner*_Organisationen*.xlsx"):
-                data_dir = 'data/mandanten/organisationen'
+                relative_dir = 'data/mandanten/organisationen'
             elif fnmatch.fnmatch(uploaded_file.name, "*Geschaeftspartner*_Personen*.xlsx"):
-                data_dir = 'data/mandanten/personen'
+                relative_dir = 'data/mandanten/personen'
             else:
-                data_dir = 'data'
+                relative_dir = 'data'
+
+            # Combine the stored cwd with the relative directory
+            data_dir = os.path.join(st.session_state['cwd'], relative_dir)
 
             # Ensure the directory exists
             if not os.path.exists(data_dir):
@@ -433,11 +436,14 @@ def upload_files():
 
 import shutil  
 def clear_data_directory(directory="data"):
+    # Combine the stored cwd with the relative directory
+    full_directory_path = os.path.join(st.session_state['cwd'], directory)
+
     # Check if the directory exists
-    if os.path.exists(directory):
+    if os.path.exists(full_directory_path):
         # Remove all files in the directory
-        for filename in os.listdir(directory):
-            file_path = os.path.join(directory, filename)
+        for filename in os.listdir(full_directory_path):
+            file_path = os.path.join(full_directory_path, filename)
             try:
                 if os.path.isfile(file_path) or os.path.islink(file_path):
                     os.unlink(file_path)
@@ -449,7 +455,6 @@ def clear_data_directory(directory="data"):
         st.session_state['clear_data'] = True
     else:
         st.warning("Data directory does not exist.")
-        
         
 # ----------------- other app only related function -----
 import re

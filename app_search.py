@@ -3,6 +3,7 @@ import pickle
 import time
 import pandas as pd
 import pyperclip
+import os
 
 def success_temporary(text):
     # Placeholder for the success message
@@ -19,11 +20,9 @@ def success_temporary(text):
 def load_data():
     try:
         with open(
-            "data/calculated/personen_organisationen_dfs_processed.pickle", "rb"
+            os.path.join(st.session_state["cwd"], "data/calculated/personen_organisationen_dfs_processed.pickle"), "rb"
         ) as file:
             data_dfs = pickle.load(file)
-            # if data_dfs:
-            #     success_temporary("Loading data")
         return data_dfs
     except Exception as e:
         st.error(f"No data found or error in loading data: {e}", icon="🚨")

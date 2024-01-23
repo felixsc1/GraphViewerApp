@@ -2,16 +2,16 @@ import streamlit as st
 import pickle
 import pandas as pd
 from graphviz_helper_functions import GraphvizWrapper_organisationen
-
+import os
 
 @st.cache_data
 def load_data():
     try:
-        with open("data/calculated/edges_clusters_dfs.pickle", "rb") as file:
+        with open(os.path.join(st.session_state["cwd"], "data/calculated/edges_clusters_dfs.pickle"), "rb") as file:
             cluster_dfs = pickle.load(file)
 
         with open(
-            "data/calculated/personen_organisationen_dfs_processed.pickle", "rb"
+            os.path.join(st.session_state["cwd"], "data/calculated/personen_organisationen_dfs_processed.pickle"), "rb"
         ) as file:
             data_dfs = pickle.load(file)
             st.success("Data loaded", icon="✅")

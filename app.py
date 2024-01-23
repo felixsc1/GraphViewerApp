@@ -3,6 +3,7 @@ import app_graph
 import app_processing
 import app_search
 import pandas as pd
+import os
 
 st.set_page_config(layout="wide")
 
@@ -12,15 +13,17 @@ selection = st.sidebar.selectbox(
     "Go to", ["Data Processing", "Search RefID", "Graph Viewer"]
 )
 
+if 'cwd' not in st.session_state:
+    st.session_state['cwd'] = os.getcwd()
 
-# --- Loading all data for the sub-pages ---
-@st.cache_data
-def load_data(file_path, csv=False):
-    if csv:
-        df = pd.read_csv(file_path)  # evtl. index_col=[0]
-    else:
-        df = pd.read_excel(file_path)
-    return df
+# --- Loading all data for the sub-pages   obsolete?---
+# @st.cache_data
+# def load_data(file_path, csv=False):
+#     if csv:
+#         df = pd.read_csv(file_path)  # evtl. index_col=[0]
+#     else:
+#         df = pd.read_excel(file_path)
+#     return df
 
 
 # Main Content

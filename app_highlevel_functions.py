@@ -26,6 +26,7 @@ import streamlit as st
 import pickle
 import os
 
+
 @st.cache_data
 def load_data(file):
     data = pd.read_excel(file)
@@ -51,13 +52,13 @@ def raw_cleanup(toggle_gmaps=False):
     df_personen[["address_full", "address_partial"]] = df_personen.apply(
         lambda row: construct_address_string(row, organisation=False), axis=1
     )
-    
+
     df_organisationen["Name_Zeile2"] = df_organisationen.apply(
-                lambda x: x["Name"] + "|" + str(x["Zeile2"])
-                if pd.notna(x["Zeile2"]) and x["Zeile2"] != ""
-                else x["Name"],
-                axis=1,
-            )
+        lambda x: x["Name"] + "|" + str(x["Zeile2"])
+        if pd.notna(x["Zeile2"]) and x["Zeile2"] != ""
+        else x["Name"],
+        axis=1,
+    )
 
     # SERVICEROLES. TODO: check if the dicts for the names in this function are still up to date.
     personenservicerolle_df = load_data(file_paths["personenservicerolle"])
@@ -87,12 +88,20 @@ def raw_cleanup(toggle_gmaps=False):
 
     # GESCHÄFTSPARTNER
     df_organisationen = get_geschaeftspartner(
-        df_organisationen, "data/mandanten/organisationen"
+        df_organisationen,
+        os.path.join(st.session_state["cwd"], "data/mandanten/organisationen"),
     )
-    df_personen = get_geschaeftspartner(df_personen, "data/mandanten/personen")
+    df_personen = get_geschaeftspartner(
+        df_personen, os.path.join(st.session_state["cwd"], "data/mandanten/personen")
+    )
 
     # Processing list column, to have both string and true list representation.
-    columns_to_convert = ["VerknuepftesObjektID", "VerknuepftesObjekt", "Verknuepfungsart", "Geschaeftspartner"]
+    columns_to_convert = [
+        "VerknuepftesObjektID",
+        "VerknuepftesObjekt",
+        "Verknuepfungsart",
+        "Geschaeftspartner",
+    ]
     for col in columns_to_convert:
         df_organisationen[col] = df_organisationen[col].apply(str)
         df_personen[col] = df_personen[col].apply(str)
@@ -102,16 +111,22 @@ def raw_cleanup(toggle_gmaps=False):
     # Now we have information to calculate scores
     df_organisationen = calculate_scores_organisationen(df_organisationen)
     df_personen = calculate_scores_personen(df_personen)
-    
+
     # Store dataframes as pickle
-    dfs = {'personen': df_personen, 'organisationen': df_organisationen, 'file_versions': st.session_state['file_versions']}
-    
+    dfs = {
+        "personen": df_personen,
+        "organisationen": df_organisationen,
+        "file_versions": st.session_state["file_versions"],
+    }
+
     # Create the directory if it doesn't exist
-    directory = "data/calculated"
+    directory = os.path.join(st.session_state["cwd"], "data/calculated")
     os.makedirs(directory, exist_ok=True)
-    with open(os.path.join(directory, "personen_organisationen_dfs_processed.pickle"), 'wb') as file:
+    with open(
+        os.path.join(directory, "personen_organisationen_dfs_processed.pickle"), "wb"
+    ) as file:
         pickle.dump(dfs, file)
-        
+
     return df_organisationen, df_personen
 
 
@@ -120,7 +135,7 @@ def create_edges_and_clusters():
 
     # Assuming pickle file was created by raw_cleanup()
     with open(
-        "data/calculated/personen_organisationen_dfs_processed.pickle", "rb"
+        os.path.join(st.session_state["cwd"], "data/calculated/personen_organisationen_dfs_processed.pickle"), "rb"
     ) as file:
         dfs = pickle.load(file)
     df_personen = dfs["personen"]
@@ -140,9 +155,11 @@ def create_edges_and_clusters():
         df_personen, personen=True
     )
 
-    edges_personen_to_organisationen = match_organizations_between_dataframes(df_personen, df_organisationen)
+    edges_personen_to_organisationen = match_organizations_between_dataframes(
+        df_personen, df_organisationen
+    )
 
-    #TODO: Personenrollen-edges hinzufügen.
+    # TODO: Personenrollen-edges hinzufügen.
 
     # Summarize and clean up everything.
     edge_list = []
@@ -154,17 +171,20 @@ def create_edges_and_clusters():
 
     all_edges = cleanup_edges_df(all_edges)
 
-    special_nodes = set(edges_organisationsrollen['source'].unique()) # should not count towards cluster sizes or be central nodes.
+    special_nodes = set(
+        edges_organisationsrollen["source"].unique()
+    )  # should not count towards cluster sizes or be central nodes.
 
-
-    all_clusters = find_clusters_all(all_edges, special_nodes, skip_singular_clusters=False)
+    all_clusters = find_clusters_all(
+        all_edges, special_nodes, skip_singular_clusters=False
+    )
 
     # Store dataframes as pickle
-    dfs = {'edges': all_edges, 'clusters': all_clusters}   
+    dfs = {"edges": all_edges, "clusters": all_clusters}
     # Create the directory if it doesn't exist
-    directory = "data/calculated"
+    directory = os.path.join(st.session_state["cwd"], "data/calculated")
     os.makedirs(directory, exist_ok=True)
-    with open(os.path.join(directory, "edges_clusters_dfs.pickle"), 'wb') as file:
+    with open(os.path.join(directory, "edges_clusters_dfs.pickle"), "wb") as file:
         pickle.dump(dfs, file)
 
     st.success("Cluster data stored!", icon="✅")
