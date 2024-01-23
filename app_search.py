@@ -57,6 +57,27 @@ def search_names(search_name, data_dfs):
     return personen_matches, organisationen_matches
 
 
+import streamlit.components.v1 as components
+
+def copy_to_clipboard(text):
+    # JavaScript to copy text to clipboard immediately
+    js = f"""
+    <script>
+    (function() {{
+        navigator.clipboard.writeText(`{text}`).then(function() {{
+            console.log('Text copied to clipboard');
+        }}, function(err) {{
+            console.error('Could not copy text: ', err);
+        }});
+    }})();
+    </script>
+    """
+
+    components.html(js, height=0)
+
+
+
+
 def show():
     data_dfs = load_data()
 
@@ -73,7 +94,8 @@ def show():
         for index, row in personen_matches.iterrows():
             if row['Copy']:
                 # Copy ReferenceID to clipboard
-                pyperclip.copy(row['ReferenceID'])
+                # pyperclip.copy(row['ReferenceID'])
+                copy_to_clipboard(row['ReferenceID'])
                 st.write(f"Copied {row['ReferenceID']} to clipboard")
                 # Reset the flag to False after copying
                 personen_matches.at[index, 'Copy'] = False
