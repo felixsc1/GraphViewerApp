@@ -19,8 +19,10 @@ def success_temporary(text):
 @st.cache_data
 def load_data():
     try:
+        file_path = os.path.join(st.session_state["cwd"], "data/calculated/personen_organisationen_dfs_processed.pickle")
+        print("opening: ", file_path)
         with open(
-            os.path.join(st.session_state["cwd"], "data/calculated/personen_organisationen_dfs_processed.pickle"), "rb"
+            file_path, "rb"
         ) as file:
             data_dfs = pickle.load(file)
         return data_dfs

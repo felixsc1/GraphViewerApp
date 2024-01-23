@@ -121,6 +121,7 @@ def raw_cleanup(toggle_gmaps=False):
 
     # Create the directory if it doesn't exist
     directory = os.path.join(st.session_state["cwd"], "data/calculated")
+    print("storing under: ", directory)
     os.makedirs(directory, exist_ok=True)
     with open(
         os.path.join(directory, "personen_organisationen_dfs_processed.pickle"), "wb"
@@ -135,7 +136,11 @@ def create_edges_and_clusters():
 
     # Assuming pickle file was created by raw_cleanup()
     with open(
-        os.path.join(st.session_state["cwd"], "data/calculated/personen_organisationen_dfs_processed.pickle"), "rb"
+        os.path.join(
+            st.session_state["cwd"],
+            "data/calculated/personen_organisationen_dfs_processed.pickle",
+        ),
+        "rb",
     ) as file:
         dfs = pickle.load(file)
     df_personen = dfs["personen"]
