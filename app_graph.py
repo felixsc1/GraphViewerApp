@@ -168,7 +168,7 @@ def show():
     controls()
     filter_refid = st.session_state.get(
         "ReferenceID", ""
-    )  # this session state is automatically created by st.text_input
+    ).replace('"', '')  # this session state is automatically created by st.text_input
 
     if cluster_dfs and data_dfs:
         g = generate_graph(cluster_dfs, data_dfs, filter_refid)

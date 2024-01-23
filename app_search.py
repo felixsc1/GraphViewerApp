@@ -2,7 +2,7 @@ import streamlit as st
 import pickle
 import time
 import pandas as pd
-import pyperclip
+# import pyperclip
 import os
 
 def success_temporary(text):
@@ -50,34 +50,13 @@ def search_names(search_name, data_dfs):
     match_organisationen = df_organisationen["Name"].apply(match)
 
     personen_matches = df_personen[match_personen][["Name", "ReferenceID"]]
-    personen_matches["Copy"] = False
+    # personen_matches["Copy"] = False
     organisationen_matches = df_organisationen[match_organisationen][
         ["Name", "ReferenceID"]
     ]
-    organisationen_matches["Copy"] = False
+    # organisationen_matches["Copy"] = False
 
     return personen_matches, organisationen_matches
-
-
-import streamlit.components.v1 as components
-
-def copy_to_clipboard(text):
-    # JavaScript to copy text to clipboard immediately
-    js = f"""
-    <script>
-    (function() {{
-        navigator.clipboard.writeText(`{text}`).then(function() {{
-            console.log('Text copied to clipboard');
-        }}, function(err) {{
-            console.error('Could not copy text: ', err);
-        }});
-    }})();
-    </script>
-    """
-
-    components.html(js, height=0)
-
-
 
 
 def show():
@@ -87,28 +66,30 @@ def show():
 
     # global personen_matches
     personen_matches, organisationen_matches = search_names(search_name, data_dfs)
+
+    col1, col2 = st.columns(2)
     
+    with col1:
+        if not personen_matches.empty:
+            st.subheader("Personen matches")
+            # personen_matches = st.data_editor(personen_matches.reset_index(drop=True))
+            st.write(personen_matches.to_dict('records'))
+        # for index, row in personen_matches.iterrows():
+        #     if row['Copy']:
+        #         # Copy ReferenceID to clipboard
+        #         pyperclip.copy(row['ReferenceID'])
+        #         st.write(f"Copied {row['ReferenceID']} to clipboard")
+        #         # Reset the flag to False after copying
+        #         personen_matches.at[index, 'Copy'] = False
 
-
-    if not personen_matches.empty:
-        st.subheader("Personen matches")
-        personen_matches = st.data_editor(personen_matches.reset_index(drop=True))
-        for index, row in personen_matches.iterrows():
-            if row['Copy']:
-                # Copy ReferenceID to clipboard
-                # pyperclip.copy(row['ReferenceID'])
-                copy_to_clipboard(row['ReferenceID'])
-                st.write(f"Copied {row['ReferenceID']} to clipboard")
-                # Reset the flag to False after copying
-                personen_matches.at[index, 'Copy'] = False
-
-    if not organisationen_matches.empty:
-        st.subheader("Organisationen matches")
-        organisationen_matches = st.data_editor(organisationen_matches.reset_index(drop=True))
-        for index, row in organisationen_matches.iterrows():
-            if row['Copy']:
-                # Copy ReferenceID to clipboard
-                pyperclip.copy(row['ReferenceID'])
-                st.write(f"Copied {row['ReferenceID']} to clipboard")
-                # Reset the flag to False after copying
-                personen_matches.at[index, 'Copy'] = False
+    with col2:
+        if not organisationen_matches.empty:
+            st.subheader("Organisationen matches")
+            # organisationen_matches = st.data_editor(organisationen_matches.reset_index(drop=True))
+            st.write(organisationen_matches.to_dict('records'))
+        # for index, row in organisationen_matches.iterrows():
+        #     if row['Copy']:
+        #         # Copy ReferenceID to clipboard
+        #         pyperclip.copy(row['ReferenceID'])
+        #         # Reset the flag to False after copying
+        #         personen_matches.at[index, 'Copy'] = False

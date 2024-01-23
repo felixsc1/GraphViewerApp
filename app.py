@@ -16,14 +16,14 @@ selection = st.sidebar.selectbox(
 if 'cwd' not in st.session_state:
     st.session_state['cwd'] = os.getcwd()
 
-# --- Loading all data for the sub-pages   obsolete?---
-# @st.cache_data
-# def load_data(file_path, csv=False):
-#     if csv:
-#         df = pd.read_csv(file_path)  # evtl. index_col=[0]
-#     else:
-#         df = pd.read_excel(file_path)
-#     return df
+# --- used in sub-pages---
+@st.cache_data
+def load_data(file_path, csv=False):
+    if csv:
+        df = pd.read_csv(file_path)  # evtl. index_col=[0]
+    else:
+        df = pd.read_excel(file_path)
+    return df
 
 
 # Main Content
