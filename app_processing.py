@@ -22,10 +22,8 @@ def find_all_data():
     st.success("All data found!", icon="✅")
     
 
-    
 def run_processing_steps():
     with st.status("Processing..."):
-        st.write("Loading data and basic cleaning steps...")
         raw_cleanup()
         st.write("Calculating edges and nodes to generate clusters...")
         create_edges_and_clusters()

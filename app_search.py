@@ -49,12 +49,15 @@ def search_names(search_name, data_dfs):
     match_personen = df_personen["Name"].apply(match)
     match_organisationen = df_organisationen["Name"].apply(match)
 
-    personen_matches = df_personen[match_personen][["Name", "ReferenceID"]]
+    personen_matches = df_personen[match_personen][["Name", "Objekt_link", "ReferenceID"]]
     # personen_matches["Copy"] = False
     organisationen_matches = df_organisationen[match_organisationen][
-        ["Name", "ReferenceID"]
+        ["Name", "Objekt_link", "ReferenceID"]
     ]
     # organisationen_matches["Copy"] = False
+    
+    # st.write(df_personen.columns)
+    # st.write(st.session_state)
 
     return personen_matches, organisationen_matches
 

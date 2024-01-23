@@ -103,15 +103,24 @@ def show_subset_of_columns(df):
 
 def generate_graph(cluster_dfs, data_dfs, filter_refid):
     df_clusters = cluster_dfs["clusters"]
+    
     df_edges = cluster_dfs["edges"]
     df_personen = data_dfs["personen"]
     df_organisationen = data_dfs["organisationen"]
 
     if filter_refid != "":
         # lets get all nodes that are part of filter_refid's cluster
-        node_list = df_clusters.loc[
-            df_clusters["nodes"].apply(lambda x: filter_refid in x), "nodes"
-        ].iloc[0]
+        # node_list = df_clusters.loc[
+        #     df_clusters["nodes"].apply(lambda x: filter_refid in x), "nodes"
+        # ].iloc[0]
+        
+        # Extract the cluster and corresponding links for filter_refid
+        cluster_row = df_clusters[df_clusters['nodes'].apply(lambda x: filter_refid in x)].iloc[0]
+        node_list = cluster_row['nodes']
+        link_list = cluster_row['link']
+        
+        # Create a dictionary mapping ReferenceID to Objekt_link
+        link_mapping = dict(zip(node_list, link_list))
 
         # Display Dataframes of Personen & Organisationen of that cluster
         organisationen_of_cluster = df_organisationen[
@@ -127,6 +136,7 @@ def generate_graph(cluster_dfs, data_dfs, filter_refid):
         node_data = pd.concat(
             [organisationen_of_cluster, personen_of_cluster], axis=0, sort=False
         )
+        
 
         # Add new rows for special entries in cluster_nodes that are not organizations
         # Here the code to add Produkte, which based on cleanup steps appear in the form of: "[1000299836, 1000300252, 2]", i.e. the produkt ids and the number of products.
@@ -142,6 +152,9 @@ def generate_graph(cluster_dfs, data_dfs, filter_refid):
                     }
                 )
                 node_data = pd.concat([node_data, new_row], ignore_index=True)
+                
+        # Add 'link' information to node_data
+        node_data['link'] = node_data['ReferenceID'].map(link_mapping)
 
         edge_data = df_edges[
             (df_edges["source"].isin(node_list)) & (df_edges["target"].isin(node_list))

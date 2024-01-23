@@ -4,6 +4,7 @@ from app_helper_functions import (
     get_geschaeftspartner,
 )
 from cleanup_helper_functions import (
+    extract_hyperlinks,
     aggregate_identical_UIDs,
     basic_cleanup,
     construct_address_string,
@@ -36,13 +37,25 @@ def load_data(file):
 def raw_cleanup(toggle_gmaps=False):
     file_paths = st.session_state.get("file_paths", {})
 
-    # Combine all files and basic processing personen & organisationen
+    # create files with separate hyperlinks column and use this from here on
+    st.write("Reading excel files and extracting hyperlinks (takes several minutes)...")
+    df_organisationen = extract_hyperlinks(file_paths["organisationen"], ["Objekt", "VerknuepftesObjekt"])
+    df_personen = extract_hyperlinks(file_paths["personen"], ["Objekt", "VerknuepftesObjekt"])
+    
+    # Update the file_paths dictionary
+    file_paths["personen"] = df_personen
+    file_paths["organisationen"] = df_organisationen
+    # Reassign the updated file_paths dictionary back to the session state
+    st.session_state["file_paths"] = file_paths
+    
     df_organisationen = load_data(file_paths["organisationen"])
     df_personen = load_data(file_paths["personen"])
 
+    st.write("Basic cleanup Organisationen & Personen...")
     df_organisationen = basic_cleanup(df_organisationen, organisation=True)
     df_personen = basic_cleanup(df_personen)
 
+    st.write("Aggregating additional Expertensuchen...")
     df_organisationen = aggregate_identical_UIDs(df_organisationen)
     df_personen = aggregate_identical_UIDs(df_personen)
 
@@ -119,6 +132,7 @@ def raw_cleanup(toggle_gmaps=False):
         "file_versions": st.session_state["file_versions"],
     }
 
+    st.write("Storing dataframes as pickle...")
     # Create the directory if it doesn't exist
     directory = os.path.join(st.session_state["cwd"], "data/calculated")
     print("storing under: ", directory)
@@ -131,7 +145,7 @@ def raw_cleanup(toggle_gmaps=False):
     return df_organisationen, df_personen
 
 
-def create_edges_and_clusters():
+def create_edges_and_clusters():  
     file_paths = st.session_state.get("file_paths", {})
 
     # Assuming pickle file was created by raw_cleanup()
@@ -145,6 +159,20 @@ def create_edges_and_clusters():
         dfs = pickle.load(file)
     df_personen = dfs["personen"]
     df_organisationen = dfs["organisationen"]
+    
+    # helper functions to map ReferenceIDs to hyperlinks
+    def create_link_mapping(df):
+        return dict(zip(df["ReferenceID"], df["Objekt_link"]))
+    
+    personen_link_map = create_link_mapping(df_personen)
+    organisationen_link_map = create_link_mapping(df_organisationen)
+
+    def generate_links_for_cluster(node_list):
+        links = []
+        for node in node_list:
+            link = personen_link_map.get(node) or organisationen_link_map.get(node)
+            links.append(link if link is not None else None)
+        return links
 
     edges_organisationen = match_organizations_internally_simplified(df_organisationen)
 
@@ -183,6 +211,9 @@ def create_edges_and_clusters():
     all_clusters = find_clusters_all(
         all_edges, special_nodes, skip_singular_clusters=False
     )
+    
+    # add new link column with list of links corresponding to list of nodes
+    all_clusters['link'] = all_clusters['nodes'].apply(generate_links_for_cluster)
 
     # Store dataframes as pickle
     dfs = {"edges": all_edges, "clusters": all_clusters}
@@ -193,4 +224,6 @@ def create_edges_and_clusters():
         pickle.dump(dfs, file)
 
     st.success("Cluster data stored!", icon="✅")
+    
+    st.write(all_clusters)
     return

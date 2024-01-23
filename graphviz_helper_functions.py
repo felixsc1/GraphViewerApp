@@ -685,7 +685,7 @@ class GraphvizWrapper_organisationen:
                 and node_id.endswith("]")
             ):
                 # Format the node_label for Produkte
-                node_label = node_name # NOTE: can now have multiple nodes with this name, but hovering over it shows id.
+                node_label = node_name  # NOTE: can now have multiple nodes with this name, but hovering over it shows id.
                 attributes["style"] = "filled"
                 attributes["fillcolor"] = "#FFC107"
             else:
@@ -717,26 +717,35 @@ class GraphvizWrapper_organisationen:
                 "arrowhead": arrow_shape,
                 "arrowtail": arrowtail_shape,
             }
-            
-            if special_formatting == "Produkt":
-                edge_attributes['color'] = "#FFC107"
 
-            self.graph.edge(
-                str(source),
-                str(target),
-                **edge_attributes
-            )
+            if special_formatting == "Produkt":
+                edge_attributes["color"] = "#FFC107"
+
+            self.graph.edge(str(source), str(target), **edge_attributes)
 
 
 class GraphvizWrapper_organisationen:
     """
     Simplified version. Most processing should be done before now.
     """
+
     def __init__(self):
         self.graph = Digraph("G", node_attr={"style": "filled"})
 
+    @staticmethod
+    def xml_escape(s):
+        if isinstance(s, str):
+            return (
+                s.replace("&", "&amp;")
+                .replace("<", "&lt;")
+                .replace(">", "&gt;")
+                .replace('"', "&quot;")
+                .replace("'", "&apos;")
+            )
+        return s
+
     def add_nodes(self, node_data):
-        # Expects a DataFrame with columns 'ReferenceID', 'Name'
+        # Expects a DataFrame with columns 'ReferenceID', 'Name', and optionally 'link'
 
         # Add nodes to the graph with labels from original_df['Name']
         for _, row in node_data.iterrows():
@@ -745,6 +754,10 @@ class GraphvizWrapper_organisationen:
 
             attributes = {}
 
+            # # Add 'URL' only if 'link' is present and is a non-empty string
+            if "link" in row and row["link"] and isinstance(row["link"], str):
+                attributes["URL"] = self.xml_escape(row["link"])
+
             # Check if node_id is a string that starts and ends with brackets (assuming only Produkte are formatted like this)
             if (
                 isinstance(node_id, str)
@@ -752,7 +765,7 @@ class GraphvizWrapper_organisationen:
                 and node_id.endswith("]")
             ):
                 # Format the node_label for Produkte
-                node_label = node_name # NOTE: can now have multiple nodes with this name, but hovering over it shows id.
+                node_label = node_name  # NOTE: can now have multiple nodes with this name, but hovering over it shows id.
                 attributes["style"] = "filled"
                 attributes["fillcolor"] = "#FFC107"
             else:
@@ -784,12 +797,8 @@ class GraphvizWrapper_organisationen:
                 "arrowhead": arrow_shape,
                 "arrowtail": arrowtail_shape,
             }
-            
-            if special_formatting == "Produkt":
-                edge_attributes['color'] = "#FFC107"
 
-            self.graph.edge(
-                str(source),
-                str(target),
-                **edge_attributes
-            )
+            if special_formatting == "Produkt":
+                edge_attributes["color"] = "#FFC107"
+
+            self.graph.edge(str(source), str(target), **edge_attributes)
