@@ -1,4 +1,3 @@
-googlemaps
 graphviz
 networkx
 openpyxl
