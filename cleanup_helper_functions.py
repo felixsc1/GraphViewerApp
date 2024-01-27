@@ -2,7 +2,6 @@ from unidecode import unidecode
 import pandas as pd
 import numpy as np
 import time
-import googlemaps
 import openpyxl
 import os
 import ast
@@ -64,21 +63,29 @@ def basic_cleanup(df, organisation=False):
 
 def construct_address_string(row, organisation=False):
     """
-    to be passed to googlemaps and displayed in gui.
     expects row to have the elements listed below.
     Since extra text in address1 and address2 can confuse gmaps, also return partial address with only street and number.
     """
     # Check if ZipPostalCode is a number
     # Check if ZipPostalCode is not NaN and not the string 'nan'
     zip_code = row["ZipPostalCode"]
-    if pd.notna(zip_code) and str(zip_code).lower() != 'nan' and zip_code != "":
+    if pd.notna(zip_code) and str(zip_code).lower() != "nan" and zip_code != "":
         try:
             zip_postal_code = str(int(float(zip_code)))
         except ValueError:
-            zip_postal_code = str(zip_code) # if its has letters, e.g. UK
+            zip_postal_code = str(zip_code)  # if it has letters, e.g. UK
+    elif organisation:
+        korr_zip_code = row["Korr_ZipPostalCode"]
+        if pd.notna(korr_zip_code) and str(korr_zip_code).lower() != "nan" and korr_zip_code != "":
+            try:
+                zip_postal_code = str(int(float(korr_zip_code)))
+            except ValueError:
+                zip_postal_code = str(korr_zip_code)
+        else:
+            zip_postal_code = ""
     else:
         zip_postal_code = ""
-        
+
     address_elements = [
         str(row["Street"]),
         str(row["HouseNumber"]),
@@ -97,11 +104,21 @@ def construct_address_string(row, organisation=False):
         str(row["City"]),
         str(row["CountryName"]),
     ]
+    
+    elements_without_zip_code = [
+        str(row["Street"]),
+        str(row["HouseNumber"]),
+        str(row["Address1"]),
+        str(row["Address2"]),
+        str(row["PostOfficeBox"]),
+        str(row["City"]),
+        str(row["CountryName"]),
+    ]
 
     # Check if all address elements are NaN (or "nan" or empty strings), try use korrespondenz_adresse instead
     if all(
         pd.isna(element) or element == "" or element.lower() == "nan"
-        for element in address_elements
+        for element in elements_without_zip_code
     ):
         if organisation:  # Personen don't have these columns
             address_elements = [
@@ -143,25 +160,6 @@ def construct_address_string(row, organisation=False):
     return pd.Series([full_address, partial_address])
 
 
-def construct_address_string_SAP(row):
-    """
-    Vorübergehend für Stammdaten-excel file, wo adresse nur via SAP Kolonnen vorhanden ist.
-    """
-    if pd.isna(row["SapStrasse"]):
-        return pd.Series([""])
-
-    address_elements = [
-        str(row["SapStrasse"]),
-        str(row["SapHausnummer"]),
-        str(row["SapPostleitzahl"]),
-        str(row["SapOrt"]),
-    ]
-    partial_address = ", ".join(
-        filter(lambda x: x and x != "nan" and str(x).strip(), address_elements)
-    )
-    return pd.Series([partial_address])
-
-
 def replace_NotRegisteredUID(df):
     # TODO: This should all be done in the cleaning notebook
     df.replace("NotRegisteredCHID", pd.NA, inplace=True)
@@ -200,34 +198,6 @@ def aggregate_identical_UIDs(df):
     grouped = df.groupby("ReferenceID").agg(aggregation).reset_index()
 
     return grouped
-
-
-def geocode_address_no_coordinates(addr):
-    # When callled in notebook, will use the existing gmaps object there, no need to pass it as argument.
-
-    # Check for NaN or empty addresses before making API call
-    if pd.isna(addr) or addr.strip() == "":
-        return None
-
-    result = gmaps.geocode(addr)
-    time.sleep(0.1)  # Add delay to avoid hitting API limit
-    if result:
-        return result[0]["formatted_address"]
-    else:
-        return None
-
-
-def geocode_address_no_coordinates(gmaps, addr):
-    # Check for NaN or empty addresses before making API call
-    if pd.isna(addr) or addr.strip() == "":
-        return None
-
-    result = gmaps.geocode(addr)
-    time.sleep(0.1)  # Add delay to avoid hitting API limit
-    if result:
-        return result[0]["formatted_address"]
-    else:
-        return None
 
 
 def extract_hyperlinks(file_path, columns):
