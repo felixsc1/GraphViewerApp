@@ -170,6 +170,32 @@ def generate_graph(cluster_dfs, data_dfs, filter_refid):
         graph.add_edges(edge_data)
 
         return graph
+    
+
+import re
+import graphviz
+def render_with_links_opening_in_new_tab(graph, filename="output/output", view=False):
+    # First, let's render the SVG using the graphviz package
+    svg_filename = graph.graph.render(filename=filename, format="svg", cleanup=True)
+
+    # Now, let's read this SVG and modify the links
+    with open(svg_filename, "r") as f:
+        svg_content = f.read()
+
+    # Use regex to add target="_blank" to URLs
+    modified_svg_content = re.sub(
+        r'<a xlink:href="([^"]+)"', r'<a xlink:href="\1" target="_blank"', svg_content
+    )
+
+    # Overwrite the SVG with the modified content
+    with open(svg_filename, "w") as f:
+        f.write(modified_svg_content)
+
+    # If view is True, open the SVG file with the default viewer
+    if view:
+        graphviz.backend.view(svg_filename)
+
+    return svg_filename
 
 
 def show():
@@ -187,3 +213,7 @@ def show():
         g = generate_graph(cluster_dfs, data_dfs, filter_refid)
         if g:
             st.write(g.graph)
+            if st.button("Export SVG"):
+                render_with_links_opening_in_new_tab(g)
+            
+        

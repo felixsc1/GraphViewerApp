@@ -1,41 +1,35 @@
-from unidecode import unidecode
 import pandas as pd
 import numpy as np
-import time
 import openpyxl
 import os
 import ast
 
 
+def normalize_string(string_in):
+    # Normalize Names and Addresses: lowercase, strip whitespace, replace multiple whitespace with single whitespace
+    normalized = string_in.lower().strip()
+    normalized = re.sub(r"\s+", " ", normalized)
+    return normalized
+
+
 def basic_cleanup(df, organisation=False):
     """
-    performs the following steps:
-    - Focusing on the "Name" column, removes empty entries and for Personen those that contain anything other than letters.
-    - create a "unified name" column by which df is sorted
-    - fix some "nan" strings
+    Performs some basic corrections to String formatting.
+    Removes Inaktiv entries and Personen with Sonstiges Verknüpfungsart.
     """
 
-    # Remove the rows missing a name, as identified above
+    # Remove rows missing a name.
     df_cleaned = df[df["Name"].apply(lambda x: isinstance(x, str))]
-    if not organisation:
-        # organisations may have numbers in them, skip
-        df_cleaned = df_cleaned[
-            df_cleaned["Name"].str.contains(r"[a-zA-Z\.]", regex=True)
-        ]  # this one is not in the table above
 
-    # Here we apply unidecode() which unifies the unicode characters such as apostrophs, make everything lowercase, remove any leading/trailing spaces or additional spaces.
-    df_cleaned["unified_name"] = (
-        df_cleaned["Name"]
-        .apply(lambda x: unidecode(x))
-        .str.lower()
-        .str.strip()
-        .str.replace(r"\s+", " ", regex=True)
-    )
+    df_cleaned["Name_original"] = df_cleaned["Name"]  # Keep original for reference
+    df_cleaned["Name"] = df_cleaned["Name"].apply(normalize_string)
 
-    # sort by unified_name
-    df_cleaned = df_cleaned.sort_values("unified_name")
+    # sort by Name
+    df_cleaned = df_cleaned.sort_values("Name")
 
-    df_cleaned = df_cleaned.replace({pd.NA: "", "nan": ""})  # sometimes cells contain string 'nan' this causes problems later
+    df_cleaned = df_cleaned.replace(
+        {pd.NA: "", "nan": ""}
+    )  # sometimes cells contain string 'nan' this causes problems later
 
     # Remove this step, because we want to treat "NotRegisteredCHId" separately from nan.
     # df_cleaned.replace("NotRegisteredCHId", pd.NA, inplace=True)  # also for ch-uid
@@ -48,7 +42,7 @@ def basic_cleanup(df, organisation=False):
         df_cleaned["Telefonnummer"].str.replace(" ", "").astype(str)
     )
     # email addresses will also need some processing. for now, ensure values are strings
-    df_cleaned["EMailAdresse"] = df_cleaned["EMailAdresse"].astype(str)
+    df_cleaned["EMailAdresse"] = df_cleaned["EMailAdresse"].astype(str).str.lower()
 
     # Ensure that PLZ is string, for some reason its sometimes float which causes problems
     df_cleaned["ZipPostalCode"] = df_cleaned["ZipPostalCode"].astype(str)
@@ -76,7 +70,11 @@ def construct_address_string(row, organisation=False):
             zip_postal_code = str(zip_code)  # if it has letters, e.g. UK
     elif organisation:
         korr_zip_code = row["Korr_ZipPostalCode"]
-        if pd.notna(korr_zip_code) and str(korr_zip_code).lower() != "nan" and korr_zip_code != "":
+        if (
+            pd.notna(korr_zip_code)
+            and str(korr_zip_code).lower() != "nan"
+            and korr_zip_code != ""
+        ):
             try:
                 zip_postal_code = str(int(float(korr_zip_code)))
             except ValueError:
@@ -104,7 +102,7 @@ def construct_address_string(row, organisation=False):
         str(row["City"]),
         str(row["CountryName"]),
     ]
-    
+
     elements_without_zip_code = [
         str(row["Street"]),
         str(row["HouseNumber"]),
@@ -156,6 +154,10 @@ def construct_address_string(row, organisation=False):
     partial_address = ", ".join(
         filter(lambda x: x and x != "nan" and str(x).strip(), address_elements_partial)
     )
+
+    # Finally make it lowercase, remove additional spaces
+    full_address = normalize_string(full_address)
+    partial_address = normalize_string(partial_address)
 
     return pd.Series([full_address, partial_address])
 

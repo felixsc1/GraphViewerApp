@@ -4,6 +4,7 @@
 .vscode/
 data/
 TODO.md
+output/
 
 ### Python ###
 # Byte-compiled / optimized / DLL files
