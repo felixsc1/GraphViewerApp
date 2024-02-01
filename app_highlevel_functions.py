@@ -225,5 +225,4 @@ def create_edges_and_clusters():
 
     st.success("Cluster data stored!", icon="✅")
     
-    st.write(all_clusters)
     return

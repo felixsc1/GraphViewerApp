@@ -3,7 +3,7 @@ import numpy as np
 import openpyxl
 import os
 import ast
-
+import re
 
 def normalize_string(string_in):
     # Normalize Names and Addresses: lowercase, strip whitespace, replace multiple whitespace with single whitespace
@@ -58,7 +58,7 @@ def basic_cleanup(df, organisation=False):
 def construct_address_string(row, organisation=False):
     """
     expects row to have the elements listed below.
-    Since extra text in address1 and address2 can confuse gmaps, also return partial address with only street and number.
+    Since extra text in address1 and address2 can confuse gmaps, also return partial address with only street and number (currently not used anymore).
     """
     # Check if ZipPostalCode is a number
     # Check if ZipPostalCode is not NaN and not the string 'nan'
@@ -70,11 +70,7 @@ def construct_address_string(row, organisation=False):
             zip_postal_code = str(zip_code)  # if it has letters, e.g. UK
     elif organisation:
         korr_zip_code = row["Korr_ZipPostalCode"]
-        if (
-            pd.notna(korr_zip_code)
-            and str(korr_zip_code).lower() != "nan"
-            and korr_zip_code != ""
-        ):
+        if pd.notna(korr_zip_code) and str(korr_zip_code).lower() != "nan" and korr_zip_code != "":
             try:
                 zip_postal_code = str(int(float(korr_zip_code)))
             except ValueError:
@@ -102,7 +98,7 @@ def construct_address_string(row, organisation=False):
         str(row["City"]),
         str(row["CountryName"]),
     ]
-
+    
     elements_without_zip_code = [
         str(row["Street"]),
         str(row["HouseNumber"]),
@@ -154,10 +150,11 @@ def construct_address_string(row, organisation=False):
     partial_address = ", ".join(
         filter(lambda x: x and x != "nan" and str(x).strip(), address_elements_partial)
     )
-
+    
     # Finally make it lowercase, remove additional spaces
     full_address = normalize_string(full_address)
     partial_address = normalize_string(partial_address)
+    
 
     return pd.Series([full_address, partial_address])
 

@@ -1324,17 +1324,17 @@ def generate_edge_list_from_orginationsrollen_aggregate(df):
 def add_servicerole_column(df_organisationen, serviceroles_df):
     # Very similar to "add_Produkte_columns()"
     # This one just adds a count, to filter out those that have a service role.
-    df_organisationen["Servicerole"] = 0
+    df_organisationen["Servicerole_count"] = 0
 
     for ref_id in df_organisationen["ReferenceID"]:
         role_count = serviceroles_df["Rechtsträger_RefID"].eq(ref_id).sum()
         df_organisationen.loc[
-            df_organisationen["ReferenceID"] == ref_id, "Servicerole"
+            df_organisationen["ReferenceID"] == ref_id, "Servicerole_count"
         ] += role_count
     return df_organisationen
 
 
-servicerollen_personen = {
+servicerollen = {
     "AC441A4D-0BB7-4363-ACFF-DFAEECF2AF12": "FDA",
     "0DA55C52-B526-4FEC-A663-5AC9919B1C9D": "Veranstalterkonzessionär",
     "C440845B-1DA5-4663-B37C-BD3E0466E9A8": "BORS",
@@ -1344,7 +1344,7 @@ servicerollen_personen = {
 
 def add_servicerole_column_string(df_data, serviceroles_df):
     # This one adds the actual name of the service role. For personen to give Ausweis higher score later on.
-    df_data["Servicerole"] = ""
+    df_data["Servicerole_string"] = ""
 
     for index, row in df_data.iterrows():
         ref_id = row["ReferenceID"]
@@ -1355,11 +1355,11 @@ def add_servicerole_column_string(df_data, serviceroles_df):
         roles = []
         for _, role_row in matching_roles.iterrows():
             role_ref_id = role_row["ServiceRoleReferenceID"]
-            role = servicerollen_personen.get(role_ref_id, "")
+            role = servicerollen.get(role_ref_id, "")
             if role:
                 roles.append(role)
 
-        df_data.at[index, "Servicerole"] = ", ".join(roles)
+        df_data.at[index, "Servicerole_string"] = ", ".join(roles)
 
     return df_data
 
@@ -1371,45 +1371,6 @@ produkte_dict_personen = {
     "978F554D-5DD4-4FA7-8654-E099D56304C2": "FDA",
 }
 
-# def add_personen_produkte_columns(df_data, df_produktrollen):
-#     """
-#     df_data is personen_df, df_produktrollen is the new EGov_Personenrollenanalyse MDG query.
-#     Adds two new columns: "Produkt_rolle", e.g. ["Kontaktperson (Rufzeichen Luftfahrzeug)"]
-#     and "Produkt_RefID", the list of the corresponding produkt-IDs.
-#     """
-
-#     # Initialize new columns as lists
-#     df_data['Produkt_rolle'] = df_data.apply(lambda _: [], axis=1)
-#     df_data['Produkt_RefID'] = df_data.apply(lambda _: [], axis=1)
-
-#     # Iterate over each row in df_data
-#     for index, row in df_data.iterrows():
-#         reference_id = row['ReferenceID']
-
-#         # Check for matches in df_produktrollen
-#         for produktrollen_index, produktrollen_row in df_produktrollen.iterrows():
-#             if reference_id in [
-#                 produktrollen_row['Kontaktperson_RefID'],
-#                 produktrollen_row['Technikperson_RefID'],
-#                 produktrollen_row['Statistikperson_RefID']
-#             ]:
-#                 # Determine role
-#                 if reference_id == produktrollen_row['Kontaktperson_RefID']:
-#                     role = 'Kontaktperson'
-#                 elif reference_id == produktrollen_row['Technikperson_RefID']:
-#                     role = 'Technikperson'
-#                 else:
-#                     role = 'Statistikperson'
-
-#                 # Lookup in dictionary and append role with additional information
-#                 full_id = produktrollen_row['FullID']
-#                 additional_info = produkte_dict_personen.get(full_id, '')
-#                 role_with_info = f"{role} ({additional_info})" if additional_info else role
-
-#                 df_data.at[index, 'Produkt_rolle'].append(role_with_info)
-#                 df_data.at[index, 'Produkt_RefID'].append(produktrollen_row['Produkt_RefID'])
-
-#     return df_data
 
 
 def add_personen_produkte_columns(df_data, df_produktrollen):

@@ -190,37 +190,6 @@ def display_subset_of_df(df, columns_at_start=[], columns_at_end=[]):
     return output_df
 
 
-# def calculate_scores_personen(df):
-#     # df["Aktiv"] = df["Aktiv"].fillna(0).astype(int) # Will now be filtered out in cleanup step
-#     df["AnzahlGeschaeftsobjekte"] = df["AnzahlGeschaeftsobjekte"].fillna(0)
-#     df["Verknuepfungsart_list"] = df["Verknuepfungsart_list"].fillna(0)
-#     df["Versandart"] = df["Versandart"].fillna(0)
-#     df["AnzahlObjektZeiger"] = df["AnzahlObjektZeiger"].fillna(0)
-#     df["AnzahlVerknuepfungen"] = df["AnzahlVerknuepfungen"].fillna(0)
-
-#     # df["UID_CHID_check"] = df["UID_CHID"].apply(lambda x: 1 if not pd.isna(x) else 0)
-#     # Improved version: Give score 0 if CHID is nan, 50, if its "notregisteredCHID", 100 otherwise
-#     df["UID_CHID_check"] = df["UID_CHID"].apply(
-#         lambda x: 0 if pd.isna(x) else 1 if str(x).lower() == "notregisteredchid" else 2
-#     )
-
-#     df["score"] = (
-#         df["AnzahlGeschaeftsobjekte"].astype(int) * 30
-#         + df["UID_CHID_check"].astype(int) * 50
-#         + df["Verknuepfungsart_list"].apply(
-#             lambda x: sum(
-#                 [
-#                     100 if val == "Administrator" else 50 if val == "Mitarbeiter" else 0
-#                     for val in x
-#                 ]
-#             )
-#         )
-#         + df["Versandart"].isin(["Portal"]).astype(int) * 100
-#         + df["AnzahlObjektZeiger"].astype(int) * 10
-#         + df["Geschaeftspartner_list"].apply(lambda x: sum([100 for val in x]))
-#         + df["Servicerole"].str.contains("Ausweis").astype(int) * 100 # since this was added as string, not list
-#     )
-#     return df
 
 
 def calculate_scores_personen(df, physisch=False):
@@ -233,7 +202,7 @@ def calculate_scores_personen(df, physisch=False):
             "Versandart": 0,
             "AnzahlObjektZeiger": 0,
             "AnzahlVerknuepfungen": 0,
-            "Servicerole": "",
+            "Servicerole_string": "",
         },
         inplace=True,
     )
@@ -261,7 +230,7 @@ def calculate_scores_personen(df, physisch=False):
             "Geschaeftspartner": sum(
                 100 for _ in (row["Geschaeftspartner_list"] or [])
             ),
-            "Servicerole": 100 if "Ausweis" in row["Servicerole"] else 0,
+            "Servicerole_string": 100 if "Ausweis" in row["Servicerole_string"] else 0,
             "Produktrolle": len(row["Produkt_rolle"]) * 100
             if row["Produkt_rolle"]
             else 0,
@@ -287,39 +256,6 @@ def calculate_scores_personen(df, physisch=False):
     )
 
     return df
-
-
-# old version
-# def calculate_scores_organisationen(df):
-#     df["Debitornummer"] = df["Debitornummer"].fillna(0)
-#     df["Versandart"] = df["Versandart"].fillna(0)
-#     df["AnzahlGeschaeftsobjekte"] = df["AnzahlGeschaeftsobjekte"].fillna(0)
-#     df["AnzahlObjektZeiger"] = df["AnzahlObjektZeiger"].fillna(0)
-#     df["Debitornummer_check"] = df["Debitornummer"].apply(lambda x: 1 if x > 0 else 0)
-#     df["UID_CHID_check"] = df["UID_CHID"].apply(
-#         lambda x: 1 if isinstance(x, str) else 0 if pd.isna(x) else pd.NA
-#     )
-
-#     df["score"] = 0
-#     df["score"] = (
-#         df["Debitornummer_check"].astype(int) * 100
-#         + df["UID_CHID_check"] * 200
-#         + df["Versandart"].isin(["Portal"]).astype(int) * 100
-#         + df["AnzahlGeschaeftsobjekte"].astype(int) * 30
-#         + np.minimum(
-#             df["AnzahlObjektZeiger"].astype(int) * 10, 100
-#         )  # Cannot add more than 100 to the score
-#         + df["Verknuepfungsart_list"].apply(
-#             lambda x: sum(
-#                 [
-#                     100 if val == "Administrator" else 50 if val == "Mitarbeiter" else 0
-#                     for val in x
-#                 ]
-#             )
-#         )
-#         + df["Geschaeftspartner_list"].apply(lambda x: sum([100 for val in x]))
-#     )
-#     return df
 
 
 def calculate_scores_organisationen(df):
@@ -353,7 +289,7 @@ def calculate_scores_organisationen(df):
         + df["Geschaeftspartner_list"].apply(lambda x: sum([100 for val in x]))
         + np.minimum(df["Produkt_Inhaber"].astype(int) * 80, 100)
         + np.minimum(df["Produkt_Adressant"].astype(int) * 30, 100)
-        + df["Servicerole"].astype(int) * 50
+        + df["Servicerole_count"].astype(int) * 50
     )
     return df
 
@@ -396,28 +332,33 @@ def get_geschaeftspartner(input_df, folder_path):
     return input_df
 
 
-
 #  ----- Functions related to app file upload ----
 # -------------------------------
 import streamlit as st
 import fnmatch
 
+
 def upload_files():
-    uploaded_files = st.file_uploader("Upload File", accept_multiple_files=True, type=["xlsx"])
-    
-    if uploaded_files is not None and not st.session_state['clear_data']:
-        
+    uploaded_files = st.file_uploader(
+        "Upload File", accept_multiple_files=True, type=["xlsx"]
+    )
+
+    if uploaded_files is not None and not st.session_state["clear_data"]:
         for uploaded_file in uploaded_files:
             # For backwards compatibility, put Geschaeftspartner files into appropriate subfolders.
-            if fnmatch.fnmatch(uploaded_file.name, "*Geschaeftspartner*_Organisationen*.xlsx"):
-                relative_dir = 'data/mandanten/organisationen'
-            elif fnmatch.fnmatch(uploaded_file.name, "*Geschaeftspartner*_Personen*.xlsx"):
-                relative_dir = 'data/mandanten/personen'
+            if fnmatch.fnmatch(
+                uploaded_file.name, "*Geschaeftspartner*_Organisationen*.xlsx"
+            ):
+                relative_dir = "data/mandanten/organisationen"
+            elif fnmatch.fnmatch(
+                uploaded_file.name, "*Geschaeftspartner*_Personen*.xlsx"
+            ):
+                relative_dir = "data/mandanten/personen"
             else:
-                relative_dir = 'data'
+                relative_dir = "data"
 
             # Combine the stored cwd with the relative directory
-            data_dir = os.path.join(st.session_state['cwd'], relative_dir)
+            data_dir = os.path.join(st.session_state["cwd"], relative_dir)
 
             # Ensure the directory exists
             if not os.path.exists(data_dir):
@@ -425,19 +366,21 @@ def upload_files():
 
             # Define the full file path
             file_path = os.path.join(data_dir, uploaded_file.name)
-                    
+
             # Write the file to the specified location
             with open(file_path, "wb") as f:
                 f.write(uploaded_file.getbuffer())
-    
+
         if len(uploaded_files) > 0:
             st.success(f"{len(uploaded_files)} files saved")
-  
 
-import shutil  
+
+import shutil
+
+
 def clear_data_directory(directory="data"):
     # Combine the stored cwd with the relative directory
-    full_directory_path = os.path.join(st.session_state['cwd'], directory)
+    full_directory_path = os.path.join(st.session_state["cwd"], directory)
 
     # Check if the directory exists
     if os.path.exists(full_directory_path):
@@ -450,12 +393,13 @@ def clear_data_directory(directory="data"):
                 elif os.path.isdir(file_path):
                     shutil.rmtree(file_path)
             except Exception as e:
-                st.error(f'Failed to delete {file_path}. Reason: {e}')
+                st.error(f"Failed to delete {file_path}. Reason: {e}")
         st.success("Data directory cleared.")
-        st.session_state['clear_data'] = True
+        st.session_state["clear_data"] = True
     else:
         st.warning("Data directory does not exist.")
-        
+
+
 # ----------------- other app only related function -----
 import re
 from datetime import datetime
@@ -466,10 +410,10 @@ def get_data_version():
     if "file_paths" not in st.session_state or not st.session_state["file_paths"]:
         # Handle the empty or missing case
         return "No data", "No data", []
-    
+
     filenames = st.session_state["file_paths"]
     date_pattern = r"\d{4}-\d{2}-\d{2}"
-    
+
     dates = set()
     filenames_with_dates = []
 
@@ -477,7 +421,7 @@ def get_data_version():
         match = re.search(date_pattern, value)
         filename_with_extension = os.path.basename(value)
         filename_without_extension = os.path.splitext(filename_with_extension)[0]
-        
+
         if match:
             date_str = match.group()
             date_obj = datetime.strptime(date_str, "%Y-%m-%d")
@@ -494,7 +438,7 @@ def get_data_version():
     # Find the earliest and latest date
     earliest_date = min(dates).strftime("%Y-%m-%d")
     latest_date = max(dates).strftime("%Y-%m-%d")
-    
+
     # Store it in session state for later use
     st.session_state["file_versions"] = {}
     st.session_state["file_versions"]["earliest_date"] = earliest_date

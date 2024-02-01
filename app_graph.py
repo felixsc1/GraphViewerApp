@@ -91,7 +91,7 @@ def show_subset_of_columns(df):
         "Versandart",
         "AnzahlGeschaeftsobjekte",
         "CreatedAt",
-        "Servicerole",
+        "Servicerole_string",
         "Geschaeftspartner",
         "Verknuepfungsart",
         "VerknuepftesObjekt",
