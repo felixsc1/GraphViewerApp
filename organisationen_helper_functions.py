@@ -285,47 +285,49 @@ def cleanup_edges_df_OLD(df):
 
 def cleanup_edges_df(df):
     """
-    Merges edges with "Name", "Telefon", "Email", "Adresse" into one.
-    Adds bidirectional flag.
-    We also remove edges where labels are only "Name" or "Adresse", that should never be enough for a Doublette.
+    Merges edges with "Name", "Telefon", "Email", "Adresse" into one, adds bidirectional flag to those edges automatically.
+    We also remove edges where labels are ONLY "Name" or "Adresse" (that should never be relevant enough).
+    Also adds bidirectional flag to any edge that occurs twice with inverted source and target.
     """
-    # Set 'bidirectional' based on specified match_types.
+    # Initially mark predefined match_types as bidirectional.
     df["bidirectional"] = df["match_type"].isin(["Name", "Telefon", "Email", "Adresse"])
+    
+    # Create sorted tuples of 'source' and 'target' for bidirectional checking.
+    df["sorted_edge"] = df.apply(lambda row: tuple(sorted([row["source"], row["target"]])), axis=1)
 
-    # Sort 'source' and 'target' to create a unique identifier for each edge.
-    df["sorted_edge"] = df.apply(
-        lambda row: tuple(sorted([row["source"], row["target"]])), axis=1
-    )
+    # Identify bidirectional matches for any match_type.
+    # This is done by checking if for a given sorted_edge, there are exactly 2 unique match_types,
+    # which implies a bidirectional relationship.
+    bidirectional_groups = df.groupby("sorted_edge").filter(lambda x: len(x) == 2 and len(x["match_type"].unique()) == 1)
+    bidirectional_edges = bidirectional_groups["sorted_edge"].unique()
+    df.loc[df["sorted_edge"].isin(bidirectional_edges), "bidirectional"] = True
 
-    # Initial split based on match_type criteria.
-    specific_match_types = df["match_type"].isin(
-        ["Name", "Telefon", "Email", "Adresse"]
-    )
-    merge_df = df[specific_match_types].copy()
-    keep_df = df[~specific_match_types].copy()
+    # Remove duplicates by keeping the first occurrence.
+    df = df.drop_duplicates(subset=["sorted_edge", "match_type"], keep="first")
 
-    # Group by 'sorted_edge' to merge specific match_types, ensuring to capture all variations of 'source' and 'target'.
+    # Split based on 'bidirectional' to process merging and filtering.
+    merge_df = df[df["bidirectional"]].copy()
+    keep_df = df[~df["bidirectional"]].copy()
+
+    # Merge specific bidirectional types, ensuring to capture all variations of 'source' and 'target'.
     merged = (
         merge_df.groupby("sorted_edge")
-        .agg(
-            {
-                "source": "first",
-                "target": "first",
-                "bidirectional": "max",  # Ensures True if any are True.
-                "match_type": lambda x: ", ".join(
-                    sorted(set(x))
-                ),  # Combines match_types.
-            }
-        )
+        .agg({
+            "source": "first",
+            "target": "first",
+            "bidirectional": "max",
+            "match_type": lambda x: ", ".join(sorted(set(x)))
+        })
         .reset_index(drop=True)
     )
 
-    # Final output without 'sorted_edge'.
-    output_df = pd.concat([merged, keep_df], ignore_index=True).drop(
-        columns=["sorted_edge"], errors="ignore"
-    )
+    # Combine the merged and unmerged DataFrames.
+    output_df = pd.concat([merged, keep_df], ignore_index=True)
 
-    # Filter out rows where match_type is only "Name" or "Adresse".
+    # Remove unnecessary 'sorted_edge'.
+    output_df = output_df.drop(columns=["sorted_edge"], errors="ignore")
+
+    # Filter out rows with only "Name" or "Adresse" in 'match_type'.
     output_df = output_df[~output_df["match_type"].isin(["Name", "Adresse"])]
 
     return output_df

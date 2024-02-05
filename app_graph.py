@@ -2,6 +2,7 @@ import streamlit as st
 import pickle
 import pandas as pd
 from app_helper_functions import get_data_version
+from app_processing import find_all_data
 from app_search import success_temporary
 from graphviz_helper_functions import GraphvizWrapper_organisationen
 import os
@@ -27,7 +28,6 @@ def load_data():
             "rb",
         ) as file:
             data_dfs = pickle.load(file)
-            success_temporary("Data loaded")
 
             # Store it in session state for later use
             st.session_state["file_versions"] = {}
@@ -40,7 +40,7 @@ def load_data():
             st.session_state["file_versions"]["ordered_filenames"] = data_dfs[
                 "file_versions"
             ]["ordered_filenames"]
-
+            
         return cluster_dfs, data_dfs
     except FileNotFoundError:
         print("No data found. Please upload and process data.")
@@ -251,6 +251,10 @@ def generate_graph(cluster_dfs, data_dfs, filter_refid):
         node_data = pd.concat(
             [organisationen_of_cluster, personen_of_cluster], axis=0, sort=False
         )
+        
+        if len(node_data) > 50:
+            st.warning("The cluster has more than 50 nodes. Please change the filter settings.", icon="⚠️")
+            return None
 
         # Add new rows for special entries in cluster_nodes that are not organizations
         # Here the code to add Produkte, which based on cleanup steps appear in the form of: "[1000299836, 1000300252, 2]", i.e. the produkt ids and the number of products.
@@ -278,6 +282,8 @@ def generate_graph(cluster_dfs, data_dfs, filter_refid):
         )  # Modify Produkte entries
         edge_data = edge_data.drop_duplicates(subset=["source", "target", "match_type"])
 
+        st.write(edge_data)
+
         # Generate Graph
         graph = GraphvizWrapper_organisationen()
         graph.add_nodes(node_data)
@@ -288,9 +294,11 @@ def generate_graph(cluster_dfs, data_dfs, filter_refid):
 
 def show():
     cluster_dfs, data_dfs = load_data()
-
+    if cluster_dfs:
+        success_temporary("Data loaded")
 
     if 'file_versions' not in st.session_state:
+        find_all_data()
         _, _, _ = get_data_version()
     with st.expander(
         f"oldest file: {st.session_state['file_versions']['earliest_date']}, newest file: {st.session_state['file_versions']['latest_date']}"

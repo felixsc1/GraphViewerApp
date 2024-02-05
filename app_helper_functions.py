@@ -406,6 +406,10 @@ from datetime import datetime
 
 
 def get_data_version():
+    """
+    find_all_data() must have been executed somewhere before this.
+    """
+    
     # Check if 'file_paths' exists in the session state and is not empty
     if "file_paths" not in st.session_state or not st.session_state["file_paths"]:
         # Handle the empty or missing case

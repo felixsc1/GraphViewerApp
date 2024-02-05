@@ -2,7 +2,6 @@ import streamlit as st
 import pickle
 import time
 import pandas as pd
-# import pyperclip
 import os
 
 # def success_temporary(text):
@@ -30,7 +29,7 @@ def success_temporary(text):
         # Check if 5 seconds have passed since the message was displayed
         if time.time() - st.session_state.display_time > 5:
             # Clear the message
-            st.session_state.display_time = None  # Reset the display time
+            # st.session_state.display_time = None  # Reset the display time
             # This line is only necessary if you are reusing the same placeholder for other content
             st.empty()
 
@@ -84,7 +83,12 @@ def search_names(search_name, data_dfs):
 def show():
     data_dfs = load_data()
 
-    search_name = st.text_input("Name of Person or Organisation")
+    if "search_name" not in st.session_state:
+    # To keep current search name in the input field, when returning to search page.
+        st.session_state["search_name"] = ""
+
+    search_name = st.text_input("Name of Person or Organisation", value=st.session_state["search_name"])
+    st.session_state["search_name"] = search_name
 
     # global personen_matches
     personen_matches, organisationen_matches = search_names(search_name, data_dfs)
