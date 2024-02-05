@@ -225,4 +225,6 @@ def create_edges_and_clusters():
 
     st.success("Cluster data stored!", icon="✅")
     
+    # all_edges.to_excel(os.path.join(directory, "all_edgesfinal.xlsx"), index=False)
+    
     return

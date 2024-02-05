@@ -1,5 +1,6 @@
 import streamlit as st
 import app_graph
+from app_helper_functions import get_data_version
 import app_processing
 import app_search
 import pandas as pd
@@ -15,6 +16,8 @@ selection = st.sidebar.selectbox(
 
 if 'cwd' not in st.session_state:
     st.session_state['cwd'] = os.getcwd()
+if 'file_versions' not in st.session_state or not st.session_state['file_versions']:
+    _, _, _ = get_data_version()
 
 # --- used in sub-pages---
 @st.cache_data

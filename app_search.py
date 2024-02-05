@@ -5,15 +5,34 @@ import pandas as pd
 # import pyperclip
 import os
 
+# def success_temporary(text):
+#     # Placeholder for the success message
+#     placeholder = st.empty()
+#     # Show the success message
+#     placeholder.success(text, icon="✅")
+#     # Wait for a few seconds
+#     time.sleep(5)  # Adjust the number of seconds here
+#     # Clear the message
+#     placeholder.empty()
+    
+    
 def success_temporary(text):
-    # Placeholder for the success message
-    placeholder = st.empty()
-    # Show the success message
-    placeholder.success(text, icon="✅")
-    # Wait for a few seconds
-    time.sleep(5)  # Adjust the number of seconds here
-    # Clear the message
-    placeholder.empty()
+    # Previous version with sleep might interfere with st run-cycle. this checks time after next re-run (user interaction.)
+    # Initialize a key in the session state to track the display time if it doesn't already exist
+    if 'display_time' not in st.session_state or st.session_state.display_time is None:
+        # Placeholder for the success message
+        placeholder = st.empty()
+        # Show the success message
+        placeholder.success(text, icon="✅")
+        # Record the current time as the start time for the message display
+        st.session_state.display_time = time.time()
+    else:
+        # Check if 5 seconds have passed since the message was displayed
+        if time.time() - st.session_state.display_time > 5:
+            # Clear the message
+            st.session_state.display_time = None  # Reset the display time
+            # This line is only necessary if you are reusing the same placeholder for other content
+            st.empty()
 
 
 @st.cache_data

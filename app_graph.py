@@ -1,27 +1,46 @@
 import streamlit as st
 import pickle
 import pandas as pd
+from app_helper_functions import get_data_version
+from app_search import success_temporary
 from graphviz_helper_functions import GraphvizWrapper_organisationen
 import os
+from organisationen_helper_functions import find_singular_cluster
+
 
 @st.cache_data
 def load_data():
     try:
-        with open(os.path.join(st.session_state["cwd"], "data/calculated/edges_clusters_dfs.pickle"), "rb") as file:
+        with open(
+            os.path.join(
+                st.session_state["cwd"], "data/calculated/edges_clusters_dfs.pickle"
+            ),
+            "rb",
+        ) as file:
             cluster_dfs = pickle.load(file)
 
         with open(
-            os.path.join(st.session_state["cwd"], "data/calculated/personen_organisationen_dfs_processed.pickle"), "rb"
+            os.path.join(
+                st.session_state["cwd"],
+                "data/calculated/personen_organisationen_dfs_processed.pickle",
+            ),
+            "rb",
         ) as file:
             data_dfs = pickle.load(file)
-            st.success("Data loaded", icon="✅")
-            
+            success_temporary("Data loaded")
+
             # Store it in session state for later use
             st.session_state["file_versions"] = {}
-            st.session_state["file_versions"]["earliest_date"] = data_dfs["file_versions"]["earliest_date"]
-            st.session_state["file_versions"]["latest_date"] = data_dfs["file_versions"]["latest_date"]
-            st.session_state["file_versions"]["ordered_filenames"] = data_dfs["file_versions"]["ordered_filenames"]      
-                    
+            st.session_state["file_versions"]["earliest_date"] = data_dfs[
+                "file_versions"
+            ]["earliest_date"]
+            st.session_state["file_versions"]["latest_date"] = data_dfs[
+                "file_versions"
+            ]["latest_date"]
+            st.session_state["file_versions"]["ordered_filenames"] = data_dfs[
+                "file_versions"
+            ]["ordered_filenames"]
+
         return cluster_dfs, data_dfs
     except FileNotFoundError:
         print("No data found. Please upload and process data.")
@@ -30,6 +49,19 @@ def load_data():
 
 def controls():
     st.text_input("ReferenceID", key="ReferenceID")
+    col1, col2, _ = st.columns(3)
+    with col1:
+        st.radio(
+            "Select the type of edges",
+            ["Normal", "Advanced"],
+            key="edge_type",
+            captions=[
+                "Only database links",
+                "Inferred links (same Name/Address/Email)",
+            ],
+        )
+    with col2:
+        st.select_slider("Depth of graph", options=[1, 2, 3, 4, 5, "all"], key="depth")
 
 
 def convert_special_string(row):
@@ -101,24 +133,107 @@ def show_subset_of_columns(df):
     return df[columns_to_keep]
 
 
+# def generate_graph(cluster_dfs, data_dfs, filter_refid):
+# Original: doesnt use controls. always uses full clusters dataframe with no filters.
+#     df_clusters = cluster_dfs["clusters"]
+
+#     df_edges = cluster_dfs["edges"]
+#     df_personen = data_dfs["personen"]
+#     df_organisationen = data_dfs["organisationen"]
+
+#     if filter_refid != "":
+
+#         # Extract the cluster and corresponding links for filter_refid
+#         cluster_row = df_clusters[df_clusters['nodes'].apply(lambda x: filter_refid in x)].iloc[0]
+#         node_list = cluster_row['nodes']
+#         link_list = cluster_row['link']
+
+#         # Create a dictionary mapping ReferenceID to Objekt_link
+#         link_mapping = dict(zip(node_list, link_list))
+
+#         # Display Dataframes of Personen & Organisationen of that cluster
+#         organisationen_of_cluster = df_organisationen[
+#             df_organisationen["ReferenceID"].isin(node_list)
+#         ]
+#         personen_of_cluster = df_personen[df_personen["ReferenceID"].isin(node_list)]
+#         st.write("Personen:")
+#         st.dataframe(show_subset_of_columns(personen_of_cluster))
+#         st.write("Organisationen:")
+#         st.write(show_subset_of_columns(organisationen_of_cluster))
+
+#         # Generate nodes of that cluster (reminder: graphviz wrapper function expects dataframe with Name, RefID)
+#         node_data = pd.concat(
+#             [organisationen_of_cluster, personen_of_cluster], axis=0, sort=False
+#         )
+
+
+#         # Add new rows for special entries in cluster_nodes that are not organizations
+#         # Here the code to add Produkte, which based on cleanup steps appear in the form of: "[1000299836, 1000300252, 2]", i.e. the produkt ids and the number of products.
+#         for node in node_list:
+#             # print(node)
+#             actual_list, name, number = process_produkte_strings(str(node))
+#             # print("list:", actual_list)
+#             if actual_list:
+#                 new_row = pd.DataFrame(
+#                     {
+#                         "ReferenceID": [str(actual_list)],
+#                         "Name": [str(name) + "\n" + str(number)],
+#                     }
+#                 )
+#                 node_data = pd.concat([node_data, new_row], ignore_index=True)
+
+#         # Add 'link' information to node_data
+#         node_data['link'] = node_data['ReferenceID'].map(link_mapping)
+
+#         edge_data = df_edges[
+#             (df_edges["source"].isin(node_list)) & (df_edges["target"].isin(node_list))
+#         ]
+#         edge_data = edge_data.apply(
+#             convert_special_string, axis=1
+#         )  # Modify Produkte entries
+#         edge_data = edge_data.drop_duplicates(subset=["source", "target", "match_type"])
+
+#         # Generate Graph
+#         graph = GraphvizWrapper_organisationen()
+#         graph.add_nodes(node_data)
+#         graph.add_edges(edge_data)
+
+#         return graph
+
+
 def generate_graph(cluster_dfs, data_dfs, filter_refid):
     df_clusters = cluster_dfs["clusters"]
-    
+
     df_edges = cluster_dfs["edges"]
     df_personen = data_dfs["personen"]
     df_organisationen = data_dfs["organisationen"]
 
     if filter_refid != "":
-        # lets get all nodes that are part of filter_refid's cluster
-        # node_list = df_clusters.loc[
-        #     df_clusters["nodes"].apply(lambda x: filter_refid in x), "nodes"
-        # ].iloc[0]
+        cluster_selected, df_edges = find_singular_cluster(
+            df_edges,
+            filter_refid,
+            mode=st.session_state["edge_type"],
+            depth=st.session_state["depth"],
+        )
         
+        if cluster_selected.empty:
+            st.error("ReferenceID not found. This could be due to the selected edge type / depth, or this ReferenceID has no connections.", icon="🚨")
+            return None
+        
+        node_list = cluster_selected.iloc[0]["nodes"]
+
         # Extract the cluster and corresponding links for filter_refid
-        cluster_row = df_clusters[df_clusters['nodes'].apply(lambda x: filter_refid in x)].iloc[0]
-        node_list = cluster_row['nodes']
-        link_list = cluster_row['link']
-        
+        cluster_row = df_clusters[
+            df_clusters["nodes"].apply(lambda x: filter_refid in x)
+        ].iloc[0]
+        node_list_full = cluster_row["nodes"]
+        link_list_full = cluster_row["link"]
+
+        link_list = []
+        for node in node_list:
+            index = node_list_full.index(node)
+            link_list.append(link_list_full[index])
+
         # Create a dictionary mapping ReferenceID to Objekt_link
         link_mapping = dict(zip(node_list, link_list))
 
@@ -136,7 +251,6 @@ def generate_graph(cluster_dfs, data_dfs, filter_refid):
         node_data = pd.concat(
             [organisationen_of_cluster, personen_of_cluster], axis=0, sort=False
         )
-        
 
         # Add new rows for special entries in cluster_nodes that are not organizations
         # Here the code to add Produkte, which based on cleanup steps appear in the form of: "[1000299836, 1000300252, 2]", i.e. the produkt ids and the number of products.
@@ -152,9 +266,9 @@ def generate_graph(cluster_dfs, data_dfs, filter_refid):
                     }
                 )
                 node_data = pd.concat([node_data, new_row], ignore_index=True)
-                
+
         # Add 'link' information to node_data
-        node_data['link'] = node_data['ReferenceID'].map(link_mapping)
+        node_data["link"] = node_data["ReferenceID"].map(link_mapping)
 
         edge_data = df_edges[
             (df_edges["source"].isin(node_list)) & (df_edges["target"].isin(node_list))
@@ -170,50 +284,25 @@ def generate_graph(cluster_dfs, data_dfs, filter_refid):
         graph.add_edges(edge_data)
 
         return graph
-    
-
-import re
-import graphviz
-def render_with_links_opening_in_new_tab(graph, filename="output/output", view=False):
-    # First, let's render the SVG using the graphviz package
-    svg_filename = graph.graph.render(filename=filename, format="svg", cleanup=True)
-
-    # Now, let's read this SVG and modify the links
-    with open(svg_filename, "r") as f:
-        svg_content = f.read()
-
-    # Use regex to add target="_blank" to URLs
-    modified_svg_content = re.sub(
-        r'<a xlink:href="([^"]+)"', r'<a xlink:href="\1" target="_blank"', svg_content
-    )
-
-    # Overwrite the SVG with the modified content
-    with open(svg_filename, "w") as f:
-        f.write(modified_svg_content)
-
-    # If view is True, open the SVG file with the default viewer
-    if view:
-        graphviz.backend.view(svg_filename)
-
-    return svg_filename
 
 
 def show():
     cluster_dfs, data_dfs = load_data()
-    
-    with st.expander(f"oldest file: {st.session_state['file_versions']['earliest_date']}, newest file: {st.session_state['file_versions']['latest_date']}"):
-            st.write(st.session_state["file_versions"]["ordered_filenames"])
+
+
+    if 'file_versions' not in st.session_state:
+        _, _, _ = get_data_version()
+    with st.expander(
+        f"oldest file: {st.session_state['file_versions']['earliest_date']}, newest file: {st.session_state['file_versions']['latest_date']}"
+    ):
+        st.write(st.session_state["file_versions"]["ordered_filenames"])
 
     controls()
-    filter_refid = st.session_state.get(
-        "ReferenceID", ""
-    ).replace('"', '')  # this session state is automatically created by st.text_input
+    filter_refid = st.session_state.get("ReferenceID", "").replace(
+        '"', ""
+    )  # this session state is automatically created by st.text_input
 
     if cluster_dfs and data_dfs:
         g = generate_graph(cluster_dfs, data_dfs, filter_refid)
         if g:
             st.write(g.graph)
-            if st.button("Export SVG"):
-                render_with_links_opening_in_new_tab(g)
-            
-        
