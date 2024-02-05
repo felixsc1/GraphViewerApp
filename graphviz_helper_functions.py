@@ -731,6 +731,11 @@ class GraphvizWrapper_organisationen:
 
     def __init__(self):
         self.graph = Digraph("G", node_attr={"style": "filled"})
+        
+    def render(self, filename='output_graph', format='svg', cleanup=False):
+        # Note: Set cleanup=False to keep the .svg file after rendering
+        output_path = self.graph.render(filename=filename, format=format, cleanup=cleanup)
+        return output_path
 
     @staticmethod
     def xml_escape(s):
