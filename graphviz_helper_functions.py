@@ -731,10 +731,12 @@ class GraphvizWrapper_organisationen:
 
     def __init__(self):
         self.graph = Digraph("G", node_attr={"style": "filled"})
-        
-    def render(self, filename='output_graph', format='svg', cleanup=False):
+
+    def render(self, filename="output_graph", format="svg", cleanup=False):
         # Note: Set cleanup=False to keep the .svg file after rendering
-        output_path = self.graph.render(filename=filename, format=format, cleanup=cleanup)
+        output_path = self.graph.render(
+            filename=filename, format=format, cleanup=cleanup
+        )
         return output_path
 
     @staticmethod
@@ -763,7 +765,7 @@ class GraphvizWrapper_organisationen:
             # # Add 'URL' only if 'link' is present and is a non-empty string
             if "link" in row and row["link"] and isinstance(row["link"], str):
                 attributes["URL"] = self.xml_escape(row["link"])
-                
+
             if node_type == "Person":
                 attributes["style"] = "filled"
                 attributes["fillcolor"] = "#7296d1"
@@ -782,7 +784,7 @@ class GraphvizWrapper_organisationen:
                 # Else use the existing formatting for the label
                 node_id_short = str(node_id)[-3:]
                 if node_servicerole:
-                    node_label = f"{node_name}\n{node_id_short}\n{node_servicerole}"
+                    node_label = f"<{node_name}<BR/>{node_id_short}<BR/><B>{node_servicerole}</B>>"
                 else:
                     node_label = f"{node_name}\n{node_id_short}"
 

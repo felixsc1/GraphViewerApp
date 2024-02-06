@@ -24,7 +24,7 @@ def find_all_data():
 
 def run_processing_steps():
     with st.status("Processing..."):
-        # raw_cleanup()
+        raw_cleanup()
         st.write("Calculating edges and nodes to generate clusters...")
         create_edges_and_clusters()
 

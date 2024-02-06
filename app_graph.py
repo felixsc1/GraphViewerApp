@@ -40,7 +40,7 @@ def load_data():
             st.session_state["file_versions"]["ordered_filenames"] = data_dfs[
                 "file_versions"
             ]["ordered_filenames"]
-            
+
         return cluster_dfs, data_dfs
     except FileNotFoundError:
         print("No data found. Please upload and process data.")
@@ -131,7 +131,9 @@ def show_subset_of_columns(df):
         "score",
     ]
     df_subset = df[columns_to_keep]
-    df_subset = df_subset.rename(columns={"Name_original": "Name", "Servicerole_string": "Servicerole"})
+    df_subset = df_subset.rename(
+        columns={"Name_original": "Name", "Servicerole_string": "Servicerole"}
+    )
     return df_subset
 
 
@@ -217,11 +219,14 @@ def generate_graph(cluster_dfs, data_dfs, filter_refid):
             mode=st.session_state["edge_type"],
             depth=st.session_state["depth"],
         )
-        
+
         if cluster_selected.empty:
-            st.error("ReferenceID not found. This could be due to the selected edge type / depth, or this ReferenceID has no connections.", icon="🚨")
+            st.error(
+                "ReferenceID not found. This could be due to the selected edge type / depth, or this ReferenceID has no connections.",
+                icon="🚨,
+            ")
             return None
-        
+
         node_list = cluster_selected.iloc[0]["nodes"]
 
         # Extract the cluster and corresponding links for filter_refid
@@ -244,18 +249,21 @@ def generate_graph(cluster_dfs, data_dfs, filter_refid):
             df_organisationen["ReferenceID"].isin(node_list)
         ]
         personen_of_cluster = df_personen[df_personen["ReferenceID"].isin(node_list)]
-        st.write("Personen:")
+        st.subheader("👨‍💼 Personen:")
         st.dataframe(show_subset_of_columns(personen_of_cluster))
-        st.write("Organisationen:")
+        st.subheader("🏭 Organisationen:")
         st.write(show_subset_of_columns(organisationen_of_cluster))
 
         # Generate nodes of that cluster (reminder: graphviz wrapper function expects dataframe with Name, RefID)
         node_data = pd.concat(
             [organisationen_of_cluster, personen_of_cluster], axis=0, sort=False
         )
-        
+
         if len(node_data) > 50:
-            st.warning("The cluster has more than 50 nodes. Please change the filter settings.", icon="⚠️")
+            st.warning(
+                "The cluster has more than 50 nodes. Please change the filter settings.",
+                icon="⚠️",
+            )
             return None
 
         # Add new rows for special entries in cluster_nodes that are not organizations
@@ -284,8 +292,8 @@ def generate_graph(cluster_dfs, data_dfs, filter_refid):
         )  # Modify Produkte entries
         edge_data = edge_data.drop_duplicates(subset=["source", "target", "match_type"])
 
-        st.write(edge_data)
-        st.write(node_data)
+        # st.write(edge_data) # Debugging
+        # st.write(node_data)
 
         # Generate Graph
         graph = GraphvizWrapper_organisationen()
@@ -300,7 +308,7 @@ def show():
     if cluster_dfs:
         success_temporary("Data loaded")
 
-    if 'file_versions' not in st.session_state:
+    if "file_versions" not in st.session_state:
         find_all_data()
         _, _, _ = get_data_version()
     with st.expander(
@@ -309,6 +317,7 @@ def show():
         st.write(st.session_state["file_versions"]["ordered_filenames"])
 
     controls()
+    st.divider()
     filter_refid = st.session_state.get("ReferenceID", "").replace(
         '"', ""
     )  # this session state is automatically created by st.text_input
@@ -316,13 +325,14 @@ def show():
     if cluster_dfs and data_dfs:
         g = generate_graph(cluster_dfs, data_dfs, filter_refid)
         if g:
+            st.divider()
             st.write(g.graph)
-            if st.button('Generate SVG'):
+            if st.button("Generate SVG"):
                 svg_path = g.render()
                 with open(svg_path, "rb") as file:
                     btn = st.download_button(
                         label="Download Graph as SVG",
                         data=file,
                         file_name="output_graph.svg",
-                        mime="image/svg+xml"
+                        mime="image/svg+xml",
                     )
