@@ -117,7 +117,7 @@ def process_produkte_strings(input_string):
 def show_subset_of_columns(df):
     columns_to_keep = [
         "ReferenceID",
-        "Name",
+        "Name_original",
         "UID_CHID",
         "address_full",
         "Versandart",
@@ -130,7 +130,9 @@ def show_subset_of_columns(df):
         "VerknuepftesObjektID",
         "score",
     ]
-    return df[columns_to_keep]
+    df_subset = df[columns_to_keep]
+    df_subset = df_subset.rename(columns={"Name_original": "Name", "Servicerole_string": "Servicerole"})
+    return df_subset
 
 
 # def generate_graph(cluster_dfs, data_dfs, filter_refid):
@@ -266,7 +268,7 @@ def generate_graph(cluster_dfs, data_dfs, filter_refid):
                 new_row = pd.DataFrame(
                     {
                         "ReferenceID": [str(actual_list)],
-                        "Name": [str(name) + "\n" + str(number)],
+                        "Name_original": [str(name) + "\n" + str(number)],
                     }
                 )
                 node_data = pd.concat([node_data, new_row], ignore_index=True)
@@ -283,6 +285,7 @@ def generate_graph(cluster_dfs, data_dfs, filter_refid):
         edge_data = edge_data.drop_duplicates(subset=["source", "target", "match_type"])
 
         st.write(edge_data)
+        st.write(node_data)
 
         # Generate Graph
         graph = GraphvizWrapper_organisationen()

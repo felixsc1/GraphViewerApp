@@ -40,7 +40,7 @@ def show():
     if st.button("🔎 1. Check Data"):
         find_all_data()
         earliest_date, latest_date, just_the_filenames = get_data_version()
-        with st.expander(f"oldest file: {earliest_date}, newest file: {latest_date}"):
+        with st.expander(f"oldest file: {earliest_date}, newest file: {latest_date}", expanded=True):
             st.write(just_the_filenames)
     
     # Reset the flag after the Clear button is clicked

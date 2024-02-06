@@ -287,7 +287,7 @@ def cleanup_edges_df(df):
     """
     Merges edges with "Name", "Telefon", "Email", "Adresse" into one, adds bidirectional flag to those edges automatically.
     We also remove edges where labels are ONLY "Name" or "Adresse" (that should never be relevant enough).
-    Also adds bidirectional flag to any edge that occurs twice with inverted source and target.
+    Also adds bidirectional flag to any edge that occurs twice with inverted source and target and removes one of the entries.
     """
     # Initially mark predefined match_types as bidirectional.
     df["bidirectional"] = df["match_type"].isin(["Name", "Telefon", "Email", "Adresse"])
@@ -295,19 +295,17 @@ def cleanup_edges_df(df):
     # Create sorted tuples of 'source' and 'target' for bidirectional checking.
     df["sorted_edge"] = df.apply(lambda row: tuple(sorted([row["source"], row["target"]])), axis=1)
 
-    # Identify bidirectional matches for any match_type.
-    # This is done by checking if for a given sorted_edge, there are exactly 2 unique match_types,
-    # which implies a bidirectional relationship.
-    bidirectional_groups = df.groupby("sorted_edge").filter(lambda x: len(x) == 2 and len(x["match_type"].unique()) == 1)
-    bidirectional_edges = bidirectional_groups["sorted_edge"].unique()
-    df.loc[df["sorted_edge"].isin(bidirectional_edges), "bidirectional"] = True
+    # Identify all pairs of edges that occur more than once, indicating a potential bidirectional relationship.
+    bidirectional_counts = df["sorted_edge"].value_counts()
+    bidirectional_edges = bidirectional_counts[bidirectional_counts > 1].index
+    df["bidirectional"] |= df["sorted_edge"].isin(bidirectional_edges)
 
     # Remove duplicates by keeping the first occurrence.
     df = df.drop_duplicates(subset=["sorted_edge", "match_type"], keep="first")
 
-    # Split based on 'bidirectional' to process merging and filtering.
-    merge_df = df[df["bidirectional"]].copy()
-    keep_df = df[~df["bidirectional"]].copy()
+    # Split based on 'bidirectional' and 'match_type' to process merging and filtering.
+    merge_df = df[df["bidirectional"] & df["match_type"].isin(["Name", "Telefon", "Email", "Adresse"])].copy()
+    keep_df = df[~df["bidirectional"] | ~df["match_type"].isin(["Name", "Telefon", "Email", "Adresse"])].copy()
 
     # Merge specific bidirectional types, ensuring to capture all variations of 'source' and 'target'.
     merged = (
@@ -1409,6 +1407,45 @@ def organisationsrollen_group_aggregate(df):
     return grouped_df
 
 
+def personenrollen_group_aggregate(df):
+    # Analog zu organisationsrollen_group_aggregate().
+    # Input is das raw xlsx vom Personenrollenanalyse query.
+    # Benutzt dictionary oben Produkt_typ als string, Count für eine Kombination aus typ/inh./rechempf/korrempf und liste der produkt-objekte zu generieren.
+    grouped_df = (
+        df.groupby(
+            [
+                "Kontaktperson_RefID",
+                "Technikperson_RefID",
+                "Statistikperson_RefID",
+                "FullID",
+            ]
+        )
+        .agg(
+            Produkt_count=pd.NamedAgg(column="Produkt_RefID", aggfunc="size"),
+            Produkte=pd.NamedAgg(column="ProduktObj", aggfunc=list),
+            **{
+                col: pd.NamedAgg(column=col, aggfunc="first")
+                for col in df.columns
+                if col
+                not in [
+                    "Kontaktperson_RefID",
+                    "Technikperson_RefID",
+                    "Statistikperson_RefID",
+                    "Produkt_RefID",
+                    "FullID",
+                    "ProduktObj",
+                ]
+            },
+        )
+        .reset_index()
+    )
+
+    # Create 'Produkt_typ' by mapping 'FullID' through the data dictionary
+    grouped_df["Produkt_typ"] = grouped_df["FullID"].map(produkte_dict)
+
+    return grouped_df
+
+
 def generate_edge_list_from_orginationsrollen_aggregate(df):
     """
     "source" eines edges ist kombination aus liste der objekte+produkttyp newline count. um eindeutig zu sein.
@@ -1427,6 +1464,35 @@ def generate_edge_list_from_orginationsrollen_aggregate(df):
             (row["Rechnungsempfaenger_RefID"], "Rechnungsempfaenger"),
             (row["Korrespondenzempfaenger_RefID"], "Korrespondenzempfaenger"),
             (row["Inhaber_RefID"], "Inhaber"),
+        ]:
+            edge_list.append(
+                {"source": source, "target": target, "match_type": target_type}
+            )
+
+    # Create a DataFrame from the edge list
+    edges_df = pd.DataFrame(edge_list)
+    return edges_df
+
+
+def generate_edge_list_from_personenrollen_aggregate(df):
+    """
+    Analog zu generate_edge_list_from_orginationsrollen_aggregate().
+    "source" eines edges ist kombination aus liste der objekte+produkttyp newline count. um eindeutig zu sein.
+    Für eine source gibt es jeweils 3 row / Targets (inh. rechempf. korrempf.) mit RefID und label.
+    diese edge list kann dann mit internen endge list der organisationen concateniert werden.
+    """
+    edge_list = []
+    for _, row in df.iterrows():
+        source = (
+            str(row["Produkte"])
+            + str(row["Produkt_typ"])
+            + "\n"
+            + str([row["Produkt_count"]][0])
+        )
+        for target, target_type in [
+            (row["Technikperson_RefID"], "Technikperson"),
+            (row["Statistikperson_RefID"], "Statistikperson"),
+            (row["Kontaktperson_RefID"], "Kontaktperson"),
         ]:
             edge_list.append(
                 {"source": source, "target": target, "match_type": target_type}

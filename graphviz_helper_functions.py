@@ -755,13 +755,18 @@ class GraphvizWrapper_organisationen:
         # Add nodes to the graph with labels from original_df['Name']
         for _, row in node_data.iterrows():
             node_id = row["ReferenceID"]
-            node_name = row["Name"]
-
+            node_name = row["Name_original"]
+            node_type = row["Typ"]
+            node_servicerole = row["Servicerole_string"]
             attributes = {}
 
             # # Add 'URL' only if 'link' is present and is a non-empty string
             if "link" in row and row["link"] and isinstance(row["link"], str):
                 attributes["URL"] = self.xml_escape(row["link"])
+                
+            if node_type == "Person":
+                attributes["style"] = "filled"
+                attributes["fillcolor"] = "#7296d1"
 
             # Check if node_id is a string that starts and ends with brackets (assuming only Produkte are formatted like this)
             if (
@@ -776,7 +781,10 @@ class GraphvizWrapper_organisationen:
             else:
                 # Else use the existing formatting for the label
                 node_id_short = str(node_id)[-3:]
-                node_label = f"{node_name}\n{node_id_short}"
+                if node_servicerole:
+                    node_label = f"{node_name}\n{node_id_short}\n{node_servicerole}"
+                else:
+                    node_label = f"{node_name}\n{node_id_short}"
 
             self.graph.node(str(node_id), label=node_label, **attributes)
 

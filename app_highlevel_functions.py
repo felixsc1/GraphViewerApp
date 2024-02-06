@@ -18,9 +18,11 @@ from organisationen_helper_functions import (
     cleanup_edges_df,
     find_clusters_all,
     generate_edge_list_from_orginationsrollen_aggregate,
+    generate_edge_list_from_personenrollen_aggregate,
     match_organizations_between_dataframes,
     match_organizations_internally_simplified,
     organisationsrollen_group_aggregate,
+    personenrollen_group_aggregate,
 )
 import pandas as pd
 import streamlit as st
@@ -183,6 +185,10 @@ def create_edges_and_clusters():
     edges_organisationsrollen = generate_edge_list_from_orginationsrollen_aggregate(
         edges_organisationsrollen
     )
+    
+    personenrollen_df = load_data(file_paths["personenrollen"])
+    edges_personenrollen = personenrollen_group_aggregate(personenrollen_df)
+    edges_personenrollen = generate_edge_list_from_personenrollen_aggregate(edges_personenrollen)
 
     edges_personen = match_organizations_internally_simplified(
         df_personen, personen=True
@@ -192,14 +198,20 @@ def create_edges_and_clusters():
         df_personen, df_organisationen
     )
 
-    # TODO: Personenrollen-edges hinzufügen.
 
-    # Summarize and clean up everything.
-    edge_list = []
-    edge_list.append(edges_organisationen)
-    edge_list.append(edges_personen)
-    edge_list.append(edges_organisationsrollen)
-    edge_list.append(edges_personen_to_organisationen)
+    # Combine everything while keeping track of the source of the edge (not quite sure if this is even needed, could be used for conditional formatting).
+    edges_organisationen["source_type"] = "organisation"
+    edges_organisationen["target_type"] = "organisation"
+    edges_personen["source_type"] = "person"
+    edges_personen["target_type"] = "person"
+    edges_organisationsrollen["source_type"] = "organisation"
+    edges_organisationsrollen["target_type"] = "produkt"
+    edges_personenrollen["source_type"] = "person"
+    edges_personenrollen["target_type"] = "produkt"
+    edges_personen_to_organisationen["source_type"] = "person"
+    edges_personen_to_organisationen["target_type"] = "organisation"
+    
+    edge_list = [edges_organisationen, edges_personen, edges_organisationsrollen, edges_personenrollen, edges_personen_to_organisationen]
     all_edges = pd.concat(edge_list, ignore_index=True)
 
     all_edges = cleanup_edges_df(all_edges)
