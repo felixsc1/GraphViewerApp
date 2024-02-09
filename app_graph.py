@@ -223,8 +223,7 @@ def generate_graph(cluster_dfs, data_dfs, filter_refid):
         if cluster_selected.empty:
             st.error(
                 "ReferenceID not found. This could be due to the selected edge type / depth, or this ReferenceID has no connections.",
-                icon="🚨,
-            ")
+                icon="🚨")
             return None
 
         node_list = cluster_selected.iloc[0]["nodes"]
