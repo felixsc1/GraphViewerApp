@@ -5,9 +5,9 @@
 ### For Servers (offline installation)
 1. Install Python 3.11.7
 2. Download venv.zip in this repo by clicking on the Download Raw button. This only works for windows and contains some hardcoded paths, therefore:
-   - Create the folder C:\GitRepos\GraphViewerApp and unzip venv.zip into /venv there.
-   - Open /venv/pyenv.cfg and change the path to the python executable to the one on the server
-3. Download this reposirory as a zip file and unzip it into C:\GitRepot\GraphViewerApp
+   - Create the folder C:\GitRepos\GraphViewerApp and unzip venv.zip into \venv there.
+   - Open \venv\pyenv.cfg and change the path to the python executable to the one on the server
+3. Download this reposirory as a zip file and unzip it into C:\GitRepos\GraphViewerApp
 4. Open an administrator PowerShell of the folder and run the following commands:
    - `.\venv\Scripts\Activate.ps1` to activate the local python environment.
    - `streamlit run app.py --server.port 80` (or any other port you want to use)
