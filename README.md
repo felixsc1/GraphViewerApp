@@ -2,6 +2,21 @@
 
 ## Installation
 
+### For Servers (offline installation)
+1. Install Python 3.11.7
+2. Download venv.zip in this repo by clicking on the Download Raw button. This only works for windows and contains some hardcoded paths, therefore:
+   - Create the folder C:\GitRepos\GraphViewerApp and unzip venv.zip into /venv there.
+   - Open /venv/pyenv.cfg and change the path to the python executable to the one on the server
+3. Download this reposirory as a zip file and unzip it into C:\GitRepot\GraphViewerApp
+4. Open an administrator PowerShell of the folder and run the following commands:
+   - `.\venv\Scripts\Activate.ps1` to activate the local python environment.
+   - `streamlit run app.py --server.port 80` (or any other port you want to use)
+- Keep the PowerShell open
+
+To install an updated version of the app, repeat steps 3 and 4.
+
+
+### For local machine
 - Clone this repo.
 - Optionally, create and activate a virtual python environment (any python >=3.9).
 - Install the requirements `pip install -r requirements.txt`
@@ -10,10 +25,7 @@
 A browser window should pop up, or visit `http://localhost:8501/`
 
 
-#### Deployment 
-To use it on a server, the port 8501 needs to be forwarded.
 
-Since the app is still under development, it would be best to create a script that checks this git repo once per day and re-runs the installation.
 
 ## Usage
 
