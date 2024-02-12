@@ -326,12 +326,13 @@ def show():
         if g:
             st.divider()
             st.write(g.graph)
-            if st.button("Generate SVG"):
-                svg_path = g.render()
-                with open(svg_path, "rb") as file:
-                    btn = st.download_button(
-                        label="Download Graph as SVG",
-                        data=file,
-                        file_name="output_graph.svg",
-                        mime="image/svg+xml",
-                    )
+            # This feature requires installation on Graphviz for windows.
+            # if st.button("Generate SVG"):
+            #     svg_path = g.render()
+            #     with open(svg_path, "rb") as file:
+            #         btn = st.download_button(
+            #             label="Download Graph as SVG",
+            #             data=file,
+            #             file_name="output_graph.svg",
+            #             mime="image/svg+xml",
+            #         )
