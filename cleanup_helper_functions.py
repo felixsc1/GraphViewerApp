@@ -70,7 +70,11 @@ def construct_address_string(row, organisation=False):
             zip_postal_code = str(zip_code)  # if it has letters, e.g. UK
     elif organisation:
         korr_zip_code = row["Korr_ZipPostalCode"]
-        if pd.notna(korr_zip_code) and str(korr_zip_code).lower() != "nan" and korr_zip_code != "":
+        if (
+            pd.notna(korr_zip_code)
+            and str(korr_zip_code).lower() != "nan"
+            and korr_zip_code != ""
+        ):
             try:
                 zip_postal_code = str(int(float(korr_zip_code)))
             except ValueError:
@@ -98,7 +102,7 @@ def construct_address_string(row, organisation=False):
         str(row["City"]),
         str(row["CountryName"]),
     ]
-    
+
     elements_without_zip_code = [
         str(row["Street"]),
         str(row["HouseNumber"]),
@@ -134,13 +138,13 @@ def construct_address_string(row, organisation=False):
                 str(row["Korr_CountryName"]),
             ]
         else:
-            return ""
+            return pd.Series(["", ""])
         # it that is also empty, return empty string
         if all(
             pd.isna(element) or element == "" or element.lower() == "nan"
             for element in address_elements
         ):
-            return ""
+            return pd.Series(["", ""])
 
     # Filter out None, 'nan', and empty strings, then join with commas
     full_address = ", ".join(
@@ -150,13 +154,15 @@ def construct_address_string(row, organisation=False):
     partial_address = ", ".join(
         filter(lambda x: x and x != "nan" and str(x).strip(), address_elements_partial)
     )
-    
+
     # Finally make it lowercase, remove additional spaces
     full_address = normalize_string(full_address)
     partial_address = normalize_string(partial_address)
-    
 
-    return pd.Series([full_address, partial_address])
+    output_columns = [full_address, partial_address]
+
+    return pd.Series(output_columns)
+
 
 
 def replace_NotRegisteredUID(df):
