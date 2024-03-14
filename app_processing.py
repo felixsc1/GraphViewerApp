@@ -2,6 +2,7 @@ import streamlit as st
 from processing_helper_functions import detect_raw_files
 from app_highlevel_functions import create_edges_and_clusters, raw_cleanup
 from app_helper_functions import upload_files, clear_data_directory, get_data_version
+import os
 
 def initialize_state():
     if "file_paths" not in st.session_state:
@@ -23,7 +24,7 @@ def find_all_data():
     
 
 def run_processing_steps():
-    with st.status("Processing..."):
+    with st.status("Processing...", expanded=True):
         raw_cleanup()
         st.write("Calculating edges and nodes to generate clusters...")
         create_edges_and_clusters()
@@ -33,9 +34,6 @@ def show():
     initialize_state()
     
     upload_files()
-    
-    if st.button("🗑️ Clear Data Directory", type="primary"):
-        clear_data_directory()
 
     if st.button("🔎 1. Check Data"):
         find_all_data()
@@ -50,5 +48,14 @@ def show():
     if st.button("💻 2. Run Processing"):
         run_processing_steps()
         st.success("Processing finished!", icon="✅")
+        
+        
+    col1, _ = st.columns([1, 1])
+    with col1.expander("Danger Zone", expanded=False):
+        if st.button("🗑️ Clear Data Directory", type="primary"):
+            clear_data_directory()
+        if st.button('⚠️ Terminate the app', type="primary"):
+            # When clicked, forcefully terminate the Python process
+            os._exit(1)  # Use os._exit() to terminate the process abruptly
 
 
