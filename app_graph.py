@@ -223,8 +223,9 @@ def generate_graph(cluster_dfs, data_dfs, filter_refid):
         if cluster_selected.empty:
             st.error(
                 "ReferenceID not found. This could be due to the selected edge type / depth, or this ReferenceID has no connections.",
-                icon="🚨")
-            return None
+                icon="🚨",
+            )
+            return None, None, None
 
         node_list = cluster_selected.iloc[0]["nodes"]
 
@@ -248,10 +249,6 @@ def generate_graph(cluster_dfs, data_dfs, filter_refid):
             df_organisationen["ReferenceID"].isin(node_list)
         ]
         personen_of_cluster = df_personen[df_personen["ReferenceID"].isin(node_list)]
-        st.subheader("👨‍💼 Personen:")
-        st.dataframe(show_subset_of_columns(personen_of_cluster))
-        st.subheader("🏭 Organisationen:")
-        st.write(show_subset_of_columns(organisationen_of_cluster))
 
         # Generate nodes of that cluster (reminder: graphviz wrapper function expects dataframe with Name, RefID)
         node_data = pd.concat(
@@ -263,7 +260,7 @@ def generate_graph(cluster_dfs, data_dfs, filter_refid):
                 "The cluster has more than 50 nodes. Please change the filter settings.",
                 icon="⚠️",
             )
-            return None
+            return None, None, None
 
         # Add new rows for special entries in cluster_nodes that are not organizations
         # Here the code to add Produkte, which based on cleanup steps appear in the form of: "[1000299836, 1000300252, 2]", i.e. the produkt ids and the number of products.
@@ -299,7 +296,7 @@ def generate_graph(cluster_dfs, data_dfs, filter_refid):
         graph.add_nodes(node_data)
         graph.add_edges(edge_data)
 
-        return graph
+        return graph, personen_of_cluster, organisationen_of_cluster
 
 
 def show():
@@ -322,17 +319,67 @@ def show():
     )  # this session state is automatically created by st.text_input
 
     if cluster_dfs and data_dfs:
-        g = generate_graph(cluster_dfs, data_dfs, filter_refid)
+
+        col1, _ = st.columns([1, 1])
+        with col1.expander("Advanced Graph Settings", expanded=False):
+
+            st.selectbox(
+                "Select Graph Engine:",
+                key="graph_engine",
+                options=["dot", "neato", "circo", "fdp", "twopi"],
+                index=0,  # Default to 'dot'
+            )
+
+            splines_options = {
+                "Straight lines": "false",
+                "Curved lines": "true",
+                "Orthogonal lines": "ortho",
+                "Polyline": "polyline",
+                "Curved and Straight": "curved",
+            }
+
+            selected_option = st.selectbox(
+                "Edge shape:",
+                key="edge_shape",
+                options=list(splines_options.keys()),
+                index=0,
+            )
+
+            st.selectbox(
+                "Vertical Spacing:",
+                key="vertical_spacing",
+                options=["0", "1", "2", "3"],
+                index=0,
+            )
+
+        technical_value = splines_options[selected_option]
+        st.session_state["edge_shape2"] = technical_value
+        g = False
+        try:
+            g, personen_of_cluster, organisationen_of_cluster = generate_graph(
+                cluster_dfs, data_dfs, filter_refid
+            )
+            svg_path = g.render()
+        except:
+            st.error(
+                "Cannot display graph. Please check the settings.",
+                icon="🚨",
+            )
+
         if g:
             st.divider()
-            st.write(g.graph)
+            # st.write(g.graph)
+            st.image("output_graph.svg")
             # This feature requires installation on Graphviz for windows.
-            if st.button("Generate SVG"):
-                svg_path = g.render()
-                with open(svg_path, "rb") as file:
-                    btn = st.download_button(
-                        label="Download Graph as SVG",
-                        data=file,
-                        file_name="output_graph.svg",
-                        mime="image/svg+xml",
-                    )
+            with open(svg_path, "rb") as file:
+                btn = st.download_button(
+                    label="Download Graph as SVG",
+                    data=file,
+                    file_name="output_graph.svg",
+                    mime="image/svg+xml",
+                )
+
+            st.subheader("👨‍💼 Personen:")
+            st.dataframe(show_subset_of_columns(personen_of_cluster))
+            st.subheader("🏭 Organisationen:")
+            st.write(show_subset_of_columns(organisationen_of_cluster))

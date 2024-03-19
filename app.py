@@ -6,7 +6,7 @@ import app_search
 import pandas as pd
 import os
 
-st.set_page_config(layout="wide")
+st.set_page_config(page_title="GraphViewer App", page_icon="📊", layout="wide")
 
 # Sidebar
 st.sidebar.title("Navigation")
