@@ -748,7 +748,8 @@ class GraphvizWrapper_organisationen:
         output_path = unflattened_graph.render(
             filename=filename, format=format, cleanup=cleanup
         )
-        return output_path
+        svg_str = unflattened_graph.pipe(format=format).decode("utf-8")
+        return output_path, svg_str
 
     @staticmethod
     def xml_escape(s):

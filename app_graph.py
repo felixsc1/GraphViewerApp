@@ -359,7 +359,7 @@ def show():
             g, personen_of_cluster, organisationen_of_cluster = generate_graph(
                 cluster_dfs, data_dfs, filter_refid
             )
-            svg_path = g.render()
+            svg_path, svg_str = g.render()
         except:
             st.error(
                 "Cannot display graph. Please check the settings.",
@@ -368,14 +368,16 @@ def show():
 
         if g:
             st.divider()
-            # st.write(g.graph)
-            st.image("output_graph.svg")
+            st.write(g.graph)
+            # st.image(svg_path)
+            # st.components.v1.html(svg_str, height=500)
+
             # This feature requires installation on Graphviz for windows.
             with open(svg_path, "rb") as file:
                 btn = st.download_button(
                     label="Download Graph as SVG",
                     data=file,
-                    file_name="output_graph.svg",
+                    file_name=svg_path,
                     mime="image/svg+xml",
                 )
 
