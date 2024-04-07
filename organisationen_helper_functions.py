@@ -291,9 +291,11 @@ def cleanup_edges_df(df):
     """
     # Initially mark predefined match_types as bidirectional.
     df["bidirectional"] = df["match_type"].isin(["Name", "Telefon", "Email", "Adresse"])
-    
+
     # Create sorted tuples of 'source' and 'target' for bidirectional checking.
-    df["sorted_edge"] = df.apply(lambda row: tuple(sorted([row["source"], row["target"]])), axis=1)
+    df["sorted_edge"] = df.apply(
+        lambda row: tuple(sorted([row["source"], row["target"]])), axis=1
+    )
 
     # Identify all pairs of edges that occur more than once, indicating a potential bidirectional relationship.
     bidirectional_counts = df["sorted_edge"].value_counts()
@@ -304,18 +306,26 @@ def cleanup_edges_df(df):
     df = df.drop_duplicates(subset=["sorted_edge", "match_type"], keep="first")
 
     # Split based on 'bidirectional' and 'match_type' to process merging and filtering.
-    merge_df = df[df["bidirectional"] & df["match_type"].isin(["Name", "Telefon", "Email", "Adresse"])].copy()
-    keep_df = df[~df["bidirectional"] | ~df["match_type"].isin(["Name", "Telefon", "Email", "Adresse"])].copy()
+    merge_df = df[
+        df["bidirectional"]
+        & df["match_type"].isin(["Name", "Telefon", "Email", "Adresse"])
+    ].copy()
+    keep_df = df[
+        ~df["bidirectional"]
+        | ~df["match_type"].isin(["Name", "Telefon", "Email", "Adresse"])
+    ].copy()
 
     # Merge specific bidirectional types, ensuring to capture all variations of 'source' and 'target'.
     merged = (
         merge_df.groupby("sorted_edge")
-        .agg({
-            "source": "first",
-            "target": "first",
-            "bidirectional": "max",
-            "match_type": lambda x: ", ".join(sorted(set(x)))
-        })
+        .agg(
+            {
+                "source": "first",
+                "target": "first",
+                "bidirectional": "max",
+                "match_type": lambda x: ", ".join(sorted(set(x))),
+            }
+        )
         .reset_index(drop=True)
     )
 
@@ -459,9 +469,11 @@ def match_organizations_internally_optimized(df):
     for contact_type in contact_types:
         if contact_type == "Name_Zeile2":
             df["Name_Zeile2"] = df.apply(
-                lambda x: x["Name"] + "|" + str(x["Zeile2"])
-                if pd.notna(x["Zeile2"]) and x["Zeile2"] != ""
-                else x["Name"],
+                lambda x: (
+                    x["Name"] + "|" + str(x["Zeile2"])
+                    if pd.notna(x["Zeile2"]) and x["Zeile2"] != ""
+                    else x["Name"]
+                ),
                 axis=1,
             )
 
@@ -666,7 +678,8 @@ def find_singular_cluster(
     # Check if starting_node is in the graph
     if starting_node not in G:
         return (
-            pd.DataFrame(), df_filtered
+            pd.DataFrame(),
+            df_filtered,
         )  # Return an empty DataFrame if starting_node is not in graph
 
     if depth == "all":
@@ -761,15 +774,19 @@ def organisationen_get_doubletten(node_data):
     """
     df_check = node_data.copy()
     df_check["Address1"] = node_data.apply(
-        lambda row: row["Korr_Address1"]
-        if (row["Address1"] == "" or pd.isna(row["Address1"]))
-        else row["Address1"],
+        lambda row: (
+            row["Korr_Address1"]
+            if (row["Address1"] == "" or pd.isna(row["Address1"]))
+            else row["Address1"]
+        ),
         axis=1,
     )
     df_check["Address2"] = node_data.apply(
-        lambda row: row["Korr_Address2"]
-        if (row["Address2"] == "" or pd.isna(row["Address2"]))
-        else row["Address2"],
+        lambda row: (
+            row["Korr_Address2"]
+            if (row["Address2"] == "" or pd.isna(row["Address2"]))
+            else row["Address2"]
+        ),
         axis=1,
     )
     # Extract duplicates
@@ -888,11 +905,18 @@ def add_produkte_columns(df_organisationen, organisationsrollen_df):
     )
 
     # Calculate counts for 'Produkt_Adressant'
-    adressant_counts = (
-        organisationsrollen_df["Rechnungsempfaenger_RefID"].value_counts()
-        + organisationsrollen_df["Korrespondenzempfaenger_RefID"].value_counts()
+    # Calculate counts for each reference ID separately, filling missing values with 0
+    rechnungsempfaenger_counts = organisationsrollen_df[
+        "Rechnungsempfaenger_RefID"
+    ].value_counts()
+    korrespondenzempfaenger_counts = organisationsrollen_df[
+        "Korrespondenzempfaenger_RefID"
+    ].value_counts()
+    # Combine the Series, ensuring that missing entries in one Series do not nullify existing counts from the other
+    adressant_counts = rechnungsempfaenger_counts.add(
+        korrespondenzempfaenger_counts, fill_value=0
     )
-    # Map these counts to df_organisationen
+    # Map these combined counts to df_organisationen
     df_organisationen["Produkt_Adressant"] = (
         df_organisationen["ReferenceID"].map(adressant_counts).fillna(0).astype(int)
     )

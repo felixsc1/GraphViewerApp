@@ -12,7 +12,7 @@ def normalize_string(string_in):
     return normalized
 
 
-def basic_cleanup(df, organisation=False):
+def basic_cleanup(df, organisation=False, remove_inaktiv=False):
     """
     Performs some basic corrections to String formatting.
     Removes Inaktiv entries and Personen with Sonstiges Verknüpfungsart.
@@ -48,8 +48,9 @@ def basic_cleanup(df, organisation=False):
     df_cleaned["ZipPostalCode"] = df_cleaned["ZipPostalCode"].astype(str)
 
     # Filter out all Inaktive and Sonstiges for Personen, to speed up processing
-    df_cleaned = df_cleaned[df_cleaned["Aktiv"] != False]
-    if not organisation:
+    if remove_inaktiv:
+        df_cleaned = df_cleaned[df_cleaned["Aktiv"] != False]
+    if not organisation and remove_inaktiv:
         df_cleaned = df_cleaned[df_cleaned["Verknuepfungsart"] != "Sonstiges"]
 
     return df_cleaned

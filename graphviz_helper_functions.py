@@ -777,7 +777,8 @@ class GraphvizWrapper_organisationen:
             # # Add 'URL' only if 'link' is present and is a non-empty string
             if "link" in row and row["link"] and isinstance(row["link"], str):
                 attributes["URL"] = self.xml_escape(row["link"])
-
+                attributes["target"] = '_blank'  # 
+                
             if node_type == "Person":
                 attributes["style"] = "filled"
                 attributes["fillcolor"] = "#7296d1"
@@ -789,7 +790,7 @@ class GraphvizWrapper_organisationen:
                 and node_id.endswith("]")
             ):
                 # Format the node_label for Produkte
-                node_label = node_name  # NOTE: can now have multiple nodes with this name, but hovering over it shows id.
+                node_label = node_name  # NOTE: can have multiple nodes with this name, but hovering over it shows id.
                 attributes["style"] = "filled"
                 attributes["fillcolor"] = "#FFC107"
             else:
@@ -799,6 +800,11 @@ class GraphvizWrapper_organisationen:
                     node_label = f"<{node_name}<BR/>{node_id_short}<BR/><B>{node_servicerole}</B>>"
                 else:
                     node_label = f"{node_name}\n{node_id_short}"
+                    
+                # mark inaktive nodes
+                if not row["Aktiv"]:
+                    node_label = f"<{node_name} <B>[inaktiv]</B><BR/>{node_id_short}>" # I assume there are no inactives with service roles.
+                
 
             self.graph.node(str(node_id), label=node_label, **attributes)
 

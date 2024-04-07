@@ -342,7 +342,7 @@ def show():
                 "Edge shape:",
                 key="edge_shape",
                 options=list(splines_options.keys()),
-                index=0,
+                index=1,
             )
 
             st.selectbox(
