@@ -114,7 +114,19 @@ def process_produkte_strings(input_string):
     return list_part, name, number
 
 
+def de_americanize_columns(df):
+    """
+    By default dates are shown like this: 2002-10-27 10:50:00, we want them like this: 27.10.2002 10:50:00
+    Also long integers are shown like "5,624,434", we want to remove commas.
+    """
+    df["CreatedAt"] = df["CreatedAt"].dt.strftime("%d.%m.%Y %H:%M:%S")
+    df["score"] = df["score"].astype(str)
+    df["UID_CHID"] = df["UID_CHID"].astype(str)
+    return df
+
+
 def show_subset_of_columns(df):
+    df = de_americanize_columns(df)
     columns_to_keep = [
         "ReferenceID",
         "Name_original",
@@ -382,6 +394,8 @@ def show():
                 )
 
             st.subheader("👨‍💼 Personen:")
-            st.dataframe(show_subset_of_columns(personen_of_cluster))
+            st.dataframe(show_subset_of_columns(personen_of_cluster), hide_index=True)
             st.subheader("🏭 Organisationen:")
-            st.write(show_subset_of_columns(organisationen_of_cluster))
+            st.dataframe(
+                show_subset_of_columns(organisationen_of_cluster), hide_index=True
+            )

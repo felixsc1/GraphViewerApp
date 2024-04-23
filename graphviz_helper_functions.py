@@ -808,68 +808,6 @@ class GraphvizWrapper_organisationen:
 
             self.graph.node(str(node_id), label=node_label, **attributes)
 
-    # def add_nodes(self, node_data):
-    #     # Initialize counters to keep track of how many nodes of each type have been processed
-    #     type_counters = {'Person': 0, 'Organisation': 0}
-    #     # Dictionary to keep track of subgraphs by their rank and type
-    #     subgraphs = {}
-
-    #     for _, row in node_data.iterrows():
-    #         node_id = str(row["ReferenceID"])
-    #         node_servicerole = row["Servicerole_string"]
-    #         node_name = row["Name_original"]
-    #         node_type = row["Typ"]
-    #         attributes = {}
-
-    #         # # Add 'URL' only if 'link' is present and is a non-empty string
-    #         if "link" in row and row["link"] and isinstance(row["link"], str):
-    #             attributes["URL"] = self.xml_escape(row["link"])
-
-    #         if node_type == "Person":
-    #             attributes["style"] = "filled"
-    #             attributes["fillcolor"] = "#7296d1"
-
-    #         # Check if node_id is a string that starts and ends with brackets (assuming only Produkte are formatted like this)
-    #         if (
-    #             isinstance(node_id, str)
-    #             and node_id.startswith("[")
-    #             and node_id.endswith("]")
-    #         ):
-    #             # Format the node_label for Produkte
-    #             node_label = node_name  # NOTE: can now have multiple nodes with this name, but hovering over it shows id.
-    #             attributes["style"] = "filled"
-    #             attributes["fillcolor"] = "#FFC107"
-    #         else:
-    #             # Else use the existing formatting for the label
-    #             node_id_short = str(node_id)[-3:]
-    #             if node_servicerole:
-    #                 node_label = f"<{node_name}<BR/>{node_id_short}<BR/><B>{node_servicerole}</B>>"
-    #             else:
-    #                 node_label = f"{node_name}\n{node_id_short}"
-
-    #         # If node_type is one we're ranking, determine its subgraph
-    #         if node_type in ['Person', 'Organisation']:
-    #             type_counters[node_type] += 1
-    #             # Calculate current rank based on counter, dividing by 5 and using floor division
-    #             rank = (type_counters[node_type] - 1) // 1
-    #             subgraph_key = f'{node_type}_{rank}'
-
-    #             # If subgraph does not exist, create it
-    #             if subgraph_key not in subgraphs:
-    #                 subgraphs[subgraph_key] = Digraph(name=f'cluster_{subgraph_key}')
-    #                 subgraphs[subgraph_key].attr(label=f'{node_type} Group {rank + 1}')
-    #                 subgraphs[subgraph_key].attr(style='filled', color='lightgrey')
-
-    #             # Add node to the correct subgraph
-    #             subgraphs[subgraph_key].node(node_id, label=node_label, **attributes)
-    #         else:
-    #             # If not a 'Person' or 'Organisation', or doesn't need special handling
-    #             self.graph.node(node_id, label=node_label, **attributes)
-
-    #     # After all nodes are added, add subgraphs to the main graph
-    #     for subgraph in subgraphs.values():
-    #         self.graph.subgraph(subgraph)
-
     def add_edges(self, edge_data):
         for _, row in edge_data.iterrows():
             source = row["source"]
