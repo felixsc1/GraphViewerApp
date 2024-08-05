@@ -233,11 +233,25 @@ def generate_graph(cluster_dfs, data_dfs, filter_refid):
         )
 
         if cluster_selected.empty:
-            st.error(
-                "ReferenceID not found. This could be due to the selected edge type / depth, or this ReferenceID has no connections.",
-                icon="🚨",
-            )
-            return None, None, None
+            # Look for the filter_refid in df_personen and df_organisationen, even if its not in df_edges in case there is no edge from it
+            person = df_personen[df_personen["ReferenceID"] == filter_refid]
+            organisation = df_organisationen[df_organisationen["ReferenceID"] == filter_refid]
+            
+            if not person.empty:
+                node_data = person
+            elif not organisation.empty:
+                node_data = organisation
+            else:
+                st.error(
+                    "ReferenceID not found in any dataset.",
+                    icon="🚨",
+                )
+                return None, None, None
+            
+            # Create a simple graph with just this node
+            graph = GraphvizWrapper_organisationen()
+            graph.add_nodes(node_data)
+            return graph, person, organisation
 
         node_list = cluster_selected.iloc[0]["nodes"]
 
@@ -291,6 +305,7 @@ def generate_graph(cluster_dfs, data_dfs, filter_refid):
 
         # Add 'link' information to node_data
         node_data["link"] = node_data["ReferenceID"].map(link_mapping)
+        print(node_data)
 
         edge_data = df_edges[
             (df_edges["source"].isin(node_list)) & (df_edges["target"].isin(node_list))
