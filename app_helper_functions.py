@@ -266,31 +266,34 @@ def calculate_scores_organisationen(df):
     df["AnzahlObjektZeiger"] = df["AnzahlObjektZeiger"].fillna(0)
     df["Debitornummer_check"] = df["Debitornummer"].apply(lambda x: 1 if x > 0 else 0)
     df["UID_CHID_check"] = df["UID_CHID"].apply(
-        lambda x: 1 if isinstance(x, str) else 0 if pd.isna(x) else pd.NA
+        lambda x: 1 if isinstance(x, str) else 0
     )
 
-    df["score"] = 0
-    df["score"] = (
-        df["Debitornummer_check"].astype(int) * 100
-        + df["UID_CHID_check"] * 200
-        + df["Versandart"].isin(["Portal"]).astype(int) * 100
-        + df["AnzahlGeschaeftsobjekte"].astype(int) * 30
-        + np.minimum(
-            df["AnzahlObjektZeiger"].astype(int) * 10, 100
-        )  # Cannot add more than 100 to the score
-        + df["Verknuepfungsart_list"].apply(
-            lambda x: sum(
-                [
-                    100 if val == "Administrator" else 50 if val == "Mitarbeiter" else 0
-                    for val in x
-                ]
-            )
-        )
-        + df["Geschaeftspartner_list"].apply(lambda x: sum([100 for val in x]))
-        + np.minimum(df["Produkt_Inhaber"].astype(int) * 80, 100)
-        + np.minimum(df["Produkt_Adressant"].astype(int) * 30, 100)
-        + df["Servicerole_count"].astype(int) * 50
-    )
+    def calculate_score_and_details(row):
+        score_components = {
+            "Debitornummer": row["Debitornummer_check"] * 100,
+            "UID_CHID": row["UID_CHID_check"] * 200,
+            "Versandart": 100 if row["Versandart"] == "Portal" else 0,
+            "Geschaeftsobjekte": row["AnzahlGeschaeftsobjekte"] * 30,
+            "ObjektZeiger": min(row["AnzahlObjektZeiger"] * 10, 100),
+            "Verknuepfungsart": sum(
+                100 if val == "Administrator" else 50 if val == "Mitarbeiter" else 0
+                for val in row["Verknuepfungsart_list"]
+            ),
+            "Geschaeftspartner": sum(100 for _ in row["Geschaeftspartner_list"]),
+            "Produkt_Inhaber": min(row["Produkt_Inhaber"] * 80, 150),
+            "Produkt_Adressant": min(row["Produkt_Adressant"] * 30, 100),
+            "Servicerole": row["Servicerole_count"] * 50,
+            "UID_MASTER": 1000 if row["UID_MASTER"] == True else 0
+        }
+        
+        total_score = sum(score_components.values())
+        score_details = ", ".join([f"{k}: {v}" for k, v in score_components.items() if v > 0])
+        
+        return total_score, score_details
+
+    df["score"], df["score_details"] = zip(*df.apply(calculate_score_and_details, axis=1))
+    
     return df
 
 
