@@ -7,7 +7,8 @@ from app_search import success_temporary
 from graphviz_helper_functions import GraphvizWrapper_organisationen
 import os
 from organisationen_helper_functions import find_singular_cluster
-
+import re
+import html
 
 @st.cache_data
 def load_data():
@@ -80,6 +81,17 @@ def convert_special_string(row):
         row["bidirectional"] = False
         row["special_formatting"] = "Produkt"
     return row
+
+
+def sanitize_string(s):
+    """ Fixes a rare bug where a name somehow contains HTML tags.
+    Remove HTML tags and escape special characters."""
+    s = str(s)
+    # Remove HTML tags
+    s = re.sub('<[^<]+?>', '', s)
+    # Escape special characters
+    s = html.escape(s)
+    return s
 
 
 def process_produkte_strings(input_string):
@@ -280,6 +292,12 @@ def generate_graph(cluster_dfs, data_dfs, filter_refid):
         node_data = pd.concat(
             [organisationen_of_cluster, personen_of_cluster], axis=0, sort=False
         )
+        
+        # Convert all relevant columns to string
+        string_columns = ['ReferenceID', 'Name_original', 'Name']
+        for col in string_columns:
+            if col in node_data.columns:
+                node_data[col] = node_data[col].astype(str)
 
         if len(node_data) > 50:
             st.warning(
@@ -310,6 +328,8 @@ def generate_graph(cluster_dfs, data_dfs, filter_refid):
         edge_data = df_edges[
             (df_edges["source"].isin(node_list)) & (df_edges["target"].isin(node_list))
         ]
+        edge_data['source'] = edge_data['source'].astype(str)
+        edge_data['target'] = edge_data['target'].astype(str)
         edge_data = edge_data.apply(
             convert_special_string, axis=1
         )  # Modify Produkte entries
@@ -317,6 +337,12 @@ def generate_graph(cluster_dfs, data_dfs, filter_refid):
 
         # st.write(edge_data) # Debugging
         # st.write(node_data)
+        
+        # Just before generating the graph, sanitize the node names
+        if 'Name_original' in node_data.columns:
+            node_data['Name_original'] = node_data['Name_original'].apply(sanitize_string)
+        if 'Name' in node_data.columns:
+            node_data['Name'] = node_data['Name'].apply(sanitize_string)
 
         # Generate Graph
         graph = GraphvizWrapper_organisationen()
@@ -387,11 +413,14 @@ def show():
                 cluster_dfs, data_dfs, filter_refid
             )
             svg_path, svg_str = g.render()
-        except:
+        except Exception as e:
             st.error(
                 "Cannot display graph. Please check the settings.",
                 icon="🚨",
             )
+            with st.expander("Show detailed error message"):
+                import traceback
+                st.code(traceback.format_exc())
 
         if g:
             st.divider()
@@ -400,13 +429,16 @@ def show():
             # st.components.v1.html(svg_str, height=500)
 
             # This feature requires installation on Graphviz for windows.
-            with open(svg_path, "rb") as file:
-                btn = st.download_button(
-                    label="Download Graph as SVG",
-                    data=file,
-                    file_name=svg_path,
-                    mime="image/svg+xml",
-                )
+            try:
+                with open(svg_path, "rb") as file:
+                    btn = st.download_button(
+                        label="Download Graph as SVG",
+                        data=file,
+                        file_name=svg_path,
+                        mime="image/svg+xml",
+                    )
+            except Exception as e:
+                st.warning(f"Could not create download button. Error: {str(e)}")
 
             st.subheader("👨‍💼 Personen:")
             st.dataframe(show_subset_of_columns(personen_of_cluster), hide_index=True)
