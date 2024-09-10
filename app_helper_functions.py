@@ -281,7 +281,7 @@ def calculate_scores_organisationen(df):
                 for val in row["Verknuepfungsart_list"]
             ),
             "Geschaeftspartner": sum(100 for _ in row["Geschaeftspartner_list"]),
-            "Produkt_Inhaber": min(row["Produkt_Inhaber"] * 80, 150),
+            "Produkt_Inhaber": min(row["Produkt_Inhaber"] * 80, 200),
             "Produkt_Adressant": min(row["Produkt_Adressant"] * 30, 100),
             "Servicerole": row["Servicerole_count"] * 50,
             "UID_MASTER": 1000 if row["UID_MASTER"] == True else 0

@@ -9,6 +9,12 @@ import os
 from organisationen_helper_functions import find_singular_cluster
 import re
 import html
+import warnings
+import urllib.parse
+
+
+# Supress pandas warnings
+warnings.filterwarnings("ignore")
 
 @st.cache_data
 def load_data():
@@ -72,7 +78,7 @@ def convert_special_string(row):
     modified = False
     for col in ["source", "target"]:
         val = row[col]
-        actual_list, name, number = process_produkte_strings(val)
+        actual_list, _, _, _ = process_produkte_strings(val)
         if actual_list:
             row[col] = str(actual_list)
             modified = True
@@ -99,31 +105,44 @@ def process_produkte_strings(input_string):
     The "source" entries in the cluster df, contain values that look like this:
     "['0848 848188', '0848 848288']Einzelnummer\n2"  a list part with the individual Produkt objects,,
     The type of the products, a newline and the number of products.
-    Turn each of them into a separate variable here
+    Turn each of them into a separate variable here.
+    Now it can also handle an additional list at the end.
     """
     # Ensure there are no breaking errors, if the string is not a Produkt name, just return False
     if "\n" not in input_string:
-        return False, False, False
+        return False, False, False, False
 
-    # Find the ending of the list part (ignoring "[]" at the beginning and "]" at the end)
-    end_of_list_index = input_string.find("]")
+    # Find the ending of the first list part (ignoring "[]" at the beginning and "]" at the end)
+    end_of_first_list_index = input_string.find("]")
 
-    # Extract the list part and convert it into a list
+    # Extract the first list part and convert it into a list
     # Strip the "['" at the beginning and "']" at the end, then split by "', '"
-    list_part_raw = input_string[2:end_of_list_index]
-    list_part = [item.strip("'") for item in list_part_raw.split("', '")]
-    # print("actual list:", list_part)
+    first_list_part_raw = input_string[2:end_of_first_list_index]
+    first_list_part = [item.strip("'") for item in first_list_part_raw.split("', '")]
 
-    # Extract the remaining part after the list
-    remaining_part = input_string[end_of_list_index + 1 :]
+    # Extract the remaining part after the first list
+    remaining_part = input_string[end_of_first_list_index + 1:]
 
     # Split the remaining part into name and number based on the newline character
-    name, number_part = remaining_part.split("\n")
+    # The '1' ensures that we only split at the first newline character
+    name, number_part = remaining_part.split("\n", 1)
 
-    # Extract the number from the number_part
-    number = int(number_part.strip())
+    # Check if there is an additional list at the end
+    if "[" in number_part:
+        start_of_second_list_index = number_part.find("[")
+        number = int(number_part[:start_of_second_list_index].strip())
+        second_list_part_raw = number_part[start_of_second_list_index + 1:-1]
+        second_list_part = [item.strip("'") for item in second_list_part_raw.split(", ")]
+    else:
+        number = int(number_part.strip())
+        second_list_part = []
+        
+    # print("first list part:", first_list_part)
+    # print("name:", name)
+    # print("number:", number)
+    # print("second list part:", second_list_part)
 
-    return list_part, name, number
+    return first_list_part, name, number, second_list_part
 
 
 def de_americanize_columns(df):
@@ -160,74 +179,42 @@ def show_subset_of_columns(df):
     )
     return df_subset
 
+def create_produkte_table(df):
+    if df is None:
+        return None
+    
+    # Convert string representations of lists to actual lists
+    df['Objekt'] = df['Objekt'].apply(eval)
+    df['Produkt_RefID'] = df['Produkt_RefID'].apply(eval)
+    
+    # Create a list to store the expanded rows
+    expanded_rows = []
+    
+    for _, row in df.iterrows():
+        for obj, ref_id in zip(row['Objekt'], row['Produkt_RefID']):
+            new_row = row.copy()
+            new_row['Objekt'] = obj
+            new_row['Produkt_RefID'] = ref_id
+            expanded_rows.append(new_row)
+    
+    # Create a new DataFrame from the list of expanded rows
+    expanded_df = pd.DataFrame(expanded_rows, columns=df.columns)
+    
+    # Add example links to the 'Objekt' column
+    expanded_df['Produkt_RefID'] = expanded_df['Produkt_RefID'].apply(
+        lambda x: f"https://www.egov-uvek.gever-abn.admin.ch/web/?ObjectToOpenID=%24SpecialdataHostingBaseDataObject%7C{urllib.parse.quote(str(x))}&TenantID=208"
+    )
 
-# def generate_graph(cluster_dfs, data_dfs, filter_refid):
-# Original: doesnt use controls. always uses full clusters dataframe with no filters.
-#     df_clusters = cluster_dfs["clusters"]
-
-#     df_edges = cluster_dfs["edges"]
-#     df_personen = data_dfs["personen"]
-#     df_organisationen = data_dfs["organisationen"]
-
-#     if filter_refid != "":
-
-#         # Extract the cluster and corresponding links for filter_refid
-#         cluster_row = df_clusters[df_clusters['nodes'].apply(lambda x: filter_refid in x)].iloc[0]
-#         node_list = cluster_row['nodes']
-#         link_list = cluster_row['link']
-
-#         # Create a dictionary mapping ReferenceID to Objekt_link
-#         link_mapping = dict(zip(node_list, link_list))
-
-#         # Display Dataframes of Personen & Organisationen of that cluster
-#         organisationen_of_cluster = df_organisationen[
-#             df_organisationen["ReferenceID"].isin(node_list)
-#         ]
-#         personen_of_cluster = df_personen[df_personen["ReferenceID"].isin(node_list)]
-#         st.write("Personen:")
-#         st.dataframe(show_subset_of_columns(personen_of_cluster))
-#         st.write("Organisationen:")
-#         st.write(show_subset_of_columns(organisationen_of_cluster))
-
-#         # Generate nodes of that cluster (reminder: graphviz wrapper function expects dataframe with Name, RefID)
-#         node_data = pd.concat(
-#             [organisationen_of_cluster, personen_of_cluster], axis=0, sort=False
-#         )
-
-
-#         # Add new rows for special entries in cluster_nodes that are not organizations
-#         # Here the code to add Produkte, which based on cleanup steps appear in the form of: "[1000299836, 1000300252, 2]", i.e. the produkt ids and the number of products.
-#         for node in node_list:
-#             # print(node)
-#             actual_list, name, number = process_produkte_strings(str(node))
-#             # print("list:", actual_list)
-#             if actual_list:
-#                 new_row = pd.DataFrame(
-#                     {
-#                         "ReferenceID": [str(actual_list)],
-#                         "Name": [str(name) + "\n" + str(number)],
-#                     }
-#                 )
-#                 node_data = pd.concat([node_data, new_row], ignore_index=True)
-
-#         # Add 'link' information to node_data
-#         node_data['link'] = node_data['ReferenceID'].map(link_mapping)
-
-#         edge_data = df_edges[
-#             (df_edges["source"].isin(node_list)) & (df_edges["target"].isin(node_list))
-#         ]
-#         edge_data = edge_data.apply(
-#             convert_special_string, axis=1
-#         )  # Modify Produkte entries
-#         edge_data = edge_data.drop_duplicates(subset=["source", "target", "match_type"])
-
-#         # Generate Graph
-#         graph = GraphvizWrapper_organisationen()
-#         graph.add_nodes(node_data)
-#         graph.add_edges(edge_data)
-
-#         return graph
-
+    # Display the DataFrame with links in Streamlit if it is not empty
+    if not expanded_df.empty:
+        st.subheader("🛒 Produkte:")
+        st.data_editor(
+            expanded_df,
+            column_config={"Produkt_RefID": st.column_config.LinkColumn(display_text=r'https://www\.egov-uvek\.gever-abn\.admin\.ch/web/\?ObjectToOpenID=%24SpecialdataHostingBaseDataObject%7C(.*)&TenantID=208')},
+            hide_index=True
+        )
+    
+    return expanded_df
 
 def generate_graph(cluster_dfs, data_dfs, filter_refid):
     df_clusters = cluster_dfs["clusters"]
@@ -258,12 +245,12 @@ def generate_graph(cluster_dfs, data_dfs, filter_refid):
                     "ReferenceID not found in any dataset.",
                     icon="🚨",
                 )
-                return None, None, None
+                return None, None, None, None
             
             # Create a simple graph with just this node
             graph = GraphvizWrapper_organisationen()
             graph.add_nodes(node_data)
-            return graph, person, organisation
+            return graph, person, organisation, None
 
         node_list = cluster_selected.iloc[0]["nodes"]
 
@@ -304,27 +291,10 @@ def generate_graph(cluster_dfs, data_dfs, filter_refid):
                 "The cluster has more than 50 nodes. Please change the filter settings.",
                 icon="⚠️",
             )
-            return None, None, None
-
-        # Add new rows for special entries in cluster_nodes that are not organizations
-        # Here the code to add Produkte, which based on cleanup steps appear in the form of: "[1000299836, 1000300252, 2]", i.e. the produkt ids and the number of products.
-        for node in node_list:
-            # print(node)
-            actual_list, name, number = process_produkte_strings(str(node))
-            # print("list:", actual_list)
-            if actual_list:
-                new_row = pd.DataFrame(
-                    {
-                        "ReferenceID": [str(actual_list)],
-                        "Name_original": [str(name) + "\n" + str(number)],
-                    }
-                )
-                node_data = pd.concat([node_data, new_row], ignore_index=True)
-
-        # Add 'link' information to node_data
-        node_data["link"] = node_data["ReferenceID"].map(link_mapping)
-        print(node_data)
-
+            return None, None, None, None
+        
+        
+        # Initialize edge data here, to have connections to produkte available below
         edge_data = df_edges[
             (df_edges["source"].isin(node_list)) & (df_edges["target"].isin(node_list))
         ]
@@ -333,6 +303,75 @@ def generate_graph(cluster_dfs, data_dfs, filter_refid):
         edge_data = edge_data.apply(
             convert_special_string, axis=1
         )  # Modify Produkte entries
+        
+
+        # Add new rows for special entries in cluster_nodes that are not organizations
+        # Here the code to add Produkte, which based on cleanup steps appear in the form of: "[1000299836, 1000300252, 2]", i.e. the produkt ids and the number of products.
+        produkte_of_cluster = pd.DataFrame(columns=["Parents", "Produkt_Typ", "Objekt", "Produkt_RefID"])
+        for node in node_list:
+            # print(node)
+            actual_list, name, number, produkt_id_list = process_produkte_strings(str(node))
+            # print("list:", actual_list)
+            # print("list:", produkt_id_list)
+            if actual_list:
+                new_row = pd.DataFrame(
+                    {
+                        "ReferenceID": [str(actual_list)],
+                        "Name_original": [str(name) + "\n" + str(number)],
+                    }
+                )
+                node_data = pd.concat([node_data, new_row], ignore_index=True)
+                
+                # Retrieve the ReferenceIDs from the edge data
+                connected_nodes = edge_data[edge_data["source"] == str(actual_list)]["target"].tolist()
+                # Take only the last three characters of each connected node
+                connected_nodes = [node[-3:] for node in connected_nodes]
+                if len(connected_nodes) > 0:
+                    # Add to produkte_of_cluster DataFrame
+                    produkt_row = pd.DataFrame(
+                        {
+                            "Parents": [connected_nodes],
+                            "Objekt": [str(actual_list)],
+                            "Produkt_Typ": [str(name)],
+                            "Produkt_RefID": [str(produkt_id_list)],
+                        }
+                    )
+                    produkte_of_cluster = pd.concat([produkte_of_cluster, produkt_row], ignore_index=True)
+
+                
+
+        # Add 'link' information to node_data
+        node_data["link"] = node_data["ReferenceID"].map(link_mapping)
+        # print(node_data)
+        
+        # Add servicerole nodes and edges
+        servicerole_nodes = []
+        servicerole_edges = []
+        
+        for df in [organisationen_of_cluster, personen_of_cluster]:
+            for _, row in df.iterrows():
+                if row['Servicerole_string'] and not pd.isna(row['Servicerole_string']):
+                    servicerole_id = f"servicerole_{row['ReferenceID']}"
+                    servicerole_nodes.append({
+                        'ReferenceID': servicerole_id,
+                        'Name_original': row['Servicerole_string'],
+                        'Typ': 'Servicerole'
+                    })
+                    servicerole_edges.append({
+                        'source': row['ReferenceID'],
+                        'target': servicerole_id,
+                        'match_type': 'Servicerolle',
+                        'bidirectional': False
+                    })
+                    
+        # Add servicerole nodes to node_data
+        node_data = pd.concat([node_data, pd.DataFrame(servicerole_nodes)], ignore_index=True)
+        
+        
+        # Add servicerole edges to edge_data
+        edge_data = pd.concat([edge_data, pd.DataFrame(servicerole_edges)], ignore_index=True)
+
+        
         edge_data = edge_data.drop_duplicates(subset=["source", "target", "match_type"])
 
         # st.write(edge_data) # Debugging
@@ -349,7 +388,7 @@ def generate_graph(cluster_dfs, data_dfs, filter_refid):
         graph.add_nodes(node_data)
         graph.add_edges(edge_data)
 
-        return graph, personen_of_cluster, organisationen_of_cluster
+        return graph, personen_of_cluster, organisationen_of_cluster, produkte_of_cluster
 
 
 def show():
@@ -409,7 +448,7 @@ def show():
         st.session_state["edge_shape2"] = technical_value
         g = False
         try:
-            g, personen_of_cluster, organisationen_of_cluster = generate_graph(
+            g, personen_of_cluster, organisationen_of_cluster, produkte_of_cluster = generate_graph(
                 cluster_dfs, data_dfs, filter_refid
             )
             svg_path, svg_str = g.render()
@@ -446,3 +485,5 @@ def show():
             st.dataframe(
                 show_subset_of_columns(organisationen_of_cluster), hide_index=True
             )
+            # Function below places the Produkte Subheader and table.
+            produkte_of_cluster = create_produkte_table(produkte_of_cluster)

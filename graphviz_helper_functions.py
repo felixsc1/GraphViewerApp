@@ -782,6 +782,7 @@ class GraphvizWrapper_organisationen:
             if node_type == "Person":
                 attributes["style"] = "filled"
                 attributes["fillcolor"] = "#7296d1"
+                
 
             # Check if node_id is a string that starts and ends with brackets (assuming only Produkte are formatted like this)
             if (
@@ -796,8 +797,13 @@ class GraphvizWrapper_organisationen:
             else:
                 # Else use the existing formatting for the label
                 node_id_short = str(node_id)[-3:]
-                if node_servicerole:
-                    node_label = f"<{node_name}<BR/>{node_id_short}<BR/><B>{node_servicerole}</B>>"
+                # if node_servicerole:  # Obsolete, is now added as separate node.
+                #     node_label = f"<{node_name}<BR/>{node_id_short}<BR/><B>{node_servicerole}</B>>"
+                # else:
+                if node_type == "Servicerole":
+                    attributes["style"] = "filled"
+                    attributes["fillcolor"] = "#1fddd4"
+                    node_label = node_name
                 else:
                     node_label = f"{node_name}\n{node_id_short}"
                     

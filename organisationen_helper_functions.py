@@ -1407,6 +1407,7 @@ def organisationsrollen_group_aggregate(df):
         )
         .agg(
             Produkt_count=pd.NamedAgg(column="Produkt_RefID", aggfunc="size"),
+            Produkte_RefID=pd.NamedAgg(column="Produkt_RefID", aggfunc=list),
             Produkte=pd.NamedAgg(column="ProduktObj", aggfunc=list),
             **{
                 col: pd.NamedAgg(column=col, aggfunc="first")
@@ -1474,7 +1475,7 @@ def generate_edge_list_from_orginationsrollen_aggregate(df):
     """
     "source" eines edges ist kombination aus liste der objekte+produkttyp newline count. um eindeutig zu sein.
     Für eine source gibt es jeweils 3 row / Targets (inh. rechempf. korrempf.) mit RefID und label.
-    diese edge list kann dann mit internen endge list der organisationen concateniert werden.
+    diese edge list kann dann mit internen edge list der organisationen concateniert werden.
     """
     edge_list = []
     for _, row in df.iterrows():
@@ -1483,6 +1484,7 @@ def generate_edge_list_from_orginationsrollen_aggregate(df):
             + str(row["Produkt_typ"])
             + "\n"
             + str([row["Produkt_count"]][0])
+            + str(row["Produkte_RefID"])
         )
         for target, target_type in [
             (row["Rechnungsempfaenger_RefID"], "Rechnungsempfaenger"),

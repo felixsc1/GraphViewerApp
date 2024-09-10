@@ -179,12 +179,15 @@ def create_edges_and_clusters():
     edges_organisationen = match_organizations_internally_simplified(df_organisationen)
 
     organisationsrollen_df = load_data(file_paths["organisationsrollen"])
+    # organisationsrollen_df.to_excel("data/organisationsrollen_df_debug.xlsx", index=False)
     edges_organisationsrollen = organisationsrollen_group_aggregate(
         organisationsrollen_df
     )
+    # edges_organisationsrollen.to_excel("data/edges_organisationsrollen_df_debug.xlsx", index=False)
     edges_organisationsrollen = generate_edge_list_from_orginationsrollen_aggregate(
         edges_organisationsrollen
     )
+    edges_organisationsrollen.to_excel("data/edges_organisationsrollen_step2_df_debug.xlsx", index=False)
     
     personenrollen_df = load_data(file_paths["personenrollen"])
     edges_personenrollen = personenrollen_group_aggregate(personenrollen_df)
