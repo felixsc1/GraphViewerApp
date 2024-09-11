@@ -99,7 +99,6 @@ def sanitize_string(s):
     s = html.escape(s)
     return s
 
-
 def process_produkte_strings(input_string):
     """
     The "source" entries in the cluster df, contain values that look like this:
@@ -112,19 +111,16 @@ def process_produkte_strings(input_string):
     if "\n" not in input_string:
         return False, False, False, False
 
-    # Find the ending of the first list part (ignoring "[]" at the beginning and "]" at the end)
-    end_of_first_list_index = input_string.find("]")
-
-    # Extract the first list part and convert it into a list
-    # Strip the "['" at the beginning and "']" at the end, then split by "', '"
-    first_list_part_raw = input_string[2:end_of_first_list_index]
-    first_list_part = [item.strip("'") for item in first_list_part_raw.split("', '")]
-
-    # Extract the remaining part after the first list
-    remaining_part = input_string[end_of_first_list_index + 1:]
-
-    # Split the remaining part into name and number based on the newline character
-    # The '1' ensures that we only split at the first newline character
+    # Extract the first list part using a more robust regex
+    first_list_match = re.match(r'\[(.*?)\](?=\w)', input_string, re.DOTALL)
+    if not first_list_match:
+        return False, False, False, False
+    
+    first_list_part_raw = first_list_match.group(1)
+    first_list_part = re.findall(r"'([^']*)'", first_list_part_raw)
+    
+    # Extract the remaining parts
+    remaining_part = input_string[first_list_match.end():].strip()
     name, number_part = remaining_part.split("\n", 1)
 
     # Check if there is an additional list at the end
@@ -137,8 +133,9 @@ def process_produkte_strings(input_string):
         number = int(number_part.strip())
         second_list_part = []
         
-    # print("first list part:", first_list_part)
-    # print("name:", name)
+    print("input string:", input_string)
+    print("first list part:", first_list_part)
+    print("name:", name)
     # print("number:", number)
     # print("second list part:", second_list_part)
 
@@ -309,9 +306,9 @@ def generate_graph(cluster_dfs, data_dfs, filter_refid):
         # Here the code to add Produkte, which based on cleanup steps appear in the form of: "[1000299836, 1000300252, 2]", i.e. the produkt ids and the number of products.
         produkte_of_cluster = pd.DataFrame(columns=["Parents", "Produkt_Typ", "Objekt", "Produkt_RefID"])
         for node in node_list:
-            # print(node)
+            print(node)
             actual_list, name, number, produkt_id_list = process_produkte_strings(str(node))
-            # print("list:", actual_list)
+            print("list:", actual_list)
             # print("list:", produkt_id_list)
             if actual_list:
                 new_row = pd.DataFrame(
