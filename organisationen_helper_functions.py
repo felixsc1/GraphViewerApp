@@ -1553,6 +1553,7 @@ servicerollen = {
 def add_servicerole_column_string(df_data, serviceroles_df):
     # This one adds the actual name of the service role. For personen to give Ausweis higher score later on.
     df_data["Servicerole_string"] = ""
+    df_data["ServiceroleID_string"] = ""
 
     for index, row in df_data.iterrows():
         ref_id = row["ReferenceID"]
@@ -1561,13 +1562,16 @@ def add_servicerole_column_string(df_data, serviceroles_df):
         ]
 
         roles = []
+        role_ids = []
         for _, role_row in matching_roles.iterrows():
             role_ref_id = role_row["ServiceRoleReferenceID"]
             role = servicerollen.get(role_ref_id, "")
             if role:
                 roles.append(role)
+            role_ids.append(role_row["ServiceRole"])
 
         df_data.at[index, "Servicerole_string"] = ", ".join(roles)
+        df_data.at[index, "ServiceroleID_string"] = ", ".join(role_ids)
 
     return df_data
 

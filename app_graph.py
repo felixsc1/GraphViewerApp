@@ -110,6 +110,14 @@ def process_produkte_strings(input_string):
     # Ensure there are no breaking errors, if the string is not a Produkt name, just return False
     if "\n" not in input_string:
         return False, False, False, False
+    
+    # Define the maximum length threshold
+    MAX_LENGTH = 16384
+
+    # Check if the input string exceeds the maximum length
+    if len(input_string) > MAX_LENGTH:
+        st.error("Warning: Too many products to display.")
+        return False, False, False, False
 
     # Extract the first list part using a more robust regex
     first_list_match = re.match(r'\[(.*?)\](?=\w)', input_string, re.DOTALL)
@@ -133,13 +141,14 @@ def process_produkte_strings(input_string):
         number = int(number_part.strip())
         second_list_part = []
         
-    print("input string:", input_string)
-    print("first list part:", first_list_part)
-    print("name:", name)
+    # print("input string:", input_string)
+    # print("first list part:", first_list_part)
+    # print("name:", name)
     # print("number:", number)
     # print("second list part:", second_list_part)
 
     return first_list_part, name, number, second_list_part
+
 
 
 def de_americanize_columns(df):
@@ -191,7 +200,7 @@ def create_produkte_table(df):
         for obj, ref_id in zip(row['Objekt'], row['Produkt_RefID']):
             new_row = row.copy()
             new_row['Objekt'] = obj
-            new_row['Produkt_RefID'] = ref_id
+            new_row['Produkt_RefID'] = ref_id.strip()
             expanded_rows.append(new_row)
     
     # Create a new DataFrame from the list of expanded rows
@@ -212,6 +221,44 @@ def create_produkte_table(df):
         )
     
     return expanded_df
+
+
+def create_serviceroles_table(df):
+    if df is None:
+        return None
+    
+    # Convert comma-separated strings to actual lists
+    df['Servicerole'] = df['Servicerole'].apply(lambda x: x.split(',') if isinstance(x, str) else x)
+    df['Servicerole_RefID'] = df['Servicerole_RefID'].apply(lambda x: x.split(',') if isinstance(x, str) else x)
+    
+    # Create a list to store the expanded rows
+    expanded_rows = []
+    
+    for _, row in df.iterrows():
+        for obj, ref_id in zip(row['Servicerole'], row['Servicerole_RefID']):
+            new_row = row.copy()
+            new_row['Servicerole'] = obj
+            new_row['Servicerole_RefID'] = ref_id.strip()
+            expanded_rows.append(new_row)
+    
+    # Create a new DataFrame from the list of expanded rows
+    expanded_df = pd.DataFrame(expanded_rows, columns=df.columns)
+    
+    expanded_df['Servicerole_RefID'] = expanded_df['Servicerole_RefID'].apply(
+        lambda x: f"https://www.egov-uvek.gever-abn.admin.ch/web/?ObjectToOpenID=%24SpecialdataHostingBaseDataObject%7C{urllib.parse.quote(str(x))}&TenantID=208"
+    )
+    
+    # Display the DataFrame with links in Streamlit if it is not empty
+    if not expanded_df.empty:
+        st.subheader("📺 Serviceroles:")
+        st.data_editor(
+            expanded_df,
+            column_config={"Servicerole_RefID": st.column_config.LinkColumn(display_text=r'https://www\.egov-uvek\.gever-abn\.admin\.ch/web/\?ObjectToOpenID=%24SpecialdataHostingBaseDataObject%7C(.*)&TenantID=208')},
+            hide_index=True
+        )
+            
+    return expanded_df
+    
 
 def generate_graph(cluster_dfs, data_dfs, filter_refid):
     df_clusters = cluster_dfs["clusters"]
@@ -242,12 +289,12 @@ def generate_graph(cluster_dfs, data_dfs, filter_refid):
                     "ReferenceID not found in any dataset.",
                     icon="🚨",
                 )
-                return None, None, None, None
+                return None, None, None, None, None
             
             # Create a simple graph with just this node
             graph = GraphvizWrapper_organisationen()
             graph.add_nodes(node_data)
-            return graph, person, organisation, None
+            return graph, person, organisation, None, None
 
         node_list = cluster_selected.iloc[0]["nodes"]
 
@@ -288,7 +335,7 @@ def generate_graph(cluster_dfs, data_dfs, filter_refid):
                 "The cluster has more than 50 nodes. Please change the filter settings.",
                 icon="⚠️",
             )
-            return None, None, None, None
+            return None, None, None, None, None
         
         
         # Initialize edge data here, to have connections to produkte available below
@@ -306,9 +353,9 @@ def generate_graph(cluster_dfs, data_dfs, filter_refid):
         # Here the code to add Produkte, which based on cleanup steps appear in the form of: "[1000299836, 1000300252, 2]", i.e. the produkt ids and the number of products.
         produkte_of_cluster = pd.DataFrame(columns=["Parents", "Produkt_Typ", "Objekt", "Produkt_RefID"])
         for node in node_list:
-            print(node)
+            # print("node:", node)
             actual_list, name, number, produkt_id_list = process_produkte_strings(str(node))
-            print("list:", actual_list)
+            # print("list:", actual_list)
             # print("list:", produkt_id_list)
             if actual_list:
                 new_row = pd.DataFrame(
@@ -344,22 +391,30 @@ def generate_graph(cluster_dfs, data_dfs, filter_refid):
         # Add servicerole nodes and edges
         servicerole_nodes = []
         servicerole_edges = []
-        
+        serviceroles_of_cluster = pd.DataFrame(columns=["Parent", "Servicerole", "Servicerole_RefID"])
+
         for df in [organisationen_of_cluster, personen_of_cluster]:
             for _, row in df.iterrows():
                 if row['Servicerole_string'] and not pd.isna(row['Servicerole_string']):
-                    servicerole_id = f"servicerole_{row['ReferenceID']}"
                     servicerole_nodes.append({
-                        'ReferenceID': servicerole_id,
+                        'ReferenceID': row['ServiceroleID_string'],
                         'Name_original': row['Servicerole_string'],
                         'Typ': 'Servicerole'
                     })
                     servicerole_edges.append({
                         'source': row['ReferenceID'],
-                        'target': servicerole_id,
+                        'target': row['ServiceroleID_string'],
                         'match_type': 'Servicerolle',
                         'bidirectional': False
                     })
+                    servicerole_row = pd.DataFrame(
+                        {
+                            "Parent": [row['ReferenceID']],
+                            "Servicerole": [row['Servicerole_string']],
+                            "Servicerole_RefID": [row['ServiceroleID_string']]
+                        }
+                    )
+                    serviceroles_of_cluster = pd.concat([serviceroles_of_cluster, servicerole_row], ignore_index=True)
                     
         # Add servicerole nodes to node_data
         node_data = pd.concat([node_data, pd.DataFrame(servicerole_nodes)], ignore_index=True)
@@ -385,7 +440,9 @@ def generate_graph(cluster_dfs, data_dfs, filter_refid):
         graph.add_nodes(node_data)
         graph.add_edges(edge_data)
 
-        return graph, personen_of_cluster, organisationen_of_cluster, produkte_of_cluster
+        return graph, personen_of_cluster, organisationen_of_cluster, produkte_of_cluster, serviceroles_of_cluster
+
+    return None, None, None, None, None
 
 
 def show():
@@ -445,7 +502,7 @@ def show():
         st.session_state["edge_shape2"] = technical_value
         g = False
         try:
-            g, personen_of_cluster, organisationen_of_cluster, produkte_of_cluster = generate_graph(
+            g, personen_of_cluster, organisationen_of_cluster, produkte_of_cluster, serviceroles_of_cluster = generate_graph(
                 cluster_dfs, data_dfs, filter_refid
             )
             svg_path, svg_str = g.render()
@@ -482,5 +539,7 @@ def show():
             st.dataframe(
                 show_subset_of_columns(organisationen_of_cluster), hide_index=True
             )
-            # Function below places the Produkte Subheader and table.
+            # Function below places the Produkte/Servicrole Subheaders and tables.
             produkte_of_cluster = create_produkte_table(produkte_of_cluster)
+            serviceroles_of_cluster = create_serviceroles_table(serviceroles_of_cluster)
+        
