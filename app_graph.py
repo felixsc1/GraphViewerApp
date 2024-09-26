@@ -208,7 +208,7 @@ def create_produkte_table(df):
     
     # Add example links to the 'Objekt' column
     expanded_df['Produkt_RefID'] = expanded_df['Produkt_RefID'].apply(
-        lambda x: f"https://www.egov-uvek.gever-abn.admin.ch/web/?ObjectToOpenID=%24SpecialdataHostingBaseDataObject%7C{urllib.parse.quote(str(x))}&TenantID=208"
+        lambda x: f"https://www.egov-uvek.gever.admin.ch/web/?ObjectToOpenID=%24SpecialdataHostingBaseDataObject%7C{urllib.parse.quote(str(x))}&TenantID=208"
     )
 
     # Display the DataFrame with links in Streamlit if it is not empty
@@ -216,7 +216,7 @@ def create_produkte_table(df):
         st.subheader("🛒 Produkte:")
         st.data_editor(
             expanded_df,
-            column_config={"Produkt_RefID": st.column_config.LinkColumn(display_text=r'https://www\.egov-uvek\.gever-abn\.admin\.ch/web/\?ObjectToOpenID=%24SpecialdataHostingBaseDataObject%7C(.*)&TenantID=208')},
+            column_config={"Produkt_RefID": st.column_config.LinkColumn(display_text=r'https://www\.egov-uvek\.gever\.admin\.ch/web/\?ObjectToOpenID=%24SpecialdataHostingBaseDataObject%7C(.*)&TenantID=208')},
             hide_index=True
         )
     
@@ -245,7 +245,7 @@ def create_serviceroles_table(df):
     expanded_df = pd.DataFrame(expanded_rows, columns=df.columns)
     
     expanded_df['Servicerole_RefID'] = expanded_df['Servicerole_RefID'].apply(
-        lambda x: f"https://www.egov-uvek.gever-abn.admin.ch/web/?ObjectToOpenID=%24SpecialdataHostingBaseDataObject%7C{urllib.parse.quote(str(x))}&TenantID=208"
+        lambda x: f"https://www.egov-uvek.gever.admin.ch/web/?ObjectToOpenID=%24SpecialdataHostingBaseDataObject%7C{urllib.parse.quote(str(x))}&TenantID=208"
     )
     
     # Display the DataFrame with links in Streamlit if it is not empty
@@ -253,7 +253,7 @@ def create_serviceroles_table(df):
         st.subheader("📺 Serviceroles:")
         st.data_editor(
             expanded_df,
-            column_config={"Servicerole_RefID": st.column_config.LinkColumn(display_text=r'https://www\.egov-uvek\.gever-abn\.admin\.ch/web/\?ObjectToOpenID=%24SpecialdataHostingBaseDataObject%7C(.*)&TenantID=208')},
+            column_config={"Servicerole_RefID": st.column_config.LinkColumn(display_text=r'https://www\.egov-uvek\.gever\.admin\.ch/web/\?ObjectToOpenID=%24SpecialdataHostingBaseDataObject%7C(.*)&TenantID=208')},
             hide_index=True
         )
             
