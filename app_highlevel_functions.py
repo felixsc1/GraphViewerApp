@@ -17,7 +17,7 @@ from organisationen_helper_functions import (
     add_servicerole_column_string,
     cleanup_edges_df,
     find_clusters_all,
-    generate_edge_list_from_orginationsrollen_aggregate,
+    generate_edge_list_from_organisationsrollen_aggregate,
     generate_edge_list_from_personenrollen_aggregate,
     match_organizations_between_dataframes,
     match_organizations_internally_simplified,
@@ -131,6 +131,7 @@ def raw_cleanup(toggle_gmaps=False):
     dfs = {
         "personen": df_personen,
         "organisationen": df_organisationen,
+        "organisationsrollen_all": organisationsrollen_df,
         "file_versions": st.session_state["file_versions"],
     }
 
@@ -161,6 +162,7 @@ def create_edges_and_clusters():
         dfs = pickle.load(file)
     df_personen = dfs["personen"]
     df_organisationen = dfs["organisationen"]
+    df_organisationsrollen = dfs["organisationsrollen_all"]
     
     # helper functions to map ReferenceIDs to hyperlinks
     def create_link_mapping(df):
@@ -178,20 +180,21 @@ def create_edges_and_clusters():
 
     edges_organisationen = match_organizations_internally_simplified(df_organisationen)
 
-    organisationsrollen_df = load_data(file_paths["organisationsrollen"])
-    # organisationsrollen_df.to_excel("data/organisationsrollen_df_debug.xlsx", index=False)
     edges_organisationsrollen = organisationsrollen_group_aggregate(
-        organisationsrollen_df
+        df_organisationsrollen
     )
-    # edges_organisationsrollen.to_excel("data/edges_organisationsrollen_df_debug.xlsx", index=False)
-    edges_organisationsrollen = generate_edge_list_from_orginationsrollen_aggregate(
+    edges_organisationsrollen.to_excel("data/edges_organisationsrollen_df_debug.xlsx", index=False)
+    edges_organisationsrollen = generate_edge_list_from_organisationsrollen_aggregate(
         edges_organisationsrollen
     )
-    edges_organisationsrollen.to_excel("data/edges_organisationsrollen_step2_df_debug.xlsx", index=False)
+    # edges_organisationsrollen.to_excel("data/edges_organisationsrollen_step2_df_debug.xlsx", index=False)
+    
     
     personenrollen_df = load_data(file_paths["personenrollen"])
     edges_personenrollen = personenrollen_group_aggregate(personenrollen_df)
+    # edges_personenrollen.to_excel("data/edges_personenrollen_df_debug.xlsx", index=False)
     edges_personenrollen = generate_edge_list_from_personenrollen_aggregate(edges_personenrollen)
+    # edges_personenrollen.to_excel("data/edges_personenrollen_step2_df_debug.xlsx", index=False)
 
     edges_personen = match_organizations_internally_simplified(
         df_personen, personen=True
@@ -216,8 +219,12 @@ def create_edges_and_clusters():
     
     edge_list = [edges_organisationen, edges_personen, edges_organisationsrollen, edges_personenrollen, edges_personen_to_organisationen]
     all_edges = pd.concat(edge_list, ignore_index=True)
+    
+    # all_edges.to_excel("data/all_edges_df_debug_before_cleanup.xlsx", index=False)
 
     all_edges = cleanup_edges_df(all_edges)
+    
+    # all_edges.to_excel("data/all_edges_df_debug.xlsx", index=False)
 
     special_nodes = set(
         edges_organisationsrollen["source"].unique()

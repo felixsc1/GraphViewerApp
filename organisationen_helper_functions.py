@@ -292,9 +292,15 @@ def cleanup_edges_df(df):
     # Initially mark predefined match_types as bidirectional.
     df["bidirectional"] = df["match_type"].isin(["Name", "Telefon", "Email", "Adresse"])
 
+
+    # Debugging check
+    # print("NaN source: ", df[df['source'].isna()])
+    # print("NaN target: ", df[df['target'].isna()])
+
     # Create sorted tuples of 'source' and 'target' for bidirectional checking.
     df["sorted_edge"] = df.apply(
-        lambda row: tuple(sorted([row["source"], row["target"]])), axis=1
+        lambda row: tuple(sorted([row["source"], row["target"]])), 
+        axis=1
     )
 
     # Identify all pairs of edges that occur more than once, indicating a potential bidirectional relationship.
@@ -1436,8 +1442,14 @@ def personenrollen_group_aggregate(df):
     # Analog zu organisationsrollen_group_aggregate().
     # Input is das raw xlsx vom Personenrollenanalyse query.
     # Benutzt dictionary oben Produkt_typ als string, Count für eine Kombination aus typ/inh./rechempf/korrempf und liste der produkt-objekte zu generieren.
+
+    # Not all Produkte have all 3 roles, Kontaktperson_RefID, Technikperson_RefID, Statistikperson_RefID can be NaN, and will be output as such.
+
+    # Fill NaN values with a placeholder to ensure they are included in the groupby
+    df_filled = df.fillna('Missing')
+
     grouped_df = (
-        df.groupby(
+        df_filled.groupby(
             [
                 "Kontaktperson_RefID",
                 "Technikperson_RefID",
@@ -1465,13 +1477,16 @@ def personenrollen_group_aggregate(df):
         .reset_index()
     )
 
+    # Replace the placeholder back with NaN
+    grouped_df.replace('Missing', pd.NA, inplace=True)
+
     # Create 'Produkt_typ' by mapping 'FullID' through the data dictionary
     grouped_df["Produkt_typ"] = grouped_df["FullID"].map(produkte_dict)
 
     return grouped_df
 
 
-def generate_edge_list_from_orginationsrollen_aggregate(df):
+def generate_edge_list_from_organisationsrollen_aggregate(df):
     """
     "source" eines edges ist kombination aus liste der objekte+produkttyp newline count. um eindeutig zu sein.
     Für eine source gibt es jeweils 3 row / Targets (inh. rechempf. korrempf.) mit RefID und label.
@@ -1491,9 +1506,10 @@ def generate_edge_list_from_orginationsrollen_aggregate(df):
             (row["Korrespondenzempfaenger_RefID"], "Korrespondenzempfaenger"),
             (row["Inhaber_RefID"], "Inhaber"),
         ]:
-            edge_list.append(
-                {"source": source, "target": target, "match_type": target_type}
-            )
+            if pd.notna(target) and target is not None and target != "":
+                edge_list.append(
+                    {"source": source, "target": target, "match_type": target_type}
+                )
 
     # Create a DataFrame from the edge list
     edges_df = pd.DataFrame(edge_list)
@@ -1506,6 +1522,8 @@ def generate_edge_list_from_personenrollen_aggregate(df):
     "source" eines edges ist kombination aus liste der objekte+produkttyp newline count. um eindeutig zu sein.
     Für eine source gibt es jeweils 3 row / Targets (inh. rechempf. korrempf.) mit RefID und label.
     diese edge list kann dann mit internen endge list der organisationen concateniert werden.
+    
+    Weil nicht jedes Produkt alle 3 Rollen hat, können einige Targets NaN sein. Diese werden hier hinausgefiltert.
     """
     edge_list = []
     for _, row in df.iterrows():
@@ -1520,9 +1538,10 @@ def generate_edge_list_from_personenrollen_aggregate(df):
             (row["Statistikperson_RefID"], "Statistikperson"),
             (row["Kontaktperson_RefID"], "Kontaktperson"),
         ]:
-            edge_list.append(
-                {"source": source, "target": target, "match_type": target_type}
-            )
+            if pd.notna(target) and target is not None and target != "":
+                edge_list.append(
+                    {"source": source, "target": target, "match_type": target_type}
+                )
 
     # Create a DataFrame from the edge list
     edges_df = pd.DataFrame(edge_list)
