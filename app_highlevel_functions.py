@@ -183,11 +183,11 @@ def create_edges_and_clusters():
     edges_organisationsrollen = organisationsrollen_group_aggregate(
         df_organisationsrollen
     )
-    edges_organisationsrollen.to_excel("data/edges_organisationsrollen_df_debug.xlsx", index=False)
+    # edges_organisationsrollen.to_excel("data/edges_organisationsrollen_df_debug.xlsx", index=False) # DEBUG
     edges_organisationsrollen = generate_edge_list_from_organisationsrollen_aggregate(
         edges_organisationsrollen
     )
-    # edges_organisationsrollen.to_excel("data/edges_organisationsrollen_step2_df_debug.xlsx", index=False)
+    # edges_organisationsrollen.to_excel("data/edges_organisationsrollen_step2_df_debug.xlsx", index=False) # DEBUG
     
     
     personenrollen_df = load_data(file_paths["personenrollen"])

@@ -1507,6 +1507,9 @@ def generate_edge_list_from_organisationsrollen_aggregate(df):
             (row["Inhaber_RefID"], "Inhaber"),
         ]:
             if pd.notna(target) and target is not None and target != "":
+                # Check for the special case where Produkt_typ is "FDA" and match_type is "Rechnungsempfaenger"
+                if row["Produkt_typ"] == "FDA" and target_type == "Rechnungsempfaenger":
+                    target_type = "Verwalter"
                 edge_list.append(
                     {"source": source, "target": target, "match_type": target_type}
                 )
