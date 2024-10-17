@@ -1,7 +1,7 @@
 import streamlit as st
 from processing_helper_functions import detect_raw_files
 from app_highlevel_functions import create_edges_and_clusters, raw_cleanup
-from app_helper_functions import upload_files, clear_data_directory, get_data_version
+from app_helper_functions import upload_files, clear_data_directory, get_data_version, upload_python_files
 import os
 
 def initialize_state():
@@ -32,7 +32,6 @@ def run_processing_steps():
 # --------------------Main App Structure--------------------------
 def show():
     initialize_state()
-    
     upload_files()
 
     if st.button("🔎 1. Check Data"):
@@ -57,5 +56,6 @@ def show():
         if st.button('⚠️ Terminate the app', type="primary"):
             # When clicked, forcefully terminate the Python process
             os._exit(1)  # Use os._exit() to terminate the process abruptly
+        upload_python_files()
 
 

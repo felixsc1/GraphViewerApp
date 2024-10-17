@@ -9,10 +9,24 @@ import os
 st.set_page_config(page_title="GraphViewer App", page_icon="📊", layout="wide")
 
 # Sidebar
+# st.sidebar.title("Navigation")
+# selection = st.sidebar.selectbox(
+#     "Go to", ["Data Processing", "Search RefID", "Graph Viewer"]
+# )
+
 st.sidebar.title("Navigation")
+if 'selection' not in st.session_state:
+    st.session_state['selection'] = "Search RefID"
+
+# Use the session state to determine the current selection
 selection = st.sidebar.selectbox(
-    "Go to", ["Data Processing", "Search RefID", "Graph Viewer"]
+    "Go to", ["Data Processing", "Search RefID", "Graph Viewer"],
+    index=["Data Processing", "Search RefID", "Graph Viewer"].index(st.session_state['selection'])
 )
+
+# Update session state based on sidebar selection
+st.session_state['selection'] = selection
+
 
 if 'cwd' not in st.session_state:
     st.session_state['cwd'] = os.getcwd()

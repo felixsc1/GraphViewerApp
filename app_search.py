@@ -93,29 +93,82 @@ def show():
     # global personen_matches
     personen_matches, organisationen_matches = search_names(search_name, data_dfs)
 
-    col1, col2 = st.columns(2)
+    col1, col2 = st.columns(2, gap="small")
     
     with col1:
         if not personen_matches.empty:
             st.subheader("Personen matches")
-            # personen_matches = st.data_editor(personen_matches.reset_index(drop=True))
-            st.write(personen_matches.to_dict('records'))
-        # for index, row in personen_matches.iterrows():
-        #     if row['Copy']:
-        #         # Copy ReferenceID to clipboard
-        #         pyperclip.copy(row['ReferenceID'])
-        #         st.write(f"Copied {row['ReferenceID']} to clipboard")
-        #         # Reset the flag to False after copying
-        #         personen_matches.at[index, 'Copy'] = False
+            
+            # Add a 'Select' column for the data editor
+            personen_matches['Select'] = False
+
+            # Create a copy of the DataFrame for display, excluding the ReferenceID column
+            display_df = personen_matches.drop(columns=["ReferenceID"])
+
+            # Display the data editor
+            edited_df = st.data_editor(
+                display_df,
+                column_config={
+                    "Select": st.column_config.CheckboxColumn(
+                        "Select",
+                        help="Select this ReferenceID",
+                    ),
+                    "Objekt_link": st.column_config.LinkColumn(
+                        "ReferenceID",  # Rename the column to "ReferenceID"
+                        help="Click to open the object link",
+                        display_text=r"https://www\.egov-uvek\.gever\.admin\.ch/web/\?ObjectToOpenID=%24Person%7C(.*?)&TenantID=208"
+                    ),
+                },
+                hide_index=True,
+            )
+
+            # Check for selection and update
+            selected_rows = edited_df[edited_df['Select'] == True]
+            if not selected_rows.empty:
+                # Use the index to get the ReferenceID from the original DataFrame
+                selected_row_index = selected_rows.index[0]
+                st.session_state["ReferenceID"] = personen_matches.loc[selected_row_index, 'ReferenceID']
+                st.session_state["selection"] = "Graph Viewer"
+                st.rerun()
+
+        else:
+            st.warning("No matches found.")
 
     with col2:
         if not organisationen_matches.empty:
             st.subheader("Organisationen matches")
-            # organisationen_matches = st.data_editor(organisationen_matches.reset_index(drop=True))
-            st.write(organisationen_matches.to_dict('records'))
-        # for index, row in organisationen_matches.iterrows():
-        #     if row['Copy']:
-        #         # Copy ReferenceID to clipboard
-        #         pyperclip.copy(row['ReferenceID'])
-        #         # Reset the flag to False after copying
-        #         personen_matches.at[index, 'Copy'] = False
+            # st.write(organisationen_matches.to_dict('records'))
+
+            # Add a 'Select' column for the data editor
+            organisationen_matches['Select'] = False
+
+            # Drop the original ReferenceID column
+            display_df = organisationen_matches.drop(columns=["ReferenceID"])
+
+            # Display the data editor
+            edited_df = st.data_editor(
+                display_df,
+                column_config={
+                    "Select": st.column_config.CheckboxColumn(
+                        "Select",
+                        help="Select this ReferenceID",
+                    ),
+                    "Objekt_link": st.column_config.LinkColumn(
+                        "ReferenceID",  # Rename the column to "ReferenceID"
+                        help="Click to open the object link",
+                        display_text=r"https://www\.egov-uvek\.gever\.admin\.ch/web/\?ObjectToOpenID=%24Institution%7C(.*?)&TenantID=208"
+                    ),
+                },
+                hide_index=True,
+            )
+
+            # Check for selection and update
+            selected_rows = edited_df[edited_df['Select'] == True]
+            if not selected_rows.empty:
+                selected_row_index = selected_rows.index[0]
+                st.session_state["ReferenceID"] = organisationen_matches.loc[selected_row_index, 'ReferenceID']
+                st.session_state["selection"] = "Graph Viewer"
+                st.rerun()
+
+        else:
+            st.warning("No matches found.")

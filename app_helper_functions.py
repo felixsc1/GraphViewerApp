@@ -1,6 +1,12 @@
 import glob
 import os
 import numpy as np
+import pandas as pd
+import sys
+import io
+import streamlit as st
+import fnmatch
+
 
 
 def generate_dataframe_html(df):
@@ -15,9 +21,6 @@ def generate_dataframe_html(df):
     return html_string
 
 
-import pandas as pd
-import sys
-import io
 
 
 def identify_groups_and_master(df):
@@ -337,8 +340,6 @@ def get_geschaeftspartner(input_df, folder_path):
 
 #  ----- Functions related to app file upload ----
 # -------------------------------
-import streamlit as st
-import fnmatch
 
 
 def upload_files():
@@ -453,3 +454,22 @@ def get_data_version():
     st.session_state["file_versions"]["ordered_filenames"] = ordered_filenames
 
     return earliest_date, latest_date, ordered_filenames
+
+
+
+def upload_python_files():
+    # Allows replacing code directly in the app directory. Use with caution!
+    uploaded_files = st.file_uploader(
+        "Upload Python Files", accept_multiple_files=True, type=["py"]
+    )
+
+    if uploaded_files:
+        for uploaded_file in uploaded_files:
+            # Define the path where the file should be saved
+            file_path = os.path.join(os.getcwd(), uploaded_file.name)
+
+            # Write the file to the specified location
+            with open(file_path, "wb") as f:
+                f.write(uploaded_file.getbuffer())
+
+        st.success(f"{len(uploaded_files)} files uploaded and replaced.")
