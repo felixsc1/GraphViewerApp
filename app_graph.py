@@ -1,7 +1,6 @@
 import streamlit as st
-import pickle
 import pandas as pd
-from app_helper_functions import get_data_version
+from app_helper_functions import get_data_version, load_data
 from app_processing import find_all_data
 from app_search import success_temporary
 from graphviz_helper_functions import GraphvizWrapper_organisationen
@@ -15,43 +14,6 @@ import urllib.parse
 
 # Supress pandas warnings
 warnings.filterwarnings("ignore")
-
-@st.cache_data
-def load_data():
-    try:
-        with open(
-            os.path.join(
-                st.session_state["cwd"], "data/calculated/edges_clusters_dfs.pickle"
-            ),
-            "rb",
-        ) as file:
-            cluster_dfs = pickle.load(file)
-
-        with open(
-            os.path.join(
-                st.session_state["cwd"],
-                "data/calculated/personen_organisationen_dfs_processed.pickle",
-            ),
-            "rb",
-        ) as file:
-            data_dfs = pickle.load(file)
-
-            # Store it in session state for later use
-            st.session_state["file_versions"] = {}
-            st.session_state["file_versions"]["earliest_date"] = data_dfs[
-                "file_versions"
-            ]["earliest_date"]
-            st.session_state["file_versions"]["latest_date"] = data_dfs[
-                "file_versions"
-            ]["latest_date"]
-            st.session_state["file_versions"]["ordered_filenames"] = data_dfs[
-                "file_versions"
-            ]["ordered_filenames"]
-
-        return cluster_dfs, data_dfs
-    except FileNotFoundError:
-        print("No data found. Please upload and process data.")
-        return None, None
 
 
 def controls():

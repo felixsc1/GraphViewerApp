@@ -6,6 +6,45 @@ import sys
 import io
 import streamlit as st
 import fnmatch
+import pickle
+
+
+@st.cache_data(ttl=60) # TTL 60 will refresh data every minute.
+def load_data():
+    try:
+        with open(
+            os.path.join(
+                st.session_state["cwd"], "data/calculated/edges_clusters_dfs.pickle"
+            ),
+            "rb",
+        ) as file:
+            cluster_dfs = pickle.load(file)
+
+        with open(
+            os.path.join(
+                st.session_state["cwd"],
+                "data/calculated/personen_organisationen_dfs_processed.pickle",
+            ),
+            "rb",
+        ) as file:
+            data_dfs = pickle.load(file)
+
+            # Store it in session state for later use
+            st.session_state["file_versions"] = {}
+            st.session_state["file_versions"]["earliest_date"] = data_dfs[
+                "file_versions"
+            ]["earliest_date"]
+            st.session_state["file_versions"]["latest_date"] = data_dfs[
+                "file_versions"
+            ]["latest_date"]
+            st.session_state["file_versions"]["ordered_filenames"] = data_dfs[
+                "file_versions"
+            ]["ordered_filenames"]
+
+        return cluster_dfs, data_dfs
+    except FileNotFoundError:
+        print("No data found. Please upload and process data.")
+        return None, None
 
 
 

@@ -3,6 +3,7 @@ import app_graph
 from app_helper_functions import get_data_version
 import app_processing
 import app_search
+import app_analysis
 import pandas as pd
 import os
 
@@ -19,9 +20,9 @@ if 'selection' not in st.session_state:
     st.session_state['selection'] = "Search RefID"
 
 # Use the session state to determine the current selection
-selection = st.sidebar.selectbox(
-    "Go to", ["Data Processing", "Search RefID", "Graph Viewer"],
-    index=["Data Processing", "Search RefID", "Graph Viewer"].index(st.session_state['selection'])
+selection = st.sidebar.radio(
+    "Go to", ["Data Processing", "Search RefID", "Graph Viewer", "Analysis"],
+    index=["Data Processing", "Search RefID", "Graph Viewer", "Analysis"].index(st.session_state['selection'])
 )
 
 # Update session state based on sidebar selection
@@ -55,3 +56,7 @@ elif selection == "Graph Viewer":
 elif selection == "Search RefID":
     st.title("🔍 Search ReferenceIDs")
     app_search.show()
+
+elif selection == "Analysis":
+    st.title("👨‍💻 Analysis")
+    app_analysis.show()
