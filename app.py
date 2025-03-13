@@ -4,8 +4,20 @@ from app_helper_functions import get_data_version
 import app_processing
 import app_search
 import app_analysis
+import app_workflows
 import pandas as pd
 import os
+import logging
+import warnings
+
+# Suppress Streamlit warnings
+logging.getLogger('streamlit').setLevel(logging.CRITICAL) # prevent spam during multiprocessing functions
+# Suppress specific Streamlit warnings
+warnings.filterwarnings("ignore", category=UserWarning, module="streamlit")
+
+# Suppress Streamlit warnings
+logging.getLogger('streamlit.runtime.scriptrunner_utils').setLevel(logging.CRITICAL)
+logging.getLogger('streamlit.runtime.caching.cache_data_api').setLevel(logging.CRITICAL)
 
 st.set_page_config(page_title="GraphViewer App", page_icon="📊", layout="wide")
 
@@ -21,8 +33,8 @@ if 'selection' not in st.session_state:
 
 # Use the session state to determine the current selection
 selection = st.sidebar.radio(
-    "Go to", ["Data Processing", "Search RefID", "Graph Viewer", "Analysis"],
-    index=["Data Processing", "Search RefID", "Graph Viewer", "Analysis"].index(st.session_state['selection'])
+    "Go to", ["Data Processing", "Search RefID", "Graph Viewer", "Analysis", "Prozess-Workflows"],
+    index=["Data Processing", "Search RefID", "Graph Viewer", "Analysis", "Prozess-Workflows"].index(st.session_state['selection'])
 )
 
 # Update session state based on sidebar selection
@@ -60,3 +72,7 @@ elif selection == "Search RefID":
 elif selection == "Analysis":
     st.title("👨‍💻 Analysis")
     app_analysis.show()
+
+elif selection == "Prozess-Workflows":
+    st.title("📥Prozess-Workflows")
+    app_workflows.show()

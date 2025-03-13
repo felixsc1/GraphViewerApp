@@ -94,7 +94,9 @@ def raw_cleanup(toggle_gmaps=False):
     )
     df_organisationen = add_produkte_columns(
         df_organisationen, organisationsrollen_df
-    )  # only needed for score.
+    )  # only count of Inhaber/Addressant.
+    
+    
 
     df_personenrollen = load_data(file_paths["personenrollen"])
     df_personen = add_personen_produkte_columns(
