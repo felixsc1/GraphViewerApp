@@ -86,9 +86,26 @@ def upload_dossier():
         return xls
     
 def extract_id(parent_str):
+    """
+    Extract the ID portion from a string by removing suffixes that start with ":" or "+".
+    
+    Args:
+        parent_str: String potentially containing ID with suffixes
+        
+    Returns:
+        Cleaned ID string or None if input is NaN
+    """
     if pd.isna(parent_str):
         return None
-    return parent_str.split(":")[0]  # Strips suffix like ":SequentialActivity"
+        
+    # First, strip suffix that starts with ":"
+    result = parent_str.split(":", 1)[0]
+    
+    # Then, strip suffix that starts with "+"
+    if "+" in result:
+        result = result.split("+", 1)[0]
+        
+    return result.strip()
 
 def generate_workflow_table(xls):
     # Read relevant sheets
@@ -119,6 +136,11 @@ def generate_workflow_table(xls):
     ]]
     command_activities["responsible"] = "system"
     command_activities.columns = ["id", "name", "sequence", "parent", "responsible"]
+
+    # Extract ID from the command/Befehl column
+    command_activities["name"] = command_activities["name"].apply(extract_id)
+
+    # Process parent column as before
     command_activities["parent"] = command_activities["parent"].apply(extract_id)
 
     all_activities = pd.concat([activities, command_activities], ignore_index=True)
@@ -192,7 +214,6 @@ def generate_workflow_table(xls):
     # Step 3: Assign sequence numbers and infer flow
     all_activities = all_activities.sort_values(by=["group", "sequence"]).reset_index(drop=True)
     all_activities["seq"] = range(1, len(all_activities) + 1)
-    all_activities["gateway_type"] = ""
     all_activities["sub_steps"] = ""
     all_activities["next"] = ""
 
@@ -204,13 +225,13 @@ def generate_workflow_table(xls):
             split_seq = group_activities["seq"].min() - 0.5
             split_row = pd.DataFrame({
                 "seq": [split_seq], "type": ["gateway"], "name": ["Parallel Split"], "responsible": [""],
-                "gateway_type": ["parallel"], "sub_steps": [""], "next": [""],
+                "sub_steps": [""], "next": [""],
                 "group": [group_activities["group"].iloc[0] if not group_activities["group"].isna().all() else ""]
             })
             merge_seq = group_activities["seq"].max() + 0.5
             merge_row = pd.DataFrame({
                 "seq": [merge_seq], "type": ["gateway"], "name": ["Parallel Merge"], "responsible": [""],
-                "gateway_type": ["parallel"], "sub_steps": [""], "next": [""],
+                "sub_steps": [""], "next": [""],
                 "group": [group_activities["group"].iloc[0] if not group_activities["group"].isna().all() else ""]
             })
             all_activities = pd.concat([all_activities, split_row, merge_row], ignore_index=True)
@@ -224,7 +245,7 @@ def generate_workflow_table(xls):
             next_idx = i + 1
             if next_idx < len(all_activities):
                 all_activities.at[i, "next"] = str(all_activities.at[next_idx, "seq"])
-        elif row["type"] == "gateway" and row["gateway_type"] == "parallel" and "Split" in row["name"]:
+        elif row["type"] == "gateway" and "Split" in row["name"]:
             group_activities = all_activities[(all_activities["group"] == row["group"]) &
                                               (all_activities["type"] == "activity") &
                                               (all_activities["seq"] > row["seq"])]
@@ -253,7 +274,10 @@ def generate_workflow_table(xls):
             all_activities.at[i, "parent"] = seq_to_parallel_map[row["parent"]]
 
     # Finalize the table
-    workflow_table = all_activities[["seq", "type", "name", "responsible", "gateway_type", "sub_steps", "next", "group", "parent"]]
+    workflow_table = all_activities[["seq", "id", "type", "name", "responsible", "sub_steps", "next", "group", "parent"]]
+    
+    # Reset index to ensure it's dropped in the returned DataFrame
+    workflow_table = workflow_table.reset_index(drop=True)
     
     return workflow_table
 
@@ -265,13 +289,6 @@ def add_parallel_conditions(workflow_table, xls):
     # Add new columns to workflow_table
     workflow_table["condition"] = ""
     workflow_table["condition_name"] = ""
-    
-    # Get column names
-    # parallel_activity_col = get_column_name(branch_info_df.columns, "ParallelActivity")
-    # transport_id_col = get_column_name(condition_df.columns, "TransportID")
-    # base_branch_info_col = get_column_name(branch_info_df.columns, "BaseBranchInfo")
-    # display_as_col = get_column_name(condition_df.columns, "Anzeigen als")
-    # expression_col = get_column_name(condition_df.columns, "Ausdruck")
     
     # Create a dictionary to map parallel activities to their conditions
     parallel_conditions = {}
@@ -319,9 +336,113 @@ def add_parallel_conditions(workflow_table, xls):
     
     return workflow_table
 
+
+def resolve_responsible_usernames(workflow_table, xls):
+    user_dict = st.session_state['user_dict']
+    empfaenger_df = pd.read_excel(xls, "Empfänger")
+    
+    # Get the actual column names from empfaenger_df
+    transport_id_col = get_column_name(empfaenger_df.columns, 'TransportID')
+    gruppe_col = get_column_name(empfaenger_df.columns, 'Gruppe')
+    dynamic_recipient_col = get_column_name(empfaenger_df.columns, 'DynamicRecipientIdentifier')
+    benutzer_col = get_column_name(empfaenger_df.columns, 'Benutzer')
+    
+    # Create a copy to avoid SettingWithCopyWarning
+    workflow_table = workflow_table.copy()
+    
+    # Process each row in workflow_table
+    for idx, row in workflow_table.iterrows():
+        if pd.isna(row['responsible']) or row['responsible'] == 'system':
+            continue
+            
+        # Extract ID from responsible field
+        resp_id = extract_id(row['responsible'])
+        if not resp_id:
+            continue
+            
+        # Find matching row in empfaenger_df
+        matching_rows = empfaenger_df[empfaenger_df[transport_id_col] == resp_id]
+        
+        if matching_rows.empty:
+            continue
+            
+        matching_row = matching_rows.iloc[0]
+        
+        # Case 1: Check for Benutzer first (highest priority)
+        if benutzer_col and pd.notna(matching_row[benutzer_col]) and matching_row[benutzer_col]:
+            user_id = extract_id(matching_row[benutzer_col])
+            if user_id and user_id in user_dict:
+                workflow_table.at[idx, 'responsible'] = user_dict[user_id]
+                continue  # Skip other checks
+        
+        # Case 2: Check for DynamicRecipientIdentifier
+        elif dynamic_recipient_col and pd.notna(matching_row[dynamic_recipient_col]) and matching_row[dynamic_recipient_col]:
+            workflow_table.at[idx, 'responsible'] = "FFOG"
+            
+        # Case 3: Check for Gruppe
+        elif gruppe_col and pd.notna(matching_row[gruppe_col]) and matching_row[gruppe_col]:
+            gruppe_value = matching_row[gruppe_col]
+            # Handle BAKOM-TP-NA:TenantGroup pattern
+            if gruppe_value.startswith("BAKOM-") and ":" in gruppe_value:
+                # Extract the middle part between "BAKOM-" and ":"
+                parts = gruppe_value.split(":", 1)
+                prefix = parts[0]
+                if prefix.startswith("BAKOM-"):
+                    gruppe_value = prefix[6:]  # Remove "BAKOM-" prefix
+            # Handle simpler cases
+            elif gruppe_value.startswith("BAKOM-"):
+                gruppe_value = gruppe_value[6:]
+            # Handle any other prefix beginning with colon
+            elif ":" in gruppe_value:
+                gruppe_value = gruppe_value.split(":", 1)[1]
+                
+            workflow_table.at[idx, 'responsible'] = gruppe_value
+    
+    return workflow_table
+
+
+def add_sub_steps(workflow_table, xls):
+    sub_steps_df = pd.read_excel(xls, "Manueller Arbeitsschritt")
+    activity_col = get_column_name(sub_steps_df.columns, "Activity")
+    sub_step_col = get_column_name(sub_steps_df.columns, "Name")
+    
+    # Create a copy to avoid SettingWithCopyWarning
+    workflow_table = workflow_table.copy()
+    
+    # Process each activity in the workflow table
+    for idx, row in workflow_table.iterrows():
+        if pd.isna(row['id']):
+            continue
+            
+        # Find all matching sub-steps for this activity
+        activity_id = row['id']
+        matching_rows = sub_steps_df[sub_steps_df[activity_col].apply(
+            lambda x: pd.notna(x) and extract_id(x) == activity_id
+        )]
+        
+        if matching_rows.empty:
+            continue
+            
+        # Collect and clean sub-step names
+        sub_steps = []
+        for _, sub_step_row in matching_rows.iterrows():
+            sub_step_name = sub_step_row[sub_step_col]
+            if pd.notna(sub_step_name):
+                # Remove any suffix that begins with parentheses
+                if "(" in sub_step_name:
+                    sub_step_name = sub_step_name.split("(")[0].strip()
+                sub_steps.append(sub_step_name)
+        
+        # Add the sub-steps to the workflow table
+        if sub_steps:
+            workflow_table.at[idx, 'sub_steps'] = "; ".join(sub_steps)
+    
+    return workflow_table
+
+
 def generate_graphviz_diagram(workflow_table):
     dot = Digraph(comment='Workflow', format='png')
-    dot.attr(rankdir='TB')
+    dot.attr(rankdir='LR')
     
     # Create nodes first
     for _, row in workflow_table.iterrows():
@@ -353,6 +474,199 @@ def generate_graphviz_diagram(workflow_table):
                 c.node(str(row['seq']))
     
     dot.render('workflow_diagram', view=True)
+ 
+def create_activity_label(name, responsible, sub_steps=None, max_chars=25):
+    """
+    Create a label for an activity node with automatic text wrapping.
+    
+    Args:
+        name: The name of the activity
+        responsible: The person responsible
+        sub_steps: Optional steps to display
+        max_chars: Maximum characters per line before wrapping
+    """
+    # Create HTML table-based layout
+    label = '<<TABLE BORDER="0" CELLBORDER="0" CELLSPACING="0" CELLPADDING="2" WIDTH="200">'
+    
+    # First row: Responsible person in upper left with emoji
+    if responsible.lower() == 'system':
+        resp_text = '⚙️ System'
+    else:
+        resp_text = f'👤 {responsible}'
+    
+    label += f'<TR><TD ALIGN="left"><FONT FACE="Arial, Helvetica, sans-serif" POINT-SIZE="10">{resp_text}</FONT></TD></TR>'
+    
+    # Second row: Activity name centered with automatic line breaks
+    wrapped_name = wrap_text(name, max_chars)
+    label += f'<TR><TD ALIGN="center"><FONT FACE="Arial, Helvetica, sans-serif"><B>{wrapped_name}</B></FONT></TD></TR>'
+    
+    # Add sub-steps if available
+    if sub_steps and pd.notna(sub_steps) and sub_steps.strip():
+        steps = sub_steps.split('; ')
+        for step in steps:
+            wrapped_step = wrap_text(step, max_chars)
+            label += f'<TR><TD ALIGN="left"><FONT FACE="Arial, Helvetica, sans-serif" POINT-SIZE="9">{wrapped_step}</FONT></TD></TR>'
+    
+    label += '</TABLE>>'
+    return label
+
+def wrap_text(text, max_chars):
+    """
+    Wrap text at word boundaries to fit within max_chars per line.
+    
+    Args:
+        text: The text to wrap
+        max_chars: Maximum characters per line
+    
+    Returns:
+        String with <BR/> tags inserted for line breaks
+    """
+    if len(text) <= max_chars:
+        return text
+        
+    words = text.split()
+    lines = []
+    current_line = []
+    current_length = 0
+    
+    for word in words:
+        # Check if adding this word exceeds the maximum length
+        if current_length + len(word) + len(current_line) > max_chars:
+            # Add the current line to lines and start a new one
+            if current_line:  # Only if we have words in the current line
+                lines.append(' '.join(current_line))
+                current_line = [word]
+                current_length = len(word)
+            else:
+                # If a single word is longer than max_chars, add it anyway
+                current_line.append(word)
+                lines.append(' '.join(current_line))
+                current_line = []
+                current_length = 0
+        else:
+            # Add the word to the current line
+            current_line.append(word)
+            current_length += len(word)
+    
+    # Add any remaining words
+    if current_line:
+        lines.append(' '.join(current_line))
+    
+    # Join lines with HTML line breaks
+    return '<BR/>'.join(lines)
+
+def generate_workflow_diagram(df, output_file='workflow_diagram', view=True):
+    """Generate a BPMN-style diagram from a DataFrame."""
+    # Change format from png to svg for better emoji support
+    dot = Digraph(comment='Workflow Diagram', format='svg')
+    # Set global font attributes to use a clean sans-serif font
+    dot.attr('graph', fontname='Arial')
+    dot.attr('node', fontname='Arial')
+    dot.attr('edge', fontname='Arial')
+    dot.attr(rankdir='LR')
+    
+    # Set node attributes to fix width
+    dot.attr('node', width='2.5', height='0', fixedsize='false')
+
+    # Add start and end events
+    dot.node('start', shape='circle', label='', width='0.3')
+    dot.node('end', shape='circle', style='bold', label='', width='0.3')
+
+    # Sort DataFrame by seq for overall order, though we'll ignore seq within parallel groups
+    df = df.sort_values('seq')
+    groups = df['group'].unique()
+
+    # Step 1: Identify parallel groups
+    parallel_groups = set()
+    for group in groups:
+        group_df = df[df['group'] == group]
+        if (group_df['condition'].notna().any() or group_df['condition_name'].notna().any()) and not (group_df['condition'].eq('').any() and group_df['condition_name'].eq('').any()):
+            parallel_groups.add(group)
+
+    # Step 2: Create subgraphs for each group
+    for group in groups:
+        with dot.subgraph(name=f'cluster_{group}') as c:
+            c.attr(label=group, style='dashed', labeljust='l', labelloc='t')
+            group_df = df[df['group'] == group]
+            if group in parallel_groups:
+                # Add split gateway
+                split_gateway = f'split_{group}'
+                c.node(split_gateway, shape='diamond', label='X', width='0.3')
+                # Add activities on the same rank
+                with c.subgraph() as s:
+                    s.attr(rank='same')
+                    for _, row in group_df.iterrows():
+                        node_id = str(row['id'])
+                        label = create_activity_label(row['name'], row['responsible'], row['sub_steps'])
+                        s.node(node_id, label=label, shape='box', style='rounded')
+                # Add join gateway
+                join_gateway = f'join_{group}'
+                c.node(join_gateway, shape='diamond', label='X', width='0.3')
+            else:
+                # Sequential group: add activities without gateways
+                for _, row in group_df.iterrows():
+                    node_id = str(row['id'])
+                    label = create_activity_label(row['name'], row['responsible'], row['sub_steps'])
+                    c.node(node_id, label=label, shape='box', style='rounded')
+
+    # Step 3: Connect activities within sequential groups only
+    for group in groups:
+        if group not in parallel_groups:
+            group_df = df[df['group'] == group]
+            for i in range(len(group_df) - 1):
+                current_id = str(group_df.iloc[i]['id'])
+                next_id = str(group_df.iloc[i + 1]['id'])
+                dot.edge(current_id, next_id)
+
+    # Step 4: Connect activities within parallel groups via gateways
+    for group in parallel_groups:
+        split_gateway = f'split_{group}'
+        join_gateway = f'join_{group}'
+        group_df = df[df['group'] == group]
+        for _, row in group_df.iterrows():
+            node_id = str(row['id'])
+            # Add condition label if present
+            condition_label = (f"{row['condition_name']} {row['condition']}"
+                             if pd.notna(row['condition']) and pd.notna(row['condition_name']) else '')
+            dot.edge(split_gateway, node_id, label=condition_label)
+            dot.edge(node_id, join_gateway)
+
+    # Step 5: Connect between groups
+    group_order = df.groupby('group')['seq'].min().sort_values().index.tolist()
+    for i in range(len(group_order) - 1):
+        current_group = group_order[i]
+        next_group = group_order[i + 1]
+        current_group_df = df[df['group'] == current_group]
+        next_group_df = df[df['group'] == next_group]
+
+        # Determine exit point of current group
+        if current_group in parallel_groups:
+            current_exit = f'join_{current_group}'
+        else:
+            current_exit = str(current_group_df.iloc[-1]['id'])
+
+        # Determine entry point of next group
+        if next_group in parallel_groups:
+            next_entry = f'split_{next_group}'
+        else:
+            next_entry = str(next_group_df.iloc[0]['id'])
+
+        dot.edge(current_exit, next_entry)
+
+    # Step 6: Connect start to first group
+    first_group = group_order[0]
+    first_group_df = df[df['group'] == first_group]
+    first_entry = f'split_{first_group}' if first_group in parallel_groups else str(first_group_df.iloc[0]['id'])
+    dot.edge('start', first_entry)
+
+    # Step 7: Connect last group to end
+    last_group = group_order[-1]
+    last_group_df = df[df['group'] == last_group]
+    last_exit = f'join_{last_group}' if last_group in parallel_groups else str(last_group_df.iloc[-1]['id'])
+    dot.edge(last_exit, 'end')
+
+    # Render the diagram
+    dot.render(output_file, view=view)
 
 
 # --- Main App Structure ---
@@ -361,7 +675,11 @@ def show():
     initialize_state()
     upload_user_list()
     xls = upload_dossier()
-    workflow_table = generate_workflow_table(xls)
-    workflow_table = add_parallel_conditions(workflow_table, xls)
-    st.dataframe(workflow_table)
-    generate_graphviz_diagram(workflow_table)
+    if xls is not None:
+        workflow_table = generate_workflow_table(xls)
+        workflow_table = add_parallel_conditions(workflow_table, xls)
+        workflow_table = resolve_responsible_usernames(workflow_table, xls)
+        workflow_table = add_sub_steps(workflow_table, xls)
+        st.dataframe(workflow_table)
+        # generate_graphviz_diagram(workflow_table)
+        generate_workflow_diagram(workflow_table)
