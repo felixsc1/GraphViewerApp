@@ -153,13 +153,17 @@ def build_activities_table(xls):
             # Rename columns to standard names
             temp_df.columns = common_column_patterns
             
+            # Clean the ParentActivity column by applying extract_id to remove suffixes
+            temp_df["ParentActivity"] = temp_df["ParentActivity"].apply(extract_id)
+            
             # Add the activity type
             temp_df["type"] = activity_type
             
             # Add "Empfänger" for manual activities; set to None for others
             empfaenger_col = get_column_name(df.columns, "Empfänger")
             if sheet_name == "Aktivität" and empfaenger_col is not None:
-                temp_df["Empfänger"] = df[empfaenger_col]
+                # Clean the Empfänger column by applying extract_id to remove suffixes
+                temp_df["Empfänger"] = df[empfaenger_col].apply(extract_id)
             else:
                 temp_df["Empfänger"] = None
             
@@ -380,8 +384,120 @@ def build_groups_table(xls):
 
     return groups_df
 
+# --- Generate Updated tables with additional BPMN nodes ---
 
-
+def generate_additional_nodes(activities_table, groups_table):
+    """
+    Generates additional nodes (gateways, decision, rule) for parallel groups based on their Erledigungsmodus:
+    - "AnyBranch": Adds decision node, rule node, and gateways with 'X' labels
+    - "OnlyOneBranch": Adds decision node, rule node, and gateways with empty labels
+    - "AllBranches": Adds only gateways with '+' labels (no decision or rule nodes)
+    
+    Parameters:
+    - activities_table: pd.DataFrame with activities (indexed by TransportID)
+    - groups_table: pd.DataFrame with groups (indexed by group_id)
+    
+    Returns:
+    - updated_nodes_table: pd.DataFrame with all nodes (activities + additional nodes)
+    - updated_groups_table: pd.DataFrame with updated SequenceNumbers
+    """
+    # Create a copy of activities_table to build the updated nodes table
+    updated_nodes = activities_table.copy()
+    updated_nodes['node_type'] = 'activity'  # Mark original activities
+    
+    # Create a copy of groups_table (no sequence number changes needed)
+    updated_groups = groups_table.copy()
+    
+    # Helper function to generate unique node IDs
+    def generate_node_id(base):
+        return f"{base}_{pd.Timestamp.now().strftime('%Y%m%d%H%M%S%f')}"
+    
+    # Process each group with Erledigungsmodus that needs special handling
+    eligible_groups = groups_table[
+        (groups_table['Erledigungsmodus'] == 'AnyBranch') | 
+        (groups_table['Erledigungsmodus'] == 'OnlyOneBranch') |
+        (groups_table['Erledigungsmodus'] == 'AllBranches')
+    ]
+    
+    for group_id in eligible_groups.index:
+        # Get the erledigungsmodus for this group
+        erledigungsmodus = groups_table.loc[group_id, 'Erledigungsmodus']
+        
+        # Identify child activities and subgroups of this group
+        child_activities = activities_table[activities_table['ParentActivity'] == group_id]
+        child_subgroups = groups_table[groups_table['parent_group_id'] == group_id]
+        
+        # Get existing sequence numbers of children
+        existing_seq = pd.concat([child_activities['SequenceNumber'], 
+                                 child_subgroups['SequenceNumber']]).sort_values()
+        
+        # Determine sequence numbers for new nodes
+        min_seq = existing_seq.min() if not existing_seq.empty else 0
+        max_seq = existing_seq.max() if not existing_seq.empty else 0
+        
+        # Handle different Erledigungsmodus types
+        if erledigungsmodus == 'AllBranches':
+            # For AllBranches, we only need gateway nodes with + symbol
+            gateway_split_id = generate_node_id('gateway_split')
+            gateway_join_id = generate_node_id('gateway_join')
+            
+            # Place gateways at the beginning and end
+            gateway_split_seq = min_seq - 1  # Just before first child
+            gateway_join_seq = max_seq + 1   # Just after last child
+            
+            # Create nodes dataframe for AllBranches (only gateways)
+            new_nodes = pd.DataFrame({
+                'node_id': [gateway_split_id, gateway_join_id],
+                'node_type': ['gateway', 'gateway'],
+                'ParentActivity': [group_id, group_id],
+                'SequenceNumber': [gateway_split_seq, gateway_join_seq],
+                'label': ['+', '+'],  # Plus symbol for AllBranches
+                'shape': ['diamond', 'diamond']
+            }).set_index('node_id')
+            
+        else:
+            # For AnyBranch and OnlyOneBranch, include decision and rule nodes
+            rule_node_id = generate_node_id('rule')
+            decision_node_id = generate_node_id('decision')
+            gateway_split_id = generate_node_id('gateway_split')
+            gateway_join_id = generate_node_id('gateway_join')
+            
+            # Place nodes in sequence
+            decision_seq = min_seq - 2  # Decision comes before gateway
+            gateway_split_seq = min_seq - 1  # Gateway split comes just before the first child
+            gateway_join_seq = max_seq + 1  # Gateway join comes just after the last child
+            rule_seq = -1  # Rule not in main sequence
+            
+            # Set gateway labels based on the erledigungsmodus
+            if erledigungsmodus == 'AnyBranch':
+                gateway_split_label = 'X'  # Gateway split symbol for AnyBranch
+                gateway_join_label = 'X'   # Gateway join symbol for AnyBranch
+            else:  # OnlyOneBranch
+                gateway_split_label = ''   # Empty diamond for OnlyOneBranch
+                gateway_join_label = ''    # Empty diamond for OnlyOneBranch
+            
+            # Create nodes dataframe for AnyBranch or OnlyOneBranch
+            new_nodes = pd.DataFrame({
+                'node_id': [rule_node_id, decision_node_id, gateway_split_id, gateway_join_id],
+                'node_type': ['rule', 'decision', 'gateway', 'gateway'],
+                'ParentActivity': [decision_node_id, group_id, group_id, group_id],
+                'SequenceNumber': [rule_seq, decision_seq, gateway_split_seq, gateway_join_seq],
+                'label': [
+                    groups_table.loc[group_id, 'parallel_condition_expression'],
+                    "Entscheid\n" + str(groups_table.loc[group_id, 'parallel_condition_name']).replace(';', '\n'),
+                    gateway_split_label,
+                    gateway_join_label
+                ],
+                'shape': ['note', 'box', 'diamond', 'diamond']
+            }).set_index('node_id')
+        
+        # Append new nodes to the updated table
+        updated_nodes = pd.concat([updated_nodes, new_nodes])
+    
+    # Sort by ParentActivity and SequenceNumber for correct flow
+    updated_nodes.sort_values(by=['ParentActivity', 'SequenceNumber'], inplace=True)
+    
+    return updated_nodes, updated_groups
 
 # --- Main Page Structure ---
 
@@ -394,3 +510,17 @@ def show():
         st.dataframe(activities_table)
         groups_table = build_groups_table(xls)
         st.dataframe(groups_table)
+        
+        # Set the correct indices before calling generate_additional_nodes
+        activities_index = activities_table.set_index('TransportID').copy()
+        groups_index = groups_table.set_index('group_id').copy()
+        
+        # Now call the function with properly indexed dataframes
+        try:
+            updated_nodes, updated_groups = generate_additional_nodes(activities_index, groups_index)
+            st.dataframe(updated_nodes.reset_index())
+            st.dataframe(updated_groups.reset_index())
+        except Exception as e:
+            st.error(f"Error in generate_additional_nodes: {str(e)}")
+            st.exception(e)
+
