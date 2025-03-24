@@ -499,6 +499,156 @@ def generate_additional_nodes(activities_table, groups_table):
     
     return updated_nodes, updated_groups
 
+## -- Generate BPMN Diagram --
+
+def add_group(group_id, dot, updated_nodes, updated_groups, edge_set):
+    group = updated_groups.loc[group_id]
+    children = []
+
+    # Collect nodes and subgroups
+    nodes = updated_nodes[updated_nodes['ParentActivity'] == group_id]
+    for node_id in nodes.index:
+        children.append(('node', node_id, nodes.loc[node_id, 'SequenceNumber']))
+
+    subgroups = updated_groups[updated_groups['parent_group_id'] == group_id]
+    for subgroup_id in subgroups.index:
+        children.append(('group', subgroup_id, subgroups.loc[subgroup_id, 'SequenceNumber']))
+
+    children.sort(key=lambda x: x[2])  # Sort by sequence number
+
+    # Handle parallel groups
+    gateway_split = None
+    gateway_join = None
+    parallel_branches = []
+    gateway_connected_nodes = set()  # Track nodes connected to gateways
+
+    if group['type'] == 'parallel':
+        for child_type, child_id, seq in children:
+            if child_type == 'node' and updated_nodes.loc[child_id, 'node_type'] == 'gateway':
+                if 'split' in child_id:
+                    gateway_split = child_id
+                elif 'join' in child_id:
+                    gateway_join = child_id
+        if gateway_split and gateway_join:
+            split_seq = updated_nodes.loc[gateway_split, 'SequenceNumber']
+            join_seq = updated_nodes.loc[gateway_join, 'SequenceNumber']
+            parallel_branches = [child for child in children if split_seq < child[2] < join_seq]
+            for branch in parallel_branches:
+                if branch[0] == 'node':
+                    gateway_connected_nodes.add(branch[1])
+                # For subgroups, we'll add their first/last nodes later
+
+    # Process children and manage connections
+    prev_node = None
+    first_node = None
+    last_node = None
+
+    for child_type, child_id, seq in children:
+        if child_type == 'node':
+            node = updated_nodes.loc[child_id]
+            node_type = node['node_type']
+
+            # Define label based on node type, handling nan
+            if node_type in ['activity', 'decision', 'rule']:
+                if node_type == 'activity':
+                    empfanger = node['Empfänger'] if pd.notna(node['Empfänger']) else ''
+                    name_de = node['Name:de'] if pd.notna(node['Name:de']) else ''
+                    label = f"{empfanger}\n{name_de}" if empfanger else name_de
+                elif node_type == 'decision':
+                    label = str(node['label']) if pd.notna(node['label']) else ''
+                else:  # rule
+                    label = str(node['label']) if pd.notna(node['label']) else ''
+                shape = 'box' if node_type in ['activity', 'decision'] else 'note'
+                dot.node(child_id, label=label, shape=shape)
+
+                # Add dotted edge for rule to decision
+                if node_type == 'rule':
+                    decision_id = node['ParentActivity']
+                    if (child_id, decision_id) not in edge_set:
+                        dot.edge(child_id, decision_id, style='dotted')
+                        edge_set.add((child_id, decision_id))
+
+            elif node_type == 'gateway':
+                label = str(node['label']) if pd.notna(node['label']) else ''
+                dot.node(child_id, label=label, shape='diamond', fontsize='16')
+
+            if first_node is None:
+                first_node = child_id
+            last_node = child_id
+
+            # Connect to previous node, skip if part of parallel gateway logic
+            if prev_node and (prev_node, child_id) not in edge_set:
+                if group['type'] != 'parallel' or (
+                    prev_node not in gateway_connected_nodes and child_id not in gateway_connected_nodes
+                ):
+                    dot.edge(prev_node, child_id)
+                    edge_set.add((prev_node, child_id))
+            prev_node = child_id
+
+        elif child_type == 'group':
+            with dot.subgraph(name=f'cluster_{child_id}', graph_attr={
+                'label': updated_groups.loc[child_id, 'name'],
+                'style': 'dashed'
+            }) as sub_dot:
+                subgroup_first, subgroup_last = add_group(child_id, sub_dot, updated_nodes, updated_groups, edge_set)
+            
+            if subgroup_first and subgroup_last:
+                if first_node is None:
+                    first_node = subgroup_first
+                last_node = subgroup_last
+
+                # Handle parallel connections
+                if group['type'] == 'parallel' and (child_type, child_id, seq) in parallel_branches:
+                    if gateway_split and (gateway_split, subgroup_first) not in edge_set:
+                        dot.edge(gateway_split, subgroup_first)
+                        edge_set.add((gateway_split, subgroup_first))
+                        gateway_connected_nodes.add(subgroup_first)
+                    if gateway_join and (subgroup_last, gateway_join) not in edge_set:
+                        dot.edge(subgroup_last, gateway_join)
+                        edge_set.add((subgroup_last, gateway_join))
+                        gateway_connected_nodes.add(subgroup_last)
+                elif prev_node and (prev_node, subgroup_first) not in edge_set:
+                    if prev_node not in gateway_connected_nodes and subgroup_first not in gateway_connected_nodes:
+                        dot.edge(prev_node, subgroup_first)
+                        edge_set.add((prev_node, subgroup_first))
+                prev_node = subgroup_last
+
+    # Ensure gateway connections in parallel groups
+    if group['type'] == 'parallel' and gateway_split and gateway_join:
+        for branch in parallel_branches:
+            if branch[0] == 'node':
+                branch_start = branch_last = branch[1]
+            else:  # group
+                branch_start = subgroup_first
+                branch_last = subgroup_last
+            if (gateway_split, branch_start) not in edge_set:
+                dot.edge(gateway_split, branch_start)
+                edge_set.add((gateway_split, branch_start))
+            if (branch_last, gateway_join) not in edge_set:
+                dot.edge(branch_last, gateway_join)
+                edge_set.add((branch_last, gateway_join))
+
+    return first_node, last_node
+
+# Main function (for completeness)
+def build_workflow_diagram(updated_nodes, updated_groups):
+    dot = Digraph(format='svg', graph_attr={'rankdir': 'LR', 'splines': 'ortho', 'fontname': 'sans-serif'},
+                  node_attr={'fontname': 'sans-serif'}, edge_attr={'fontname': 'sans-serif'})
+    dot.node('start', shape='circle', label='', width='0.5', height='0.5')
+    dot.node('end', shape='circle', label='', width='0.5', height='0.5')
+    edge_set = set()
+
+    top_group_id = updated_groups[updated_groups['parent_group_id'].isna()].index[0]
+    with dot.subgraph(name=f'cluster_{top_group_id}', graph_attr={
+        'label': updated_groups.loc[top_group_id, 'name'],
+        'style': 'dashed'
+    }) as c:
+        first_node, last_node = add_group(top_group_id, c, updated_nodes, updated_groups, edge_set)
+
+    dot.edge('start', first_node)
+    dot.edge(last_node, 'end')
+    return dot
+
 # --- Main Page Structure ---
 
 def show():
@@ -520,7 +670,19 @@ def show():
             updated_nodes, updated_groups = generate_additional_nodes(activities_index, groups_index)
             st.dataframe(updated_nodes.reset_index())
             st.dataframe(updated_groups.reset_index())
+            # st.markdown(updated_nodes.to_dict())
+            # st.markdown(updated_groups.to_dict())
+            
+            # Display the workflow diagram
+            try:
+                st.subheader("Workflow Diagram")
+                diagram = build_workflow_diagram(updated_nodes, updated_groups)
+                diagram.render('workflow_diagram', view=True)
+            except Exception as e:
+                st.error(f"Error generating workflow diagram: {str(e)}")
+                st.exception(e)
         except Exception as e:
             st.error(f"Error in generate_additional_nodes: {str(e)}")
             st.exception(e)
+        
 
