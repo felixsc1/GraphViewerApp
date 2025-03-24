@@ -455,15 +455,22 @@ def generate_additional_nodes(activities_table, groups_table):
         updated_groups['repeat_connections'] = None
     
     # Helper function to generate unique node IDs
-    def generate_node_id(base):
-        return f"{base}_{pd.Timestamp.now().strftime('%Y%m%d%H%M%S%f')}"
-    
-    # First, add substep nodes for activities with substeps
+    def generate_node_id(base, counter=None):
+        """Generate a unique ID by combining base, timestamp, and optional counter"""
+        timestamp = pd.Timestamp.now().strftime('%Y%m%d%H%M%S%f')
+        if counter is not None:
+            return f"{base}_{timestamp}_{counter}"
+        return f"{base}_{timestamp}"
+
+    # Track substep nodes with a counter to ensure uniqueness
+    substep_counter = 0
     substep_nodes_list = []
-    
+
     for activity_id, activity in activities_table.iterrows():
         if pd.notna(activity.get('substeps')):
-            substep_node_id = generate_node_id('substeps')
+            # Use counter for unique IDs
+            substep_node_id = generate_node_id('substeps', substep_counter)
+            substep_counter += 1
             
             # Create a substep node
             substep_node = pd.Series({
@@ -698,18 +705,66 @@ def generate_additional_nodes(activities_table, groups_table):
 
 ## -- Generate BPMN Diagram --
 
-def add_group(group_id, dot, updated_nodes, updated_groups, edge_set):
+def add_group(group_id, dot, updated_nodes, updated_groups, edge_set, processed_substeps=None):
+    if processed_substeps is None:
+        processed_substeps = set()
+        
     group = updated_groups.loc[group_id]
     children = []
 
     # Collect nodes and subgroups
     nodes = updated_nodes[updated_nodes['ParentActivity'] == group_id]
+    
+    # First pass to collect regular nodes (non-rules)
+    node_ids = []
     for node_id in nodes.index:
-        children.append(('node', node_id, nodes.loc[node_id, 'SequenceNumber']))
+        # Get sequence number as a scalar value
+        seq_num = nodes.loc[node_id, 'SequenceNumber']
+        if isinstance(seq_num, pd.Series):
+            seq_num = seq_num.iloc[0] if not seq_num.empty else 0
+            
+        children.append(('node', node_id, seq_num))
+        node_ids.append(node_id)
+    
+    # Second pass to find rule nodes connected to decision nodes within this group
+    for decision_id in nodes[nodes['node_type'] == 'decision'].index:
+        rule_nodes = updated_nodes[(updated_nodes['ParentActivity'] == decision_id) & 
+                                  (updated_nodes['node_type'] == 'rule')]
+        for rule_id in rule_nodes.index:
+            # Get sequence number as a scalar value
+            seq_num = updated_nodes.loc[rule_id, 'SequenceNumber']
+            if isinstance(seq_num, pd.Series):
+                seq_num = seq_num.iloc[0] if not seq_num.empty else 0
+                
+            children.append(('node', rule_id, seq_num))
+    
+    # Third pass to find substep nodes connected to activities in this group
+    for activity_id in node_ids:
+        substep_nodes = updated_nodes[(updated_nodes['ParentActivity'] == activity_id) & 
+                                     (updated_nodes['node_type'] == 'substeps')]
+        for substep_id in substep_nodes.index:
+            # Skip if we've already processed this substep
+            if substep_id in processed_substeps:
+                continue
+                
+            processed_substeps.add(substep_id)
+            
+            # Get sequence number as a scalar value
+            seq_num = updated_nodes.loc[substep_id, 'SequenceNumber']
+            if isinstance(seq_num, pd.Series):
+                seq_num = seq_num.iloc[0] if not seq_num.empty else 0
+                
+            children.append(('node', substep_id, seq_num))
 
+    # Add subgroups
     subgroups = updated_groups[updated_groups['parent_group_id'] == group_id]
     for subgroup_id in subgroups.index:
-        children.append(('group', subgroup_id, subgroups.loc[subgroup_id, 'SequenceNumber']))
+        # Get sequence number as a scalar value
+        seq_num = subgroups.loc[subgroup_id, 'SequenceNumber']
+        if isinstance(seq_num, pd.Series):
+            seq_num = seq_num.iloc[0] if not seq_num.empty else 0
+            
+        children.append(('group', subgroup_id, seq_num))
 
     children.sort(key=lambda x: x[2])  # Sort by sequence number
 
@@ -736,15 +791,22 @@ def add_group(group_id, dot, updated_nodes, updated_groups, edge_set):
 
     # First identify gateways in this group
     for child_type, child_id, seq in children:
-        if child_type == 'node' and updated_nodes.loc[child_id, 'node_type'] == 'gateway':
-            if 'gateway_split' in child_id and 'skip' not in child_id:
-                gateway_split = child_id
-            elif 'gateway_join' in child_id and 'skip' not in child_id:
-                gateway_join = child_id
-            elif 'skip_gateway_split' in child_id:
-                skip_gateway_split = child_id
-            elif 'skip_gateway_join' in child_id:
-                skip_gateway_join = child_id
+        if child_type == 'node':
+            # Get node_type as a scalar value
+            node_type = updated_nodes.loc[child_id, 'node_type']
+            if isinstance(node_type, pd.Series):
+                node_type = node_type.iloc[0] if not node_type.empty else ''
+                
+            # Now compare the scalar value
+            if node_type == 'gateway':
+                if 'gateway_split' in child_id and 'skip' not in child_id:
+                    gateway_split = child_id
+                elif 'gateway_join' in child_id and 'skip' not in child_id:
+                    gateway_join = child_id
+                elif 'skip_gateway_split' in child_id:
+                    skip_gateway_split = child_id
+                elif 'skip_gateway_join' in child_id:
+                    skip_gateway_join = child_id
 
     # Handle parallel gateways
     if group['type'] == 'parallel' and gateway_split and gateway_join:
@@ -763,31 +825,102 @@ def add_group(group_id, dot, updated_nodes, updated_groups, edge_set):
 
     for child_type, child_id, seq in children:
         if child_type == 'node':
+            # Get node data and ensure we have scalar values
             node = updated_nodes.loc[child_id]
-            node_type = node['node_type']
-
-            # Define label based on node type, handling nan
-            if node_type in ['activity', 'decision', 'rule']:
-                if node_type == 'activity':
-                    empfanger = node['Empfänger'] if pd.notna(node['Empfänger']) else ''
-                    name_de = node['Name:de'] if pd.notna(node['Name:de']) else ''
-                    label = f"{empfanger}\n{name_de}" if empfanger else name_de
-                elif node_type == 'decision':
-                    label = str(node['label']) if pd.notna(node['label']) else ''
-                else:  # rule
-                    label = str(node['label']) if pd.notna(node['label']) else ''
-                shape = 'box' if node_type in ['activity', 'decision'] else 'note'
+            
+            # Helper function to get scalar value from a potentially Series object
+            def get_scalar(value):
+                if isinstance(value, pd.Series):
+                    return value.iloc[0] if not value.empty else ''
+                return value
+            
+            # Get node properties as scalar values
+            node_type = get_scalar(node['node_type'])
+            
+            # Now the rest of the code comparing to node_type will work
+            if node_type == 'rule':
+                # Get label as scalar value
+                label = str(get_scalar(node['label'])) if pd.notna(get_scalar(node['label'])) else ''
+                
+                if child_id.startswith('repeat_rule') or child_id.startswith('skip_rule'):
+                    # Display with a sheet of paper icon and label underneath
+                    label = f"📄\n{label}"
+                    # show label without border
+                    shape = 'none'
+                elif child_id.startswith('rule'):
+                    # Display just the label without a border
+                    shape = 'none'
+                else:
+                    # Default shape for other rule nodes (optional fallback)
+                    shape = 'none'
                 dot.node(child_id, label=label, shape=shape)
 
-                if node_type == 'rule':
-                    decision_id = node['ParentActivity']
-                    if (child_id, decision_id) not in edge_set:
-                        dot.edge(child_id, decision_id, style='dotted')
-                        edge_set.add((child_id, decision_id))
+                # Connect to ParentActivity with a dotted arrow
+                parent_activity = get_scalar(node['ParentActivity'])
+                if pd.notna(parent_activity) and (child_id, parent_activity) not in edge_set:
+                    dot.edge(child_id, parent_activity, style='dotted')
+                    edge_set.add((child_id, parent_activity))
+                
+            elif node_type == 'substeps':
+                # Get label as scalar value
+                label = str(get_scalar(node['label'])) if pd.notna(get_scalar(node['label'])) else ''
+                
+                # Use a note shape with improved styling for better visibility
+                dot.node(
+                    child_id, 
+                    label=label,
+                    shape='note',
+                    style='filled,dashed',
+                    fillcolor='lightyellow',
+                    fontsize='10',
+                    # Add positioning hints to keep substeps close to parent
+                    pos='same'  # This encourages placement on the same rank
+                )
+
+                # Connect to ParentActivity with a dotted line (no arrowheads)
+                parent_activity = get_scalar(node['ParentActivity'])
+                if pd.notna(parent_activity) and (child_id, parent_activity) not in edge_set:
+                    # Remove constraint=false to keep substeps closer to parents
+                    dot.edge(
+                        parent_activity,  # Reverse the direction: parent to substep
+                        child_id, 
+                        style='dotted', 
+                        dir='none',
+                        color='gray',
+                        # Add weight to pull the substep closer to its parent
+                        weight='2.0',
+                        len='0.8'  # Shorter preferred edge length
+                    )
+                    edge_set.add((parent_activity, child_id))  # Note the reversed order
+                    
+            elif node_type in ['activity', 'decision']:
+                if node_type == 'activity':
+                    empfanger = get_scalar(node['Empfänger']) if pd.notna(get_scalar(node['Empfänger'])) else ''
+                    name_de = get_scalar(node['Name:de']) if pd.notna(get_scalar(node['Name:de'])) else ''
+                    label = f"{empfanger}\n{name_de}" if empfanger else name_de
+                elif node_type == 'decision':
+                    label = str(get_scalar(node['label'])) if pd.notna(get_scalar(node['label'])) else ''
+                
+                shape = 'box'
+                dot.node(child_id, label=label, shape=shape)
+                
+                # Track nodes for flow
+                if first_node is None:
+                    first_node = child_id
+                if first_real_node is None and node_type != 'helper':
+                    first_real_node = child_id
+                last_node = child_id
 
             elif node_type == 'gateway':
-                label = str(node['label']) if pd.notna(node['label']) else ''
+                label = str(get_scalar(node['label'])) if pd.notna(get_scalar(node['label'])) else ''
                 dot.node(child_id, label=label, shape='diamond', fontsize='16')
+                
+                # Track nodes for flow
+                if first_node is None:
+                    first_node = child_id
+                if first_real_node is None:
+                    first_real_node = child_id
+                last_node = child_id
             
             elif node_type == 'helper':
                 dot.node(child_id, label='', shape='point', width='0.1', height='0.1')
@@ -796,27 +929,25 @@ def add_group(group_id, dot, updated_nodes, updated_groups, edge_set):
                 last_node = child_id
                 if child_id == repeat_helper:
                     continue
-                
-            if first_node is None:
-                first_node = child_id
-            if first_real_node is None and node_type != 'helper':
-                first_real_node = child_id
-            last_node = child_id
-
-            if prev_node and (prev_node, child_id) not in edge_set:
+            
+            # Connect with prev_node (don't connect rule or substep nodes in the flow)
+            if node_type not in ['rule', 'substeps'] and prev_node and (prev_node, child_id) not in edge_set:
                 if group['type'] != 'parallel' or (
                     prev_node not in gateway_connected_nodes and child_id not in gateway_connected_nodes
                 ):
                     dot.edge(prev_node, child_id)
                     edge_set.add((prev_node, child_id))
-            prev_node = child_id
+            
+            # Update prev_node (don't use rule or substep nodes as prev_node)
+            if node_type not in ['rule', 'substeps']:
+                prev_node = child_id
 
         elif child_type == 'group':
             with dot.subgraph(name=f'cluster_{child_id}', graph_attr={
                 'label': updated_groups.loc[child_id, 'name'],
                 'style': 'dashed'
             }) as sub_dot:
-                subgroup_first, subgroup_last = add_group(child_id, sub_dot, updated_nodes, updated_groups, edge_set)
+                subgroup_first, subgroup_last = add_group(child_id, sub_dot, updated_nodes, updated_groups, edge_set, processed_substeps)
             
             if subgroup_first and subgroup_last:
                 if first_node is None:
@@ -897,7 +1028,7 @@ def build_workflow_diagram(updated_nodes, updated_groups):
         'label': updated_groups.loc[top_group_id, 'name'],
         'style': 'dashed'
     }) as c:
-        first_node, last_node = add_group(top_group_id, c, updated_nodes, updated_groups, edge_set)
+        first_node, last_node = add_group(top_group_id, c, updated_nodes, updated_groups, edge_set, set())
 
     dot.edge('start', first_node)
     dot.edge(last_node, 'end')
