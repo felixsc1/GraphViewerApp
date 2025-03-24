@@ -388,10 +388,16 @@ def build_groups_table(xls):
 
 def generate_additional_nodes(activities_table, groups_table):
     """
-    Generates additional nodes (gateways, decision, rule) for parallel groups based on their Erledigungsmodus:
-    - "AnyBranch": Adds decision node, rule node, and gateways with 'X' labels
-    - "OnlyOneBranch": Adds decision node, rule node, and gateways with empty labels
-    - "AllBranches": Adds only gateways with '+' labels (no decision or rule nodes)
+    Generates additional nodes (gateways, decision, rule) for:
+    1. Parallel groups based on their Erledigungsmodus:
+       - "AnyBranch": Adds decision node, rule node, and gateways with 'X' labels
+       - "OnlyOneBranch": Adds decision node, rule node, and gateways with empty labels
+       - "AllBranches": Adds only gateways with '+' labels (no decision or rule nodes)
+    2. Groups with skip conditions:
+       - Adds decision node, rule node, and gateways with 'X' labels
+    3. Groups with repeat conditions:
+       - Adds decision node, rule node, and a gateway with 'X' label that connects back 
+         to the beginning of the group
     
     Parameters:
     - activities_table: pd.DataFrame with activities (indexed by TransportID)
@@ -408,11 +414,15 @@ def generate_additional_nodes(activities_table, groups_table):
     # Create a copy of groups_table (no sequence number changes needed)
     updated_groups = groups_table.copy()
     
+    # Track special connections for repeat conditions
+    if 'repeat_connections' not in updated_groups.columns:
+        updated_groups['repeat_connections'] = None
+    
     # Helper function to generate unique node IDs
     def generate_node_id(base):
         return f"{base}_{pd.Timestamp.now().strftime('%Y%m%d%H%M%S%f')}"
     
-    # Process each group with Erledigungsmodus that needs special handling
+    # First, process groups with Erledigungsmodus
     eligible_groups = groups_table[
         (groups_table['Erledigungsmodus'] == 'AnyBranch') | 
         (groups_table['Erledigungsmodus'] == 'OnlyOneBranch') |
@@ -494,6 +504,129 @@ def generate_additional_nodes(activities_table, groups_table):
         # Append new nodes to the updated table
         updated_nodes = pd.concat([updated_nodes, new_nodes])
     
+    # Next, process groups with skip conditions
+    skip_condition_groups = groups_table[
+        groups_table['skip_name'].notna() | groups_table['skip_condition'].notna()
+    ]
+    
+    for group_id in skip_condition_groups.index:
+        # Skip if this group was already processed for Erledigungsmodus
+        if group_id in eligible_groups.index:
+            continue
+            
+        # Identify child activities and subgroups of this group
+        child_activities = activities_table[activities_table['ParentActivity'] == group_id]
+        child_subgroups = groups_table[groups_table['parent_group_id'] == group_id]
+        
+        # Get existing sequence numbers of children
+        existing_seq = pd.concat([child_activities['SequenceNumber'], 
+                                 child_subgroups['SequenceNumber']]).sort_values()
+        
+        # Determine sequence numbers for new nodes
+        min_seq = existing_seq.min() if not existing_seq.empty else 0
+        max_seq = existing_seq.max() if not existing_seq.empty else 0
+        
+        # Generate node IDs
+        rule_node_id = generate_node_id('skip_rule')
+        decision_node_id = generate_node_id('skip_decision')
+        gateway_split_id = generate_node_id('skip_gateway_split')
+        gateway_join_id = generate_node_id('skip_gateway_join')
+        
+        # Place nodes in sequence
+        decision_seq = min_seq - 2  # Decision comes before gateway
+        gateway_split_seq = min_seq - 1  # Gateway split comes just before the first child
+        gateway_join_seq = max_seq + 1  # Gateway join comes just after the last child
+        rule_seq = -1  # Rule not in main sequence
+        
+        # Get skip condition labels
+        skip_name = groups_table.loc[group_id, 'skip_name']
+        skip_condition = groups_table.loc[group_id, 'skip_condition']
+        
+        # Create nodes dataframe for skip condition
+        new_nodes = pd.DataFrame({
+            'node_id': [rule_node_id, decision_node_id, gateway_split_id, gateway_join_id],
+            'node_type': ['rule', 'decision', 'gateway', 'gateway'],
+            'ParentActivity': [decision_node_id, group_id, group_id, group_id],
+            'SequenceNumber': [rule_seq, decision_seq, gateway_split_seq, gateway_join_seq],
+            'label': [
+                skip_condition if pd.notna(skip_condition) else '',
+                "Überspringen, falls\n" + (skip_name if pd.notna(skip_name) else ''),
+                'X',  # X symbol for skip gateway split
+                'X'   # X symbol for skip gateway join
+            ],
+            'shape': ['note', 'box', 'diamond', 'diamond']
+        }).set_index('node_id')
+        
+        # Append new nodes to the updated table
+        updated_nodes = pd.concat([updated_nodes, new_nodes])
+    
+    # Finally, process groups with repeat conditions
+    repeat_condition_groups = groups_table[
+        groups_table['repeat_name'].notna() | groups_table['repeat_condition'].notna()
+    ]
+    
+    for group_id in repeat_condition_groups.index:
+        # Skip if this group was already processed for Erledigungsmodus
+        if group_id in eligible_groups.index:
+            continue
+            
+        # Identify child activities and subgroups of this group
+        child_activities = activities_table[activities_table['ParentActivity'] == group_id]
+        child_subgroups = groups_table[groups_table['parent_group_id'] == group_id]
+        
+        # Get existing sequence numbers of children
+        existing_seq = pd.concat([child_activities['SequenceNumber'], 
+                                 child_subgroups['SequenceNumber']]).sort_values()
+        
+        # Determine sequence numbers for new nodes
+        min_seq = existing_seq.min() if not existing_seq.empty else 0
+        max_seq = existing_seq.max() if not existing_seq.empty else 0
+        
+        # Generate node IDs
+        rule_node_id = generate_node_id('repeat_rule')
+        decision_node_id = generate_node_id('repeat_decision')
+        gateway_node_id = generate_node_id('repeat_gateway')
+        
+        # As a target for the repeat, we'll use an invisible helper node at the beginning
+        # This will allow us to connect back to the start of the group
+        helper_node_id = generate_node_id('repeat_helper')
+        
+        # Place nodes in sequence
+        # Helper node comes first, before any children
+        helper_seq = min_seq - 1
+        # Decision and gateway come at the end
+        decision_seq = max_seq + 1  # Decision comes second-to-last
+        gateway_seq = max_seq + 2   # Gateway comes last
+        rule_seq = -1  # Rule not in main sequence (it's connected to the decision)
+        
+        # Get repeat condition labels
+        repeat_name = groups_table.loc[group_id, 'repeat_name']
+        repeat_condition = groups_table.loc[group_id, 'repeat_condition']
+        
+        # Create nodes dataframe for repeat condition
+        new_nodes = pd.DataFrame({
+            'node_id': [rule_node_id, decision_node_id, gateway_node_id, helper_node_id],
+            'node_type': ['rule', 'decision', 'gateway', 'helper'],
+            'ParentActivity': [decision_node_id, group_id, group_id, group_id],
+            'SequenceNumber': [rule_seq, decision_seq, gateway_seq, helper_seq],
+            'label': [
+                repeat_condition if pd.notna(repeat_condition) else '',
+                "Wiederholen, falls\n" + (repeat_name if pd.notna(repeat_name) else ''),
+                'X',  # X symbol for gateway
+                ''    # Empty label for helper node
+            ],
+            'shape': ['note', 'box', 'diamond', 'point']  # Point shape for helper - nearly invisible
+        }).set_index('node_id')
+        
+        # Store the helper node ID to refer back to in add_group function
+        updated_groups.at[group_id, 'repeat_connections'] = {
+            'gateway': gateway_node_id,
+            'helper': helper_node_id
+        }
+        
+        # Append new nodes to the updated table
+        updated_nodes = pd.concat([updated_nodes, new_nodes])
+    
     # Sort by ParentActivity and SequenceNumber for correct flow
     updated_nodes.sort_values(by=['ParentActivity', 'SequenceNumber'], inplace=True)
     
@@ -516,32 +649,50 @@ def add_group(group_id, dot, updated_nodes, updated_groups, edge_set):
 
     children.sort(key=lambda x: x[2])  # Sort by sequence number
 
-    # Handle parallel groups
+    # Handle parallel groups and skip conditions
     gateway_split = None
     gateway_join = None
+    skip_gateway_split = None
+    skip_gateway_join = None
+    repeat_gateway = None
+    repeat_helper = None
     parallel_branches = []
     gateway_connected_nodes = set()  # Track nodes connected to gateways
 
-    if group['type'] == 'parallel':
-        for child_type, child_id, seq in children:
-            if child_type == 'node' and updated_nodes.loc[child_id, 'node_type'] == 'gateway':
-                if 'split' in child_id:
-                    gateway_split = child_id
-                elif 'join' in child_id:
-                    gateway_join = child_id
-        if gateway_split and gateway_join:
-            split_seq = updated_nodes.loc[gateway_split, 'SequenceNumber']
-            join_seq = updated_nodes.loc[gateway_join, 'SequenceNumber']
-            parallel_branches = [child for child in children if split_seq < child[2] < join_seq]
-            for branch in parallel_branches:
-                if branch[0] == 'node':
-                    gateway_connected_nodes.add(branch[1])
-                # For subgroups, we'll add their first/last nodes later
+    # Check for repeat connections
+    if pd.notna(group.get('repeat_connections')):
+        repeat_data = group['repeat_connections']
+        repeat_gateway = repeat_data.get('gateway')
+        repeat_helper = repeat_data.get('helper')
+
+    # First identify gateways in this group
+    for child_type, child_id, seq in children:
+        if child_type == 'node' and updated_nodes.loc[child_id, 'node_type'] == 'gateway':
+            # Check for parallel group gateways
+            if 'gateway_split' in child_id and not 'skip' in child_id:
+                gateway_split = child_id
+            elif 'gateway_join' in child_id and not 'skip' in child_id:
+                gateway_join = child_id
+            # Check for skip condition gateways
+            elif 'skip_gateway_split' in child_id:
+                skip_gateway_split = child_id
+            elif 'skip_gateway_join' in child_id:
+                skip_gateway_join = child_id
+
+    # Handle parallel gateways
+    if group['type'] == 'parallel' and gateway_split and gateway_join:
+        split_seq = updated_nodes.loc[gateway_split, 'SequenceNumber']
+        join_seq = updated_nodes.loc[gateway_join, 'SequenceNumber']
+        parallel_branches = [child for child in children if split_seq < child[2] < join_seq]
+        for branch in parallel_branches:
+            if branch[0] == 'node':
+                gateway_connected_nodes.add(branch[1])
 
     # Process children and manage connections
     prev_node = None
     first_node = None
     last_node = None
+    first_real_node = None  # First node that's not a helper
 
     for child_type, child_id, seq in children:
         if child_type == 'node':
@@ -571,9 +722,25 @@ def add_group(group_id, dot, updated_nodes, updated_groups, edge_set):
             elif node_type == 'gateway':
                 label = str(node['label']) if pd.notna(node['label']) else ''
                 dot.node(child_id, label=label, shape='diamond', fontsize='16')
-
+            
+            elif node_type == 'helper':
+                # Helper node is very small and nearly invisible
+                dot.node(child_id, label='', shape='point', width='0.1', height='0.1')
+                
+                # Store helper node but continue normal processing
+                if first_node is None:
+                    first_node = child_id
+                last_node = child_id
+                
+                # If this is the repeat helper node, remember it but don't treat it as a normal node in the flow
+                if child_id == repeat_helper:
+                    # Skip connecting to previous node for helper
+                    continue
+                
             if first_node is None:
                 first_node = child_id
+            if first_real_node is None and node_type != 'helper':
+                first_real_node = child_id
             last_node = child_id
 
             # Connect to previous node, skip if part of parallel gateway logic
@@ -595,6 +762,8 @@ def add_group(group_id, dot, updated_nodes, updated_groups, edge_set):
             if subgroup_first and subgroup_last:
                 if first_node is None:
                     first_node = subgroup_first
+                if first_real_node is None:
+                    first_real_node = subgroup_first
                 last_node = subgroup_last
 
                 # Handle parallel connections
@@ -627,6 +796,23 @@ def add_group(group_id, dot, updated_nodes, updated_groups, edge_set):
             if (branch_last, gateway_join) not in edge_set:
                 dot.edge(branch_last, gateway_join)
                 edge_set.add((branch_last, gateway_join))
+
+    # Add skip condition direct path without any label or special formatting
+    if skip_gateway_split and skip_gateway_join and (skip_gateway_split, skip_gateway_join) not in edge_set:
+        # Simple direct edge from skip split to skip join
+        dot.edge(skip_gateway_split, skip_gateway_join)
+        edge_set.add((skip_gateway_split, skip_gateway_join))
+        
+    # Add repeat condition connection back to the start of the group
+    if repeat_gateway and repeat_helper and (repeat_gateway, repeat_helper) not in edge_set:
+        # Connect the repeat gateway back to the helper node at the beginning
+        dot.edge(repeat_gateway, repeat_helper)
+        edge_set.add((repeat_gateway, repeat_helper))
+        
+        # Make sure the helper node connects to the first real node in the flow
+        if repeat_helper and first_real_node and (repeat_helper, first_real_node) not in edge_set:
+            dot.edge(repeat_helper, first_real_node)
+            edge_set.add((repeat_helper, first_real_node))
 
     return first_node, last_node
 
