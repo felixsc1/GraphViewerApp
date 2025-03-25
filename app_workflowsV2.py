@@ -5,23 +5,27 @@ import pickle
 from graphviz import Digraph
 
 def initialize_state():
-    if 'user_dict' not in st.session_state:
-        # Create workflows directory if it doesn't exist
-        workflows_dir = os.path.join(st.session_state['cwd'], 'data', 'workflows')
-        os.makedirs(workflows_dir, exist_ok=True)
-        
-        # Try to load existing dictionary
-        pickle_path = os.path.join(workflows_dir, 'user_dict.pickle')
-        if os.path.exists(pickle_path):
-            try:
-                with open(pickle_path, 'rb') as f:
-                    st.session_state['user_dict'] = pickle.load(f)
-                st.info(f"Loaded existing user dictionary with {len(st.session_state['user_dict'])} entries")
-            except Exception as e:
-                st.error(f"Benutzerliste konnte nicht geladen werden: {str(e)}")
-                st.session_state['user_dict'] = {}
-        else:
-            st.session_state['user_dict'] = {}
+    # Create workflows directory if it doesn't exist
+    workflows_dir = os.path.join(st.session_state['cwd'], 'data', 'workflows')
+    os.makedirs(workflows_dir, exist_ok=True)
+
+    # Default user dictionary entry
+    default_user_dict = {"3639e0c9-14a3-4021-9d95-c5ea60d296b6": "FFOG"}
+
+    # Load existing dictionary from the pickle file, if possible
+    pickle_path = os.path.join(workflows_dir, 'user_dict.pickle')
+    loaded_dict = {}
+    if os.path.exists(pickle_path):
+        try:
+            with open(pickle_path, 'rb') as f:
+                loaded_dict = pickle.load(f)
+            st.info(f"Loaded existing user dictionary with {len(loaded_dict)} entries")
+        except Exception as e:
+            st.error(f"Benutzerliste konnte nicht geladen werden: {str(e)}")
+
+    # Always update the dictionary with the default entry
+    loaded_dict.update(default_user_dict)
+    st.session_state['user_dict'] = loaded_dict
 
 def upload_user_list():
     uploaded_file = st.file_uploader("Upload Benutzerliste", type=["xlsx"])
@@ -35,22 +39,47 @@ def upload_user_list():
             transport_id_col = get_column_name(df.columns, 'TransportID')
             vorname_col = get_column_name(df.columns, 'Vorname')
             nachname_col = get_column_name(df.columns, 'Nachname')
+            name_de_col = get_column_name(df.columns, 'Name:de')
             
-            # Check if all required columns were found
-            if not all([transport_id_col, vorname_col, nachname_col]):
-                missing = []
-                if not transport_id_col: missing.append('TransportID')
-                if not vorname_col: missing.append('Vorname')
-                if not nachname_col: missing.append('Nachname')
-                st.error(f"Could not find columns starting with: {', '.join(missing)}")
+            # Check if TransportID is found
+            if not transport_id_col:
+                st.error("Could not find column starting with: TransportID")
                 return
             
-            # Create dictionary with TransportID as key and concatenated name as value
-            user_dict = {
-                str(row[transport_id_col]): f"{row[vorname_col]} {row[nachname_col]}"
-                for _, row in df.iterrows()
-                if pd.notna(row[transport_id_col])
-            }
+            # Determine how to create user names
+            # Option 1: Use Vorname + Nachname if both exist
+            # Option 2: Otherwise use Name:de if it exists
+            use_names = vorname_col and nachname_col
+            use_name_de = name_de_col is not None
+            
+            if not (use_names or use_name_de):
+                st.error("Could not find either (Vorname and Nachname) or Name:de columns")
+                return
+            
+            # Load existing user_dict from session state or create new one
+            user_dict = st.session_state.get('user_dict', {}).copy()
+            
+            # Add new entries to user_dict
+            for _, row in df.iterrows():
+                transport_id = row[transport_id_col]
+                
+                # Skip rows with missing TransportID
+                if pd.isna(transport_id):
+                    continue
+                
+                # Convert TransportID to string
+                transport_id = str(transport_id)
+                
+                if use_names:
+                    # First try Vorname + Nachname
+                    if pd.notna(row[vorname_col]) and pd.notna(row[nachname_col]):
+                        user_dict[transport_id] = f"{row[vorname_col]} {row[nachname_col]}"
+                    # If either is missing but Name:de exists, use that instead
+                    elif use_name_de and pd.notna(row[name_de_col]):
+                        user_dict[transport_id] = row[name_de_col]
+                # If we can't use names, try Name:de
+                elif use_name_de and pd.notna(row[name_de_col]):
+                    user_dict[transport_id] = row[name_de_col]
             
             # Store in session state
             st.session_state['user_dict'] = user_dict
@@ -120,43 +149,62 @@ def resolve_empfaenger(xls, empfaenger_id):
         
     # Check if the "Empfänger" sheet exists
     if "Empfänger" not in xls.sheet_names:
-        return empfaenger_id
+        # Skip to final lookup in user_dict
+        resolved_id = empfaenger_id
+    else:
+        # Read the Empfänger sheet
+        empfaenger_df = pd.read_excel(xls, sheet_name="Empfänger")
         
-    # Read the Empfänger sheet
-    empfaenger_df = pd.read_excel(xls, sheet_name="Empfänger")
+        # Get the TransportID column
+        transport_id_col = get_column_name(empfaenger_df.columns, "TransportID")
+        if transport_id_col is None:
+            # Skip to final lookup in user_dict
+            resolved_id = empfaenger_id
+        else:
+            # Look for the row with matching TransportID
+            matching_rows = empfaenger_df[empfaenger_df[transport_id_col] == empfaenger_id]
+            if matching_rows.empty:
+                # Skip to final lookup in user_dict
+                resolved_id = empfaenger_id
+            else:
+                # Potential recipient columns to check
+                recipient_cols = ["Benutzer", "Stelle", "Gruppe", "Verteiler", "DynamicRecipientIdentifier"]
+                
+                # Track if we found a value
+                found_value = False
+                
+                # Look through all columns to find a non-empty value
+                for col_pattern in recipient_cols:
+                    col_name = get_column_name(empfaenger_df.columns, col_pattern)
+                    if col_name is not None:
+                        value = matching_rows[col_name].iloc[0]
+                        if pd.notna(value):
+                            # Clean the value by applying extract_id
+                            resolved_id = extract_id(value)
+                            found_value = True
+                            break
+                
+                # If no value found in specified columns, check all columns
+                if not found_value:
+                    for col in empfaenger_df.columns:
+                        if col != transport_id_col:  # Skip the TransportID column
+                            value = matching_rows[col].iloc[0]
+                            if pd.notna(value):
+                                # Clean the value by applying extract_id
+                                resolved_id = extract_id(value)
+                                found_value = True
+                                break
+                
+                # If no matching non-empty value found, use the original ID
+                if not found_value:
+                    resolved_id = empfaenger_id
     
-    # Get the TransportID column
-    transport_id_col = get_column_name(empfaenger_df.columns, "TransportID")
-    if transport_id_col is None:
-        return empfaenger_id
+    # FINAL STEP: Check if the ID exists in the user dictionary
+    if 'user_dict' in st.session_state and resolved_id in st.session_state['user_dict']:
+        return st.session_state['user_dict'][resolved_id]
     
-    # Look for the row with matching TransportID
-    matching_rows = empfaenger_df[empfaenger_df[transport_id_col] == empfaenger_id]
-    if matching_rows.empty:
-        return empfaenger_id
-    
-    # Potential recipient columns to check
-    recipient_cols = ["Benutzer", "Stelle", "Gruppe", "Verteiler", "DynamicRecipientIdentifier"]
-    
-    # Look through all columns to find a non-empty value
-    for col_pattern in recipient_cols:
-        col_name = get_column_name(empfaenger_df.columns, col_pattern)
-        if col_name is not None:
-            value = matching_rows[col_name].iloc[0]
-            if pd.notna(value):
-                # Clean the value by applying extract_id
-                return extract_id(value)
-    
-    # If no value found in specified columns, check all columns
-    for col in empfaenger_df.columns:
-        if col != transport_id_col:  # Skip the TransportID column
-            value = matching_rows[col].iloc[0]
-            if pd.notna(value):
-                # Clean the value by applying extract_id
-                return extract_id(value)
-    
-    # If no matching non-empty value found, return the original ID
-    return empfaenger_id
+    # If we get here, return the resolved_id (which might be the original ID if no match was found)
+    return resolved_id
 
         
 # --- Generating Workflow Tables ---
@@ -1141,6 +1189,9 @@ def build_workflow_diagram(updated_nodes, updated_groups):
 def show():
     initialize_state()
     upload_user_list()
+    if st.button("Reset Benutzerliste"):
+        st.session_state['user_dict'] = {}
+        st.info("User list has been reset.")
     xls = upload_dossier()
     if xls is not None:
         activities_table = build_activities_table(xls)
@@ -1159,7 +1210,8 @@ def show():
             st.dataframe(updated_groups.reset_index())
             # st.markdown(updated_nodes.to_dict())
             # st.markdown(updated_groups.to_dict())
-            
+            # Display the user dictionary from session state
+            # st.write("User Dictionary:", st.session_state['user_dict'])
             # Display the workflow diagram
             try:
                 st.subheader("Workflow Diagram")
