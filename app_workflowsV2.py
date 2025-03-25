@@ -104,6 +104,60 @@ def get_column_name(columns, starts_with):
         return matching_cols[0].strip()
     return None
 
+def resolve_empfaenger(xls, empfaenger_id):
+    """
+    Resolves an Empfänger ID to its actual value by looking it up in the "Empfänger" sheet.
+    
+    Args:
+        xls: Excel file containing the "Empfänger" sheet
+        empfaenger_id: The TransportID to look up
+        
+    Returns:
+        Resolved empfänger value or the original ID if not found
+    """
+    if pd.isna(empfaenger_id):
+        return None
+        
+    # Check if the "Empfänger" sheet exists
+    if "Empfänger" not in xls.sheet_names:
+        return empfaenger_id
+        
+    # Read the Empfänger sheet
+    empfaenger_df = pd.read_excel(xls, sheet_name="Empfänger")
+    
+    # Get the TransportID column
+    transport_id_col = get_column_name(empfaenger_df.columns, "TransportID")
+    if transport_id_col is None:
+        return empfaenger_id
+    
+    # Look for the row with matching TransportID
+    matching_rows = empfaenger_df[empfaenger_df[transport_id_col] == empfaenger_id]
+    if matching_rows.empty:
+        return empfaenger_id
+    
+    # Potential recipient columns to check
+    recipient_cols = ["Benutzer", "Stelle", "Gruppe", "Verteiler", "DynamicRecipientIdentifier"]
+    
+    # Look through all columns to find a non-empty value
+    for col_pattern in recipient_cols:
+        col_name = get_column_name(empfaenger_df.columns, col_pattern)
+        if col_name is not None:
+            value = matching_rows[col_name].iloc[0]
+            if pd.notna(value):
+                # Clean the value by applying extract_id
+                return extract_id(value)
+    
+    # If no value found in specified columns, check all columns
+    for col in empfaenger_df.columns:
+        if col != transport_id_col:  # Skip the TransportID column
+            value = matching_rows[col].iloc[0]
+            if pd.notna(value):
+                # Clean the value by applying extract_id
+                return extract_id(value)
+    
+    # If no matching non-empty value found, return the original ID
+    return empfaenger_id
+
         
 # --- Generating Workflow Tables ---
 
@@ -162,8 +216,11 @@ def build_activities_table(xls):
             # Add "Empfänger" for manual activities; set to None for others
             empfaenger_col = get_column_name(df.columns, "Empfänger")
             if sheet_name == "Aktivität" and empfaenger_col is not None:
-                # Clean the Empfänger column by applying extract_id to remove suffixes
-                temp_df["Empfänger"] = df[empfaenger_col].apply(extract_id)
+                # Get the raw Empfänger IDs
+                raw_empfaenger = df[empfaenger_col].apply(extract_id)
+                
+                # Resolve each Empfänger ID to its actual value
+                temp_df["Empfänger"] = raw_empfaenger.apply(lambda x: resolve_empfaenger(xls, x))
             else:
                 temp_df["Empfänger"] = None
             
