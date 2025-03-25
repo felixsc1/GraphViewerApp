@@ -403,8 +403,22 @@ def build_groups_table(xls):
                         else:
                             condition_names.append("")
                             condition_expressions.append("")
-                    groups_df.at[idx, "parallel_condition_name"] = ";".join(map(str, condition_names))
-                    groups_df.at[idx, "parallel_condition_expression"] = ";".join(map(str, condition_expressions))
+                    # Filter out empty condition names before joining with semicolons
+                    non_empty_names = [name for name in condition_names if name]
+                    if non_empty_names:
+                        groups_df.at[idx, "parallel_condition_name"] = ";".join(map(str, non_empty_names))
+                    else:
+                        groups_df.at[idx, "parallel_condition_name"] = None
+                    
+                    # Create formatted string with name: expression pairs
+                    formatted_expressions = []
+                    for i in range(len(condition_names)):
+                        if condition_names[i]:  # Only include non-empty names
+                            formatted_expressions.append(f"{condition_names[i]}: {condition_expressions[i]}")
+                    if formatted_expressions:
+                        groups_df.at[idx, "parallel_condition_expression"] = "\n".join(formatted_expressions)
+                    else:
+                        groups_df.at[idx, "parallel_condition_expression"] = None
 
     # Clean up temporary columns
     groups_df.drop(columns=["Überspringen, falls", "Wiederholen, falls"], errors="ignore", inplace=True)
@@ -538,16 +552,23 @@ def generate_additional_nodes(activities_table, groups_table):
             
         else:
             # For AnyBranch and OnlyOneBranch, include decision and rule nodes
-            rule_node_id = generate_node_id('rule')
+            # Check if there's a valid parallel_condition_expression
+            has_condition_expr = pd.notna(groups_table.loc[group_id, 'parallel_condition_expression'])
+            
+            # For AnyBranch and OnlyOneBranch, always create decision and gateway nodes
             decision_node_id = generate_node_id('decision')
             gateway_split_id = generate_node_id('gateway_split')
             gateway_join_id = generate_node_id('gateway_join')
+            
+            # Only create rule node if there's a condition expression
+            if has_condition_expr:
+                rule_node_id = generate_node_id('rule')
+                rule_seq = -1  # Rule not in main sequence
             
             # Place nodes in sequence
             decision_seq = min_seq - 2  # Decision comes before gateway
             gateway_split_seq = min_seq - 1  # Gateway split comes just before the first child
             gateway_join_seq = max_seq + 1  # Gateway join comes just after the last child
-            rule_seq = -1  # Rule not in main sequence
             
             # Set gateway labels based on the erledigungsmodus
             if erledigungsmodus == 'AnyBranch':
@@ -557,19 +578,43 @@ def generate_additional_nodes(activities_table, groups_table):
                 gateway_split_label = ''   # Empty diamond for OnlyOneBranch
                 gateway_join_label = ''    # Empty diamond for OnlyOneBranch
             
+            # Prepare node data for DataFrame
+            node_ids = []
+            node_types = []
+            parent_activities = []
+            sequence_numbers = []
+            labels = []
+            shapes = []
+            
+            # Always add decision and gateway nodes
+            node_ids.extend([decision_node_id, gateway_split_id, gateway_join_id])
+            node_types.extend(['decision', 'gateway', 'gateway'])
+            parent_activities.extend([group_id, group_id, group_id])
+            sequence_numbers.extend([decision_seq, gateway_split_seq, gateway_join_seq])
+            labels.extend([
+                "Entscheid\n" + str(groups_table.loc[group_id, 'parallel_condition_name']).replace(';', '\n'),
+                gateway_split_label,
+                gateway_join_label
+            ])
+            shapes.extend(['box', 'diamond', 'diamond'])
+            
+            # Add rule node only if there's a condition expression
+            if has_condition_expr:
+                node_ids.append(rule_node_id)
+                node_types.append('rule')
+                parent_activities.append(decision_node_id)
+                sequence_numbers.append(rule_seq)
+                labels.append(groups_table.loc[group_id, 'parallel_condition_expression'])
+                shapes.append('note')
+            
             # Create nodes dataframe for AnyBranch or OnlyOneBranch
             new_nodes = pd.DataFrame({
-                'node_id': [rule_node_id, decision_node_id, gateway_split_id, gateway_join_id],
-                'node_type': ['rule', 'decision', 'gateway', 'gateway'],
-                'ParentActivity': [decision_node_id, group_id, group_id, group_id],
-                'SequenceNumber': [rule_seq, decision_seq, gateway_split_seq, gateway_join_seq],
-                'label': [
-                    groups_table.loc[group_id, 'parallel_condition_expression'],
-                    "Entscheid\n" + str(groups_table.loc[group_id, 'parallel_condition_name']).replace(';', '\n'),
-                    gateway_split_label,
-                    gateway_join_label
-                ],
-                'shape': ['note', 'box', 'diamond', 'diamond']
+                'node_id': node_ids,
+                'node_type': node_types,
+                'ParentActivity': parent_activities,
+                'SequenceNumber': sequence_numbers,
+                'label': labels,
+                'shape': shapes
             }).set_index('node_id')
         
         # Append new nodes to the updated table
