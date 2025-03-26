@@ -5,7 +5,6 @@ import app_processing
 import app_search
 import app_analysis
 import app_workflows
-import app_workflowsV2
 import pandas as pd
 import os
 import logging
@@ -34,8 +33,8 @@ if 'selection' not in st.session_state:
 
 # Use the session state to determine the current selection
 selection = st.sidebar.radio(
-    "Go to", ["Data Processing", "Search RefID", "Graph Viewer", "Analysis", "Prozess-Workflows", "Prozess-WorkflowsV2"],
-    index=["Data Processing", "Search RefID", "Graph Viewer", "Analysis", "Prozess-Workflows", "Prozess-WorkflowsV2"].index(st.session_state['selection'])
+    "Go to", ["Data Processing", "Search RefID", "Graph Viewer", "Analysis", "Prozess-Workflows"],
+    index=["Data Processing", "Search RefID", "Graph Viewer", "Analysis", "Prozess-Workflows"].index(st.session_state['selection'])
 )
 
 # Update session state based on sidebar selection
@@ -77,7 +76,3 @@ elif selection == "Analysis":
 elif selection == "Prozess-Workflows":
     st.title("📥Prozess-Workflows")
     app_workflows.show()
-
-elif selection == "Prozess-WorkflowsV2":
-    st.title("📥Prozess-WorkflowsV2")
-    app_workflowsV2.show()
