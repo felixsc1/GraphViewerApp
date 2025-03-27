@@ -928,19 +928,22 @@ def add_node(dot, node_id, node, edge_set):
             formatted_empfanger = f"{emoji}{empfanger}" if empfanger else emoji
             
             # Create HTML-like label for better formatting
-            # Use a table with max width and word wrapping
-            html_label = f'''<
-                <TABLE BORDER="0" CELLBORDER="0" CELLSPACING="0" CELLPADDING="2" WIDTH="140">
-                    <TR>
-                        <TD ALIGN="left" VALIGN="top"><FONT POINT-SIZE="14">{formatted_empfanger}</FONT></TD>
-                    </TR>
-                    <TR>
-                        <TD ALIGN="center" BALIGN="center">
-                            <FONT>{name_de}</FONT>
-                        </TD>
-                    </TR>
-                </TABLE>>'''
+            # Use a table with reduced width and word wrapping
+            # Add line breaks for long text (approx 15-20 chars per line)
             
+            # Format name_de with line breaks if needed
+            formatted_name = name_de
+            if len(name_de) > 18:
+                # Find a space near the middle to break
+                mid_point = len(name_de) // 2
+                space_pos = name_de.find(' ', mid_point - 5)
+                if space_pos > 0:
+                    formatted_name = name_de[:space_pos] + '<BR/>' + name_de[space_pos+1:]
+            
+            html_label = f'''<<TABLE BORDER="0" CELLBORDER="0" CELLSPACING="0" CELLPADDING="6" WIDTH="130">
+<TR><TD ALIGN="left" VALIGN="top"><FONT POINT-SIZE="14">{formatted_empfanger}</FONT></TD></TR>
+<TR><TD ALIGN="center" BALIGN="center"><FONT>{formatted_name}</FONT></TD></TR>
+</TABLE>>'''
             label = html_label
         elif node_type == 'helper':
             label = ''
