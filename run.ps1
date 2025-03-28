@@ -12,7 +12,7 @@ while ($true) {
         # Start the process with a process object so we can interact with it
         $processStartInfo = New-Object System.Diagnostics.ProcessStartInfo
         $processStartInfo.FileName = $streamlitModule
-        $processStartInfo.Arguments = "run $applicationPath --server.port 80"
+        $processStartInfo.Arguments = "run $applicationPath --server.port 8080"
         $processStartInfo.UseShellExecute = $false
         $processStartInfo.RedirectStandardInput = $true
         $processStartInfo.RedirectStandardOutput = $true

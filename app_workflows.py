@@ -1262,7 +1262,27 @@ def show():
                 #                                           help="Distance of labels from edges (default: 1.8)")
                                     
                 diagram = build_workflow_diagram(updated_nodes, updated_groups)
-                diagram.render('workflow_diagram', view=True)
+                
+                # Save the DOT representation to a file (for debugging if needed)
+                diagram.save('bpmn_diagram.dot')
+                
+                # Render the diagram with view=False to prevent it from opening automatically
+                svg_path = diagram.render('workflow_diagram', format='svg', cleanup=False, view=False)
+                
+                # Display the diagram directly in Streamlit
+                st.graphviz_chart(diagram)
+                
+                # Create download button for the SVG
+                try:
+                    with open(svg_path, "rb") as file:
+                        btn = st.download_button(
+                            label="Download as SVG",
+                            data=file,
+                            file_name="workflow_diagram.svg",
+                            mime="image/svg+xml",
+                        )
+                except Exception as e:
+                    st.warning(f"Could not create download button. Error: {str(e)}")
             except Exception as e:
                 st.error(f"Error generating workflow diagram: {str(e)}")
                 st.exception(e)
