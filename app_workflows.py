@@ -4,14 +4,6 @@ import os
 import pickle
 from graphviz import Digraph
 
-# --- Diagram Spacing Configuration ---
-# These variables control the spacing in the generated diagram
-# Adjust these values to fine-tune the layout
-GRAPH_NODE_SEPARATION = '0.5'    # Horizontal space between nodes (increased a bit for better flow)
-GRAPH_RANK_SEPARATION = '0.7'    # Vertical space between ranks (increased slightly)
-EDGE_MIN_LENGTH = '1.0'          # Minimum edge length (increased to help with flow)
-EDGE_LABEL_DISTANCE = '1.5'      # Distance of labels from their edges
-
 def initialize_state():
     # Create workflows directory if it doesn't exist
     workflows_dir = os.path.join(st.session_state['cwd'], 'data', 'workflows')
@@ -868,7 +860,45 @@ def generate_additional_nodes(activities_table, groups_table):
 
 ## -- Generate BPMN Diagram --
 
-def add_node(dot, node_id, node, edge_set):
+# Constants
+ACTIVITY_TABLE_WIDTH = "180"
+ACTIVITY_MAX_CHARS_PER_LINE = 20
+ACTIVITY_FONT_SIZE = "14"
+ACTIVITY_SMALL_FONT_SIZE = "12"
+ACTIVITY_SMALL_MAX_CHARS_PER_LINE = 24
+EDGE_MIN_LENGTH = '1.0'  # Define if not already present
+EDGE_LABEL_DISTANCE = '2.0'  # Define if not already present
+GRAPH_NODE_SEPARATION = '0.5'  # Define if not already present
+GRAPH_RANK_SEPARATION = '0.5'  # Define if not already present
+
+def wrap_text(text, max_chars_per_line):
+    """Wrap text into lines not exceeding max_chars_per_line."""
+    words = text.split()
+    lines = []
+    current_line = []
+    current_length = 0
+    for word in words:
+        if current_length + len(word) + len(current_line) > max_chars_per_line:
+            if current_line:
+                lines.append(' '.join(current_line))
+                current_line = []
+                current_length = 0
+            else:
+                lines.append(word)
+                continue
+        current_line.append(word)
+        current_length += len(word)
+    if current_line:
+        lines.append(' '.join(current_line))
+    return lines
+
+def get_port(node_id, updated_nodes, direction):
+    """Return the port for edge connections based on node type and direction."""
+    if node_id in updated_nodes.index and updated_nodes.at[node_id, 'node_type'] == 'activity':
+        return ':w' if direction == 'in' else ':e'
+    return ''
+
+def add_node(dot, node_id, node, edge_set, updated_nodes):
     """Add a node to the Graphviz diagram based on its type."""
     node_type = node['node_type']
     label = str(node['label']) if pd.notna(node['label']) else ''
@@ -884,17 +914,15 @@ def add_node(dot, node_id, node, edge_set):
         return False
 
     elif node_type == 'substeps':
-        # Create the substep node with parent's group to ensure vertical alignment
         dot.node(
             node_id,
             label=label,
-            shape='none',     # No border
-            style='',         # No style
+            shape='none',
+            style='',
             fontsize='14',
-            align='left',     # Left justify text
-            group=node['ParentActivity']  # Key change: use parent's ID as group
+            align='left',
+            group=node['ParentActivity']
         )
-        
         parent_activity = node['ParentActivity']
         if pd.notna(parent_activity) and (parent_activity, node_id) not in edge_set:
             dot.edge(
@@ -915,7 +943,6 @@ def add_node(dot, node_id, node, edge_set):
             name_de = node['Name:de'] if pd.notna(node['Name:de']) else ''
             activity_type = node['type'] if pd.notna(node['type']) else ''
             
-            # Add emoji based on activity type
             emoji = ''
             if activity_type == 'manual':
                 emoji = '👤 '
@@ -923,32 +950,31 @@ def add_node(dot, node_id, node, edge_set):
                 emoji = '⚙️ '
             elif activity_type == 'script':
                 emoji = '📜 '
-                
-            # Format empfanger with emoji
+            
             formatted_empfanger = f"{emoji}{empfanger}" if empfanger else emoji
             
-            # Create HTML-like label for better formatting
-            # Use a table with reduced width and word wrapping
-            # Add line breaks for long text (approx 15-20 chars per line)
+            wrapped_lines = wrap_text(name_de, ACTIVITY_MAX_CHARS_PER_LINE)
+            if len(wrapped_lines) > 2:
+                font_size = ACTIVITY_SMALL_FONT_SIZE
+                wrapped_lines_small = wrap_text(name_de, ACTIVITY_SMALL_MAX_CHARS_PER_LINE)
+                if len(wrapped_lines_small) > 2:
+                    wrapped_lines = wrapped_lines_small[:2]
+                    wrapped_lines[-1] += " ..."
+                else:
+                    wrapped_lines = wrapped_lines_small
+            else:
+                font_size = ACTIVITY_FONT_SIZE
             
-            # Format name_de with line breaks if needed
-            formatted_name = name_de
-            if len(name_de) > 18:
-                # Find a space near the middle to break
-                mid_point = len(name_de) // 2
-                space_pos = name_de.find(' ', mid_point - 5)
-                if space_pos > 0:
-                    formatted_name = name_de[:space_pos] + '<BR/>' + name_de[space_pos+1:]
+            formatted_name = '<BR/>'.join(wrapped_lines)
             
-            html_label = f'''<<TABLE BORDER="0" CELLBORDER="0" CELLSPACING="0" CELLPADDING="6" WIDTH="130">
-<TR><TD ALIGN="left" VALIGN="top"><FONT POINT-SIZE="14">{formatted_empfanger}</FONT></TD></TR>
-<TR><TD ALIGN="center" BALIGN="center"><FONT>{formatted_name}</FONT></TD></TR>
+            html_label = f'''<<TABLE BORDER="0" CELLBORDER="0" CELLSPACING="0" CELLPADDING="6" WIDTH="{ACTIVITY_TABLE_WIDTH}">
+<TR><TD ALIGN="left" VALIGN="top"><FONT POINT-SIZE="{ACTIVITY_FONT_SIZE}">{formatted_empfanger}</FONT></TD></TR>
+<TR><TD ALIGN="center"><FONT POINT-SIZE="{font_size}">{formatted_name}</FONT></TD></TR>
 </TABLE>>'''
             label = html_label
         elif node_type == 'helper':
             label = ''
         
-        # Include shape in attrs dictionary
         attrs = {}
         if node_type == 'gateway':
             attrs['fontsize'] = '16'
@@ -958,17 +984,16 @@ def add_node(dot, node_id, node, edge_set):
             attrs['height'] = '0.1'
             attrs['shape'] = 'point'
         elif node_type == 'activity':
-            # Set attributes for activity nodes to handle HTML labels
             attrs['shape'] = 'box'
             attrs['style'] = 'rounded'
             attrs['margin'] = '0'
-            attrs['group'] = node_id  # Key change: set group attribute to own ID for activities
+            attrs['group'] = node_id
         else:
-            attrs['shape'] = 'box'  # Default shape
+            attrs['shape'] = 'box'
             
         dot.node(node_id, label=label, **attrs)
         return True
-    
+
 def add_group(group_id, dot, updated_nodes, updated_groups, edge_set, processed_substeps=None):
     """Build a group in the BPMN diagram recursively."""
     if processed_substeps is None:
@@ -976,23 +1001,18 @@ def add_group(group_id, dot, updated_nodes, updated_groups, edge_set, processed_
     
     group = updated_groups.loc[group_id]
     children = []
-    
-    # Format the group name for display in the upper left corner
     group_name = group['name'] if pd.notna(group['name']) else ''
-
-    # Collect all nodes and subgroups
+    
     nodes = updated_nodes[updated_nodes['ParentActivity'] == group_id]
     for node_id in nodes.index:
         children.append(('node', node_id, nodes.at[node_id, 'SequenceNumber']))
 
-    # Rule nodes under decisions
     for decision_id in nodes[nodes['node_type'] == 'decision'].index:
         rule_nodes = updated_nodes[(updated_nodes['ParentActivity'] == decision_id) & 
                                    (updated_nodes['node_type'] == 'rule')]
         for rule_id in rule_nodes.index:
             children.append(('node', rule_id, updated_nodes.at[rule_id, 'SequenceNumber']))
 
-    # Substep nodes under activities
     for activity_id in nodes[nodes['node_type'] == 'activity'].index:
         substep_nodes = updated_nodes[(updated_nodes['ParentActivity'] == activity_id) & 
                                       (updated_nodes['node_type'] == 'substeps')]
@@ -1001,14 +1021,12 @@ def add_group(group_id, dot, updated_nodes, updated_groups, edge_set, processed_
                 processed_substeps.add(substep_id)
                 children.append(('node', substep_id, updated_nodes.at[substep_id, 'SequenceNumber']))
 
-    # Subgroups
     subgroups = updated_groups[updated_groups['parent_group_id'] == group_id]
     for subgroup_id in subgroups.index:
         children.append(('group', subgroup_id, subgroups.at[subgroup_id, 'SequenceNumber']))
 
-    children.sort(key=lambda x: x[2])  # Sort by sequence number
-
-    # Gateway and parallel handling
+    children.sort(key=lambda x: x[2])
+    
     gateway_split = gateway_join = skip_gateway_split = skip_gateway_join = repeat_gateway = repeat_helper = None
     parallel_branches = []
     gateway_connected_nodes = set()
@@ -1018,7 +1036,6 @@ def add_group(group_id, dot, updated_nodes, updated_groups, edge_set, processed_
         repeat_data = group['repeat_connections']
         repeat_gateway, repeat_helper = repeat_data.get('gateway'), repeat_data.get('helper')
 
-    # Identify gateways
     for child_type, child_id, _ in children:
         if child_type == 'node' and updated_nodes.at[child_id, 'node_type'] == 'gateway':
             if 'gateway_split' in child_id and 'skip' not in child_id:
@@ -1030,17 +1047,15 @@ def add_group(group_id, dot, updated_nodes, updated_groups, edge_set, processed_
             elif 'skip_gateway_join' in child_id:
                 skip_gateway_join = child_id
 
-    # Parallel branches
     if group['type'] == 'parallel' and gateway_split and gateway_join:
         split_seq, join_seq = updated_nodes.at[gateway_split, 'SequenceNumber'], updated_nodes.at[gateway_join, 'SequenceNumber']
         parallel_branches = [child for child in children if split_seq < child[2] < join_seq]
 
-    # Process children
     prev_node = first_node = last_node = first_real_node = None
     for child_type, child_id, seq in children:
         if child_type == 'node':
             node = updated_nodes.loc[child_id]
-            in_flow = add_node(dot, child_id, node, edge_set)
+            in_flow = add_node(dot, child_id, node, edge_set, updated_nodes)
             if in_flow:
                 if first_node is None:
                     first_node = child_id
@@ -1049,15 +1064,14 @@ def add_group(group_id, dot, updated_nodes, updated_groups, edge_set, processed_
                 last_node = child_id
                 if prev_node and (prev_node, child_id) not in edge_set:
                     if group['type'] != 'parallel' or (prev_node not in gateway_connected_nodes and child_id not in gateway_connected_nodes):
-                        # Standard edge without labels
-                        dot.edge(prev_node, child_id, minlen=EDGE_MIN_LENGTH, weight='2', constraint='true')
+                        from_port = get_port(prev_node, updated_nodes, 'out')
+                        to_port = get_port(child_id, updated_nodes, 'in')
+                        dot.edge(prev_node + from_port, child_id + to_port, minlen=EDGE_MIN_LENGTH, weight='2', constraint='true')
                         edge_set.add((prev_node, child_id))
                 prev_node = child_id
 
         elif child_type == 'group':
-            # Create a subgraph with HTML-like label for the child group
             with dot.subgraph(name=f'cluster_{child_id}') as sub_dot:
-                # Apply styling to the cluster before adding content
                 sub_dot.attr(
                     label=f'<<TABLE BORDER="0" CELLBORDER="0" CELLSPACING="0" CELLPADDING="2"><TR><TD ALIGN="left"><B>{updated_groups.at[child_id, "name"]}</B></TD></TR></TABLE>>',
                     style='rounded,dashed',
@@ -1079,124 +1093,119 @@ def add_group(group_id, dot, updated_nodes, updated_groups, edge_set, processed_
                     idx = parallel_branches.index((child_type, child_id, seq))
                     label = labels[idx] if idx < len(labels) else None
                     if gateway_split and (gateway_split, subgroup_first) not in edge_set:
-                        # Edge with label, add parameters to prevent overlap
-                        dot.edge(gateway_split, subgroup_first, 
-                                xlabel=label, 
-                                labelangle='0', 
-                                labeldistance=EDGE_LABEL_DISTANCE,
-                                minlen=str(float(EDGE_MIN_LENGTH) + 0.2),
-                                weight='2',
-                                constraint='true')
+                        from_port = ''
+                        to_port = get_port(subgroup_first, updated_nodes, 'in')
+                        dot.edge(gateway_split + from_port, subgroup_first + to_port, 
+                                 xlabel=label, 
+                                 labelangle='0', 
+                                 labeldistance=EDGE_LABEL_DISTANCE,
+                                 minlen=str(float(EDGE_MIN_LENGTH) + 0.2),
+                                 weight='2',
+                                 constraint='true')
                         edge_set.add((gateway_split, subgroup_first))
                         gateway_connected_nodes.add(subgroup_first)
                     if gateway_join and (subgroup_last, gateway_join) not in edge_set:
-                        dot.edge(subgroup_last, gateway_join, minlen=EDGE_MIN_LENGTH, weight='2', constraint='true')
+                        from_port = get_port(subgroup_last, updated_nodes, 'out')
+                        to_port = ''
+                        dot.edge(subgroup_last + from_port, gateway_join + to_port, minlen=EDGE_MIN_LENGTH, weight='2', constraint='true')
                         edge_set.add((subgroup_last, gateway_join))
                         gateway_connected_nodes.add(subgroup_last)
                 elif prev_node and (prev_node, subgroup_first) not in edge_set:
                     if prev_node not in gateway_connected_nodes and subgroup_first not in gateway_connected_nodes:
-                        dot.edge(prev_node, subgroup_first, minlen=EDGE_MIN_LENGTH, weight='2', constraint='true')
+                        from_port = get_port(prev_node, updated_nodes, 'out')
+                        to_port = get_port(subgroup_first, updated_nodes, 'in')
+                        dot.edge(prev_node + from_port, subgroup_first + to_port, minlen=EDGE_MIN_LENGTH, weight='2', constraint='true')
                         edge_set.add((prev_node, subgroup_first))
                 prev_node = subgroup_last
 
-    # Connect parallel branches
     if group['type'] == 'parallel' and gateway_split and gateway_join:
         for i, branch in enumerate(parallel_branches):
             if branch[0] == 'node':
                 node_id = branch[1]
                 label = labels[i] if i < len(labels) else None
                 if (gateway_split, node_id) not in edge_set:
-                    # Edge with label, add parameters to prevent overlap
-                    dot.edge(gateway_split, node_id, 
-                            xlabel=label, 
-                            labelangle='0', 
-                            labeldistance=EDGE_LABEL_DISTANCE,
-                            minlen=str(float(EDGE_MIN_LENGTH) + 0.2),
-                            weight='2',
-                            constraint='true')
+                    from_port = ''
+                    to_port = get_port(node_id, updated_nodes, 'in')
+                    dot.edge(gateway_split + from_port, node_id + to_port, 
+                             xlabel=label, 
+                             labelangle='0', 
+                             labeldistance=EDGE_LABEL_DISTANCE,
+                             minlen=str(float(EDGE_MIN_LENGTH) + 0.2),
+                             weight='2',
+                             constraint='true')
                     edge_set.add((gateway_split, node_id))
                     gateway_connected_nodes.add(node_id)
                 if (node_id, gateway_join) not in edge_set:
-                    dot.edge(node_id, gateway_join, minlen=EDGE_MIN_LENGTH, weight='2', constraint='true')
+                    from_port = get_port(node_id, updated_nodes, 'out')
+                    to_port = ''
+                    dot.edge(node_id + from_port, gateway_join + to_port, minlen=EDGE_MIN_LENGTH, weight='2', constraint='true')
                     edge_set.add((node_id, gateway_join))
                     gateway_connected_nodes.add(node_id)
 
-    # Handle skip and repeat gateways
     if skip_gateway_split and skip_gateway_join and (skip_gateway_split, skip_gateway_join) not in edge_set:
         label = group['skip_name'] if pd.notna(group.get('skip_name')) else None
-        # Edge with label, add parameters to prevent overlap
         dot.edge(skip_gateway_split, skip_gateway_join, 
-                xlabel=label, 
-                labelangle='0', 
-                labeldistance=EDGE_LABEL_DISTANCE,
-                constraint='false',  # Must be false to allow skipping
-                minlen=str(float(EDGE_MIN_LENGTH) + 0.5),
-                weight='1')  # Lower weight for skip edges
+                 xlabel=label, 
+                 labelangle='0', 
+                 labeldistance=EDGE_LABEL_DISTANCE,
+                 constraint='false',
+                 minlen=str(float(EDGE_MIN_LENGTH) + 0.5),
+                 weight='1')
         edge_set.add((skip_gateway_split, skip_gateway_join))
 
     if repeat_gateway and repeat_helper and (repeat_gateway, repeat_helper) not in edge_set:
         label = group['repeat_name'] if pd.notna(group.get('repeat_name')) else None
-        # Edge with label, add parameters to prevent overlap
         dot.edge(repeat_gateway, repeat_helper, 
-                xlabel=label, 
-                labelangle='0', 
-                labeldistance=EDGE_LABEL_DISTANCE,
-                constraint='false',  # Must be false to allow going back
-                minlen=str(float(EDGE_MIN_LENGTH) + 0.5),
-                weight='1')  # Lower weight for repeat edges
+                 xlabel=label, 
+                 labelangle='0', 
+                 labeldistance=EDGE_LABEL_DISTANCE,
+                 constraint='false',
+                 minlen=str(float(EDGE_MIN_LENGTH) + 0.5),
+                 weight='1')
         edge_set.add((repeat_gateway, repeat_helper))
     if repeat_helper and first_real_node and (repeat_helper, first_real_node) not in edge_set:
-        dot.edge(repeat_helper, first_real_node, minlen=EDGE_MIN_LENGTH, weight='2', constraint='true')
+        from_port = get_port(repeat_helper, updated_nodes, 'out')
+        to_port = get_port(first_real_node, updated_nodes, 'in')
+        dot.edge(repeat_helper + from_port, first_real_node + to_port, minlen=EDGE_MIN_LENGTH, weight='2', constraint='true')
         edge_set.add((repeat_helper, first_real_node))
 
     return first_node, last_node
 
-
 def build_workflow_diagram(updated_nodes, updated_groups):
     """Generate the complete BPMN diagram."""
-    # Create the digraph with more spacing and overlap prevention
     dot = Digraph(format='svg', 
-                 graph_attr={
-                     'rankdir': 'LR', 
-                     'splines': 'ortho', 
-                     'fontname': 'sans-serif',
-                     'nodesep': GRAPH_NODE_SEPARATION,  # Horizontal space between nodes
-                     'ranksep': GRAPH_RANK_SEPARATION,  # Vertical space between ranks
-                     'overlap': 'false',                # Prevent node overlap
-                     'sep': '+5',                       # Reduced additional separation
-                     'margin': '0.1',                   # Reduce margin around nodes
-                     'concentrate': 'true',             # Merge edges where possible
-                     'ordering': 'out',                 # Maintain order of successors to each node
-                     'newrank': 'true'                  # Enhanced ranking algorithm
-                 },
-                 node_attr={'fontname': 'sans-serif', 'margin': '0.1'}, 
-                 edge_attr={'fontname': 'sans-serif', 'weight': '2'})  # Increase edge weight
+                  graph_attr={
+                      'rankdir': 'LR', 
+                      'splines': 'ortho', 
+                      'fontname': 'sans-serif',
+                      'nodesep': GRAPH_NODE_SEPARATION,
+                      'ranksep': GRAPH_RANK_SEPARATION,
+                      'overlap': 'false',
+                      'sep': '+5',
+                      'margin': '0.1',
+                      'concentrate': 'true',
+                      'ordering': 'out',
+                      'newrank': 'true'
+                  },
+                  node_attr={'fontname': 'sans-serif', 'margin': '0.1'}, 
+                  edge_attr={'fontname': 'sans-serif', 'weight': '2'})
     
-    # Create invisible rank constraints to force left-to-right flow
     with dot.subgraph(name='cluster_flow_control') as flow:
-        flow.attr(style='invis')  # Make this subgraph invisible
-        # Create rank constraints
+        flow.attr(style='invis')
         flow.node('rank_start', style='invis', shape='none', width='0')
         flow.node('rank_end', style='invis', shape='none', width='0')
         flow.edge('rank_start', 'rank_end', style='invis')
     
-    # Start and end nodes with stronger positioning
     dot.node('start', shape='circle', label='', width='0.5', height='0.5', rank='source')
     dot.node('end', shape='circle', label='', width='0.5', height='0.5', rank='sink')
     
-    # Force start to be at same rank as rank_start
     dot.edge('rank_start', 'start', style='invis', weight='100')
-    
-    # Force end to be at same rank as rank_end
     dot.edge('rank_end', 'end', style='invis', weight='100')
     
     edge_set = set()
-
     top_group_id = updated_groups[updated_groups['parent_group_id'].isna()].index[0]
     
-    # Create top-level cluster with HTML-formatted label
     with dot.subgraph(name=f'cluster_{top_group_id}') as c:
-        # Format the top-level cluster
         c.attr(
             label=f'<<TABLE BORDER="0" CELLBORDER="0" CELLSPACING="0" CELLPADDING="2"><TR><TD ALIGN="left"><B>{updated_groups.at[top_group_id, "name"]}</B></TD></TR></TABLE>>',
             style='rounded,dashed',
@@ -1208,9 +1217,16 @@ def build_workflow_diagram(updated_nodes, updated_groups):
         )
         first_node, last_node = add_group(top_group_id, c, updated_nodes, updated_groups, edge_set, set())
 
-    dot.edge('start', first_node, minlen='0.8', weight='10', constraint='true')
-    dot.edge(last_node, 'end', minlen='0.8', weight='10', constraint='true')
+    from_port = ''
+    to_port = get_port(first_node, updated_nodes, 'in')
+    dot.edge('start' + from_port, first_node + to_port, minlen='0.8', weight='10', constraint='true')
+    
+    from_port = get_port(last_node, updated_nodes, 'out')
+    to_port = ''
+    dot.edge(last_node + from_port, 'end' + to_port, minlen='0.8', weight='10', constraint='true')
+    
     return dot
+
 
 # --- Main Page Structure ---
 
