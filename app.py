@@ -42,7 +42,9 @@ st.session_state['selection'] = selection
 
 
 if 'cwd' not in st.session_state:
-    st.session_state['cwd'] = os.getcwd()
+    # Get the directory where the current file (app.py) is located
+    app_dir = os.path.dirname(os.path.abspath(__file__))
+    st.session_state['cwd'] = app_dir
 if 'file_versions' not in st.session_state or not st.session_state['file_versions']:
     _, _, _ = get_data_version()
 
