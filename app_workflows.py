@@ -3,6 +3,7 @@ import pandas as pd
 import os
 import pickle
 from graphviz import Digraph
+import re
 
 def initialize_state():
     # Create workflows directory if it doesn't exist
@@ -253,10 +254,10 @@ def build_activities_table(xls):
             # Extract common columns
             temp_df = df[[column_mapping[pattern] for pattern in common_column_patterns]].copy()
             # Rename columns to standard names
-            temp_df.columns = common_column_patterns
+            temp_df.columns = ["TransportID", "name", "parent", "SequenceNumber"]
             
-            # Clean the ParentActivity column by applying extract_id to remove suffixes
-            temp_df["ParentActivity"] = temp_df["ParentActivity"].apply(extract_id)
+            # Clean the parent column by applying extract_id to remove suffixes
+            temp_df["parent"] = temp_df["parent"].apply(extract_id)
             
             # Add the activity type
             temp_df["type"] = activity_type
@@ -321,8 +322,8 @@ def build_activities_table(xls):
                 if transport_id in substeps_dict:
                     activities_df.at[idx, "substeps"] = substeps_dict[transport_id]
     
-    # Step 8: Sort by ParentActivity and SequenceNumber for readability (optional)
-    activities_df.sort_values(by=["ParentActivity", "SequenceNumber"], inplace=True)
+    # Step 8: Sort by parent and SequenceNumber for readability (optional)
+    activities_df.sort_values(by=["parent", "SequenceNumber"], inplace=True)
     
     return activities_df
 
@@ -365,18 +366,12 @@ def build_groups_table(xls):
         # Extract common columns
         temp_df = df[[column_mapping[pattern] for pattern in required_columns]].copy()
         # Rename columns to standard names
-        temp_df.columns = required_columns
+        temp_df.columns = ["id", "name", "parent", "SequenceNumber"]
         
-        # Apply extract_id to ParentActivity column to clean it
-        temp_df["ParentActivity"] = temp_df["ParentActivity"].apply(extract_id)
+        # Apply extract_id to parent column to clean it
+        temp_df["parent"] = temp_df["parent"].apply(extract_id)
         
         temp_df["type"] = group_type
-        temp_df.rename(columns={
-            "TransportID": "group_id",
-            "Name:de": "name",
-            "ParentActivity": "parent_group_id",
-            "SequenceNumber": "SequenceNumber"
-        }, inplace=True)
 
         # Initialize additional columns
         temp_df["skip_name"] = None
@@ -415,7 +410,6 @@ def build_groups_table(xls):
         skip_name_col = get_column_name(skip_conditions.columns, "Anzeigen als")
         skip_expr_col = get_column_name(skip_conditions.columns, "Ausdruck")
         
-        
         if all([skip_transport_col, skip_name_col, skip_expr_col]):
             skip_conditions_set = set(skip_conditions[skip_transport_col])
             
@@ -447,7 +441,6 @@ def build_groups_table(xls):
         repeat_transport_col = get_column_name(repeat_conditions.columns, "TransportID") 
         repeat_name_col = get_column_name(repeat_conditions.columns, "Anzeigen als")
         repeat_expr_col = get_column_name(repeat_conditions.columns, "Ausdruck")
-        
         
         if all([repeat_transport_col, repeat_name_col, repeat_expr_col]):
             repeat_conditions_set = set(repeat_conditions[repeat_transport_col])
@@ -495,7 +488,7 @@ def build_groups_table(xls):
         if all([parallel_col, condition_col, bc_transport_col, bc_name_col, bc_expr_col]):
             branch_conditions = branch_conditions.set_index(bc_transport_col)
             for idx, row in groups_df[groups_df["type"] == "parallel"].iterrows():
-                group_id = row["group_id"]
+                group_id = row["id"]
                 branches = branch_info[branch_info[parallel_col] == group_id]
                 if not branches.empty:
                     condition_names = []
@@ -529,11 +522,11 @@ def build_groups_table(xls):
     groups_df.drop(columns=["Überspringen, falls", "Wiederholen, falls"], errors="ignore", inplace=True)
 
     # Validate group IDs
-    if groups_df["group_id"].duplicated().any():
+    if groups_df["id"].duplicated().any():
         print("Warning: Duplicate group IDs detected.")
 
     # Sort for readability
-    groups_df.sort_values(by=["parent_group_id", "SequenceNumber"], inplace=True)
+    groups_df.sort_values(by=["parent", "SequenceNumber"], inplace=True)
 
     return groups_df
 
@@ -556,7 +549,7 @@ def generate_additional_nodes(activities_table, groups_table):
     
     Parameters:
     - activities_table: pd.DataFrame with activities (indexed by TransportID)
-    - groups_table: pd.DataFrame with groups (indexed by group_id)
+    - groups_table: pd.DataFrame with groups (indexed by id)
     
     Returns:
     - updated_nodes_table: pd.DataFrame with all nodes (activities + additional nodes)
@@ -594,13 +587,12 @@ def generate_additional_nodes(activities_table, groups_table):
             # Create a substep node
             substep_node = pd.Series({
                 'node_type': 'substeps',
-                'ParentActivity': activity_id,
+                'parent': activity_id,
                 'SequenceNumber': -1,  # Not in main sequence
                 'label': activity['substeps'],
-                'shape': 'note',
                 # Copy other relevant columns with None values
                 'Empfänger': None,
-                'Name:de': None,
+                'name': None,
                 'TransportID': None,
                 'type': None
             }, name=substep_node_id)
@@ -624,8 +616,8 @@ def generate_additional_nodes(activities_table, groups_table):
         erledigungsmodus = groups_table.loc[group_id, 'Erledigungsmodus']
         
         # Identify child activities and subgroups of this group
-        child_activities = activities_table[activities_table['ParentActivity'] == group_id]
-        child_subgroups = groups_table[groups_table['parent_group_id'] == group_id]
+        child_activities = activities_table[activities_table['parent'] == group_id]
+        child_subgroups = groups_table[groups_table['parent'] == group_id]
         
         # Get existing sequence numbers of children
         existing_seq = pd.concat([child_activities['SequenceNumber'], 
@@ -649,10 +641,9 @@ def generate_additional_nodes(activities_table, groups_table):
             new_nodes = pd.DataFrame({
                 'node_id': [gateway_split_id, gateway_join_id],
                 'node_type': ['gateway', 'gateway'],
-                'ParentActivity': [group_id, group_id],
+                'parent': [group_id, group_id],
                 'SequenceNumber': [gateway_split_seq, gateway_join_seq],
-                'label': ['+', '+'],  # Plus symbol for AllBranches
-                'shape': ['diamond', 'diamond']
+                'label': ['+', '+']  # Plus symbol for AllBranches
             }).set_index('node_id')
             
         else:
@@ -689,7 +680,6 @@ def generate_additional_nodes(activities_table, groups_table):
             parent_activities = []
             sequence_numbers = []
             labels = []
-            shapes = []
             
             # Always add decision and gateway nodes
             node_ids.extend([decision_node_id, gateway_split_id, gateway_join_id])
@@ -706,7 +696,6 @@ def generate_additional_nodes(activities_table, groups_table):
                 gateway_split_label,
                 gateway_join_label
             ])
-            shapes.extend(['box', 'diamond', 'diamond'])
             
             # Add rule node only if there's a condition expression
             if has_condition_expr:
@@ -715,16 +704,14 @@ def generate_additional_nodes(activities_table, groups_table):
                 parent_activities.append(decision_node_id)
                 sequence_numbers.append(rule_seq)
                 labels.append(groups_table.loc[group_id, 'parallel_condition_expression'])
-                shapes.append('note')
             
             # Create nodes dataframe for AnyBranch or OnlyOneBranch
             new_nodes = pd.DataFrame({
                 'node_id': node_ids,
                 'node_type': node_types,
-                'ParentActivity': parent_activities,
+                'parent': parent_activities,
                 'SequenceNumber': sequence_numbers,
-                'label': labels,
-                'shape': shapes
+                'label': labels
             }).set_index('node_id')
         
         # Append new nodes to the updated table
@@ -741,8 +728,8 @@ def generate_additional_nodes(activities_table, groups_table):
             continue
             
         # Identify child activities and subgroups of this group
-        child_activities = activities_table[activities_table['ParentActivity'] == group_id]
-        child_subgroups = groups_table[groups_table['parent_group_id'] == group_id]
+        child_activities = activities_table[activities_table['parent'] == group_id]
+        child_subgroups = groups_table[groups_table['parent'] == group_id]
         
         # Get existing sequence numbers of children
         existing_seq = pd.concat([child_activities['SequenceNumber'], 
@@ -772,15 +759,14 @@ def generate_additional_nodes(activities_table, groups_table):
         new_nodes = pd.DataFrame({
             'node_id': [rule_node_id, decision_node_id, gateway_split_id, gateway_join_id],
             'node_type': ['rule', 'decision', 'gateway', 'gateway'],
-            'ParentActivity': [decision_node_id, group_id, group_id, group_id],
+            'parent': [decision_node_id, group_id, group_id, group_id],
             'SequenceNumber': [rule_seq, decision_seq, gateway_split_seq, gateway_join_seq],
             'label': [
                 skip_condition if pd.notna(skip_condition) else '',
                 "Überspringen, falls\n" + (skip_name if pd.notna(skip_name) else ''),
                 'X',  # X symbol for skip gateway split
                 'X'   # X symbol for skip gateway join
-            ],
-            'shape': ['note', 'box', 'diamond', 'diamond']
+            ]
         }).set_index('node_id')
         
         # Append new nodes to the updated table
@@ -797,8 +783,8 @@ def generate_additional_nodes(activities_table, groups_table):
             continue
             
         # Identify child activities and subgroups of this group
-        child_activities = activities_table[activities_table['ParentActivity'] == group_id]
-        child_subgroups = groups_table[groups_table['parent_group_id'] == group_id]
+        child_activities = activities_table[activities_table['parent'] == group_id]
+        child_subgroups = groups_table[groups_table['parent'] == group_id]
         
         # Get existing sequence numbers of children
         existing_seq = pd.concat([child_activities['SequenceNumber'], 
@@ -833,15 +819,14 @@ def generate_additional_nodes(activities_table, groups_table):
         new_nodes = pd.DataFrame({
             'node_id': [rule_node_id, decision_node_id, gateway_node_id, helper_node_id],
             'node_type': ['rule', 'decision', 'gateway', 'helper'],
-            'ParentActivity': [decision_node_id, group_id, group_id, group_id],
+            'parent': [decision_node_id, group_id, group_id, group_id],
             'SequenceNumber': [rule_seq, decision_seq, gateway_seq, helper_seq],
             'label': [
                 repeat_condition if pd.notna(repeat_condition) else '',
                 "Wiederholen, falls\n" + (repeat_name if pd.notna(repeat_name) else ''),
                 'X',  # X symbol for gateway
                 ''    # Empty label for helper node
-            ],
-            'shape': ['note', 'box', 'diamond', 'point']  # Point shape for helper - nearly invisible
+            ]
         }).set_index('node_id')
         
         # Store the helper node ID to refer back to in add_group function
@@ -853,10 +838,304 @@ def generate_additional_nodes(activities_table, groups_table):
         # Append new nodes to the updated table
         updated_nodes = pd.concat([updated_nodes, new_nodes])
     
-    # Sort by ParentActivity and SequenceNumber for correct flow
-    updated_nodes.sort_values(by=['ParentActivity', 'SequenceNumber'], inplace=True)
+    # Sort by parent and SequenceNumber for correct flow
+    updated_nodes.sort_values(by=['parent', 'SequenceNumber'], inplace=True)
     
     return updated_nodes, updated_groups
+
+# --- Generate Edges Table ---
+
+
+def build_edges_table(updated_nodes, updated_groups):
+    """
+    Builds a table of edges by traversing the group hierarchy sequentially,
+    ensuring every node has at least one edge.
+
+    Args:
+        updated_nodes: DataFrame with node_id (index), parent, SequenceNumber, node_type
+        updated_groups: DataFrame with group_id (index), parent, SequenceNumber, type, 
+                        parallel_condition_name, skip_name, repeat_name
+    Returns:
+        DataFrame with columns: source, target, label, style
+    """
+    edges = []
+    edge_set = set()  # Prevent duplicate edges
+
+    def process_group(group_id, prev_node=None):
+        """
+        Process a group by following its children's sequence numbers.
+        Returns the first and last nodes for connection purposes.
+        """
+        # Get the group and its children
+        group = updated_groups.loc[group_id]
+        children = []
+        
+        # Collect all nodes (including rules, substeps, etc.) for edge creation
+        nodes = updated_nodes[updated_nodes['parent'] == group_id]
+        for node_id in nodes.index:
+            # Include all nodes in the collection for later processing
+            if node_id in updated_nodes.index:
+                children.append(('node', node_id, nodes.at[node_id, 'SequenceNumber']))
+        
+        # Collect subgroups
+        subgroups = updated_groups[updated_groups['parent'] == group_id]
+        for subgroup_id in subgroups.index:
+            children.append(('group', subgroup_id, subgroups.at[subgroup_id, 'SequenceNumber']))
+        
+        # Sort by SequenceNumber
+        children.sort(key=lambda x: x[2])
+        
+        local_prev = prev_node
+        first_node = None
+        last_node = None
+        
+        # Separate flow nodes from special nodes for sequential processing
+        flow_nodes = []
+        special_nodes = []
+        
+        for child_type, child_id, seq_num in children:
+            if child_type == 'node':
+                node_type = updated_nodes.at[child_id, 'node_type'] if 'node_type' in updated_nodes.columns else 'activity'
+                # Substeps are special and handled separately
+                if node_type == 'substeps':
+                    special_nodes.append((child_type, child_id, seq_num, node_type))
+                # Rules are special but connected to decision nodes later
+                elif node_type == 'rule':
+                    special_nodes.append((child_type, child_id, seq_num, node_type))
+                # All other node types (including gateways, decisions) go in flow
+                else:
+                    flow_nodes.append((child_type, child_id, seq_num, node_type))
+            else:
+                flow_nodes.append((child_type, child_id, seq_num, None))
+        
+        # Process flow nodes sequentially, respecting their order
+        for i, (child_type, child_id, _, node_type) in enumerate(flow_nodes):
+            if child_type == 'node':
+                # Set first node if not already set
+                if first_node is None:
+                    first_node = child_id
+                
+                # Connect to previous node in the sequence
+                if local_prev and (local_prev, child_id) not in edge_set:
+                    edges.append((local_prev, child_id, None, 'solid_arrow'))
+                    edge_set.add((local_prev, child_id))
+                
+                local_prev = child_id
+                last_node = child_id
+            
+            elif child_type == 'group':
+                # Process the subgroup recursively
+                subgroup_first, subgroup_last = process_group(child_id, local_prev)
+                
+                # If the subgroup has nodes, connect them
+                if subgroup_first:
+                    if first_node is None:
+                        first_node = subgroup_first
+                    
+                    # Connect previous node to first node of subgroup
+                    if local_prev and (local_prev, subgroup_first) not in edge_set:
+                        edges.append((local_prev, subgroup_first, None, 'solid_arrow'))
+                        edge_set.add((local_prev, subgroup_first))
+                    
+                    # Update local_prev to last node of subgroup
+                    if subgroup_last:
+                        local_prev = subgroup_last
+                        last_node = subgroup_last
+        
+        # Process special nodes (substeps) after processing flow nodes
+        for child_type, child_id, _, node_type in special_nodes:
+            if node_type == 'substeps':
+                # Connect substep nodes from their parent activity
+                parent_id = updated_nodes.at[child_id, 'parent']
+                if pd.notna(parent_id) and parent_id in updated_nodes.index and (parent_id, child_id) not in edge_set:
+                    edges.append((parent_id, child_id, None, 'dotted_line'))
+                    edge_set.add((parent_id, child_id))
+        
+        # Handle rule nodes by connecting them to their parent decision nodes
+        for child_type, child_id, _, node_type in special_nodes:
+            if node_type == 'rule':
+                parent_id = updated_nodes.at[child_id, 'parent']
+                if pd.notna(parent_id) and parent_id in updated_nodes.index and (child_id, parent_id) not in edge_set:
+                    edges.append((child_id, parent_id, None, 'dotted_arrow'))
+                    edge_set.add((child_id, parent_id))
+        
+        # Special handling for parallel groups to preserve the gateway structure
+        handle_parallel_group_connections(group, flow_nodes, edge_set)
+        
+        # Handle skip gateway connections
+        handle_skip_gateway_connections(group, flow_nodes, edge_set)
+        
+        # Handle repeat gateway connections
+        handle_repeat_gateway_connections(group, flow_nodes, edge_set)
+        
+        return first_node, last_node
+
+    def handle_parallel_group_connections(group, flow_nodes, edge_set):
+        """Handle connections for parallel group gateways"""
+        if group['type'] != 'parallel':
+            return
+            
+        gateway_split = None
+        gateway_join = None
+        branches = []
+        labels = group.get('parallel_condition_name', '').split(';') if pd.notna(group.get('parallel_condition_name')) else []
+        
+        # Find split and join gateways
+        split_index = join_index = -1
+        for i, (c_type, c_id, _, _) in enumerate(flow_nodes):
+            if c_type == 'node':
+                if 'gateway_split' in c_id and 'skip' not in c_id:
+                    gateway_split = c_id
+                    split_index = i
+                elif 'gateway_join' in c_id and 'skip' not in c_id:
+                    gateway_join = c_id
+                    join_index = i
+        
+        # Identify branches between gateways
+        if gateway_split and gateway_join and join_index > split_index + 1:
+            branches = [c for c in flow_nodes[split_index + 1:join_index] if c[0] in ['node', 'group']]
+                
+        # Connect gateway split to each branch start
+        for i, (b_type, b_id, _, _) in enumerate(branches):
+            label = labels[i] if i < len(labels) else None
+            if b_type == 'node':
+                if (gateway_split, b_id) not in edge_set:
+                    edges.append((gateway_split, b_id, label, 'solid_arrow'))
+                    edge_set.add((gateway_split, b_id))
+                if (b_id, gateway_join) not in edge_set:
+                    edges.append((b_id, gateway_join, None, 'solid_arrow'))
+                    edge_set.add((b_id, gateway_join))
+            elif b_type == 'group':
+                b_first, b_last = process_group(b_id)
+                if b_first and (gateway_split, b_first) not in edge_set:
+                    edges.append((gateway_split, b_first, label, 'solid_arrow'))
+                    edge_set.add((gateway_split, b_first))
+                if b_last and (b_last, gateway_join) not in edge_set:
+                    edges.append((b_last, gateway_join, None, 'solid_arrow'))
+                    edge_set.add((b_last, gateway_join))
+
+    def handle_skip_gateway_connections(group, flow_nodes, edge_set):
+        """Handle connections for skip gateways"""
+        skip_decision = skip_split = skip_join = None
+        
+        # First find all relevant nodes
+        for c_type, c_id, _, _ in flow_nodes:
+            if c_type == 'node':
+                if 'skip_decision' in c_id:
+                    skip_decision = c_id
+                elif 'skip_gateway_split' in c_id:
+                    skip_split = c_id
+                elif 'skip_gateway_join' in c_id:
+                    skip_join = c_id
+        
+        # Connect decision to gateway if both exist
+        if skip_decision and skip_split and (skip_decision, skip_split) not in edge_set:
+            edges.append((skip_decision, skip_split, None, 'solid_arrow'))
+            edge_set.add((skip_decision, skip_split))
+            
+        # Connect skip path
+        if skip_split and skip_join and (skip_split, skip_join) not in edge_set:
+            label = group.get('skip_name', None)
+            edges.append((skip_split, skip_join, label, 'solid_arrow'))
+            edge_set.add((skip_split, skip_join))
+
+    def handle_repeat_gateway_connections(group, flow_nodes, edge_set):
+        """Handle connections for repeat gateways"""
+        repeat_decision = repeat_gw = repeat_hp = None
+        
+        # Find all relevant nodes
+        for c_type, c_id, _, _ in flow_nodes:
+            if c_type == 'node':
+                if 'repeat_decision' in c_id:
+                    repeat_decision = c_id
+                elif 'repeat_gateway' in c_id:
+                    repeat_gw = c_id
+                elif 'repeat_helper' in c_id:
+                    repeat_hp = c_id
+        
+        # Connect decision to gateway if both exist
+        if repeat_decision and repeat_gw and (repeat_decision, repeat_gw) not in edge_set:
+            edges.append((repeat_decision, repeat_gw, None, 'solid_arrow'))
+            edge_set.add((repeat_decision, repeat_gw))
+            
+        # Connect repeat path back to helper
+        if repeat_gw and repeat_hp and (repeat_gw, repeat_hp) not in edge_set:
+            label = group.get('repeat_name', None)
+            edges.append((repeat_gw, repeat_hp, label, 'solid_arrow'))
+            edge_set.add((repeat_gw, repeat_hp))
+
+    # Process the top-level group
+    top_group_id = updated_groups[updated_groups['parent'].isna()].index[0]
+    first_node, last_node = process_group(top_group_id)
+
+    # Connect start and end nodes
+    if first_node and ('start', first_node) not in edge_set:
+        edges.append(('start', first_node, None, 'solid_arrow'))
+        edge_set.add(('start', first_node))
+    if last_node and (last_node, 'end') not in edge_set:
+        edges.append((last_node, 'end', None, 'solid_arrow'))
+        edge_set.add((last_node, 'end'))
+
+    # Sanity check: Ensure every node (except start/end and special nodes) has at least one edge
+    edges_df = pd.DataFrame(edges, columns=['source', 'target', 'label', 'style'])
+    connected_nodes = set(edges_df['source']).union(edges_df['target'])
+    all_nodes = set(updated_nodes.index) - {'start', 'end'}
+    unconnected = all_nodes - connected_nodes
+
+    if unconnected:
+        print(f"Warning: {len(unconnected)} nodes unconnected: {unconnected}")
+        # Attempt to connect unconnected nodes
+        for node_id in unconnected:
+            node = updated_nodes.loc[node_id]
+            parent_id = node['parent']
+            seq_num = node['SequenceNumber']
+            node_type = node.get('node_type', 'activity')
+            
+            # Skip special node types that should not be in the main flow
+            if node_type == 'substeps':
+                continue
+                
+            # Find nodes to connect with in the hierarchy
+            siblings = updated_nodes[(updated_nodes['parent'] == parent_id)]
+            
+            # Find nodes before and after this one based on sequence number
+            before_nodes = siblings[(siblings['SequenceNumber'] < seq_num)].sort_values('SequenceNumber', ascending=False)
+            after_nodes = siblings[(siblings['SequenceNumber'] > seq_num)].sort_values('SequenceNumber')
+            
+            # Try to connect from a node before this one
+            if not before_nodes.empty:
+                prev_node = before_nodes.iloc[0].name
+                if (prev_node, node_id) not in edge_set:
+                    edges.append((prev_node, node_id, None, 'solid_arrow'))
+                    edge_set.add((prev_node, node_id))
+            
+            # Try to connect to a node after this one
+            if not after_nodes.empty:
+                next_node = after_nodes.iloc[0].name
+                if (node_id, next_node) not in edge_set:
+                    edges.append((node_id, next_node, None, 'solid_arrow'))
+                    edge_set.add((node_id, next_node))
+            
+            # If still no connections, try parent group's hierarchy
+            if node_id not in connected_nodes:
+                parent_group_id = None
+                if parent_id in updated_groups.index:
+                    parent_group_id = updated_groups.at[parent_id, 'parent']
+                
+                if pd.notna(parent_group_id):
+                    # Get sibling nodes in the parent group
+                    parent_siblings = updated_nodes[updated_nodes['parent'] == parent_group_id]
+                    if not parent_siblings.empty:
+                        # Find closest node in the parent group
+                        parent_node = parent_siblings.iloc[0].name
+                        if (parent_node, node_id) not in edge_set:
+                            edges.append((parent_node, node_id, None, 'solid_arrow'))
+                            edge_set.add((parent_node, node_id))
+
+    # Final edges DataFrame
+    edges_df = pd.DataFrame(edges, columns=['source', 'target', 'label', 'style'])
+    return edges_df
+
 
 ## -- Generate BPMN Diagram --
 
@@ -907,7 +1186,7 @@ def add_node(dot, node_id, node, edge_set, updated_nodes):
         if node_id.startswith('repeat_rule') or node_id.startswith('skip_rule'):
             label = f"📄\n{label}"
         dot.node(node_id, label=label, shape='none')
-        parent_activity = node['ParentActivity']
+        parent_activity = node['parent']
         if pd.notna(parent_activity) and (node_id, parent_activity) not in edge_set:
             dot.edge(node_id, parent_activity, style='dotted')
             edge_set.add((node_id, parent_activity))
@@ -921,9 +1200,9 @@ def add_node(dot, node_id, node, edge_set, updated_nodes):
             style='',
             fontsize='14',
             align='left',
-            group=node['ParentActivity']
+            group=node['parent']
         )
-        parent_activity = node['ParentActivity']
+        parent_activity = node['parent']
         if pd.notna(parent_activity) and (parent_activity, node_id) not in edge_set:
             dot.edge(
                 parent_activity,
@@ -940,7 +1219,7 @@ def add_node(dot, node_id, node, edge_set, updated_nodes):
     else:
         if node_type == 'activity':
             empfanger = node['Empfänger'] if pd.notna(node['Empfänger']) else ''
-            name_de = node['Name:de'] if pd.notna(node['Name:de']) else ''
+            name_de = node['name'] if pd.notna(node['name']) else ''
             activity_type = node['type'] if pd.notna(node['type']) else ''
             
             emoji = ''
@@ -1003,25 +1282,25 @@ def add_group(group_id, dot, updated_nodes, updated_groups, edge_set, processed_
     children = []
     group_name = group['name'] if pd.notna(group['name']) else ''
     
-    nodes = updated_nodes[updated_nodes['ParentActivity'] == group_id]
+    nodes = updated_nodes[updated_nodes['parent'] == group_id]
     for node_id in nodes.index:
         children.append(('node', node_id, nodes.at[node_id, 'SequenceNumber']))
 
     for decision_id in nodes[nodes['node_type'] == 'decision'].index:
-        rule_nodes = updated_nodes[(updated_nodes['ParentActivity'] == decision_id) & 
+        rule_nodes = updated_nodes[(updated_nodes['parent'] == decision_id) & 
                                    (updated_nodes['node_type'] == 'rule')]
         for rule_id in rule_nodes.index:
             children.append(('node', rule_id, updated_nodes.at[rule_id, 'SequenceNumber']))
 
     for activity_id in nodes[nodes['node_type'] == 'activity'].index:
-        substep_nodes = updated_nodes[(updated_nodes['ParentActivity'] == activity_id) & 
+        substep_nodes = updated_nodes[(updated_nodes['parent'] == activity_id) & 
                                       (updated_nodes['node_type'] == 'substeps')]
         for substep_id in substep_nodes.index:
             if substep_id not in processed_substeps:
                 processed_substeps.add(substep_id)
                 children.append(('node', substep_id, updated_nodes.at[substep_id, 'SequenceNumber']))
 
-    subgroups = updated_groups[updated_groups['parent_group_id'] == group_id]
+    subgroups = updated_groups[updated_groups['parent'] == group_id]
     for subgroup_id in subgroups.index:
         children.append(('group', subgroup_id, subgroups.at[subgroup_id, 'SequenceNumber']))
 
@@ -1203,7 +1482,7 @@ def build_workflow_diagram(updated_nodes, updated_groups):
     dot.edge('rank_end', 'end', style='invis', weight='100')
     
     edge_set = set()
-    top_group_id = updated_groups[updated_groups['parent_group_id'].isna()].index[0]
+    top_group_id = updated_groups[updated_groups['parent'].isna()].index[0]
     
     with dot.subgraph(name=f'cluster_{top_group_id}') as c:
         c.attr(
@@ -1227,6 +1506,207 @@ def build_workflow_diagram(updated_nodes, updated_groups):
     
     return dot
 
+# --- BPMN XML ---
+
+def build_bpmn_xml(updated_nodes, updated_groups):
+    """
+    Builds a BPMN XML file from the updated nodes and groups tables.
+    Currently only including activity nodes in their sequential order.
+    
+    Args:
+        updated_nodes: DataFrame containing all nodes with their properties
+        updated_groups: DataFrame containing all groups with their properties
+        
+    Returns:
+        String containing the BPMN XML content
+    """
+    import uuid
+    
+    # Filter only activity nodes and sort them by parent and SequenceNumber
+    activity_nodes = updated_nodes[updated_nodes['node_type'] == 'activity'].sort_values(
+        by=['parent', 'SequenceNumber']
+    )
+    
+    # Generate IDs once to ensure consistency
+    definitions_id = f"Definitions_{str(uuid.uuid4())}"
+    process_id = f"Process_{str(uuid.uuid4())}"
+    
+    # XML header and namespaces
+    bpmn_xml = [
+        '<?xml version="1.0" encoding="UTF-8"?>',
+        f'<bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL"',
+        '                 xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI"',
+        '                 xmlns:dc="http://www.omg.org/spec/DD/20100524/DC"',
+        '                 xmlns:di="http://www.omg.org/spec/DD/20100524/DI"',
+        f'                 id="{definitions_id}"',
+        '                 targetNamespace="http://bpmn.io/schema/bpmn"',
+        '                 exporter="GraphViewerApp" exporterVersion="1.0">',
+        f'  <bpmn:process id="{process_id}" isExecutable="false">'
+    ]
+    
+    # Add start event
+    start_event_id = f"StartEvent_{str(uuid.uuid4())[:8]}"
+    bpmn_xml.append(f'    <bpmn:startEvent id="{start_event_id}" name="Start">')
+    bpmn_xml.append('      <bpmn:outgoing>Flow_Start</bpmn:outgoing>')
+    bpmn_xml.append('    </bpmn:startEvent>')
+    
+    # Track all nodes and flow connections
+    node_ids = {}
+    flows = []
+    
+    # Create a unique ID for each activity node
+    for idx, node in activity_nodes.iterrows():
+        # Generate a unique ID for the BPMN task
+        task_id = f"Activity_{str(uuid.uuid4())[:8]}"
+        node_ids[idx] = task_id
+        
+        # Determine task type based on the activity type
+        task_type = "bpmn:userTask"
+        if node.get('type') == 'system':
+            task_type = "bpmn:serviceTask"
+        elif node.get('type') == 'script':
+            task_type = "bpmn:scriptTask"
+            
+        # Create the task element
+        name = node.get('name', 'Unnamed Task')
+        if pd.isna(name):
+            name = 'Unnamed Task'
+            
+        bpmn_xml.append(f'    <{task_type} id="{task_id}" name="{name}">')
+        
+        # Add incoming and outgoing flows (will be populated later)
+        bpmn_xml.append('      <bpmn:incoming>Flow_to_' + task_id + '</bpmn:incoming>')
+        if idx != activity_nodes.index[-1]:  # If not the last task
+            bpmn_xml.append('      <bpmn:outgoing>Flow_from_' + task_id + '</bpmn:outgoing>')
+        else:  # Last task connects to end event
+            bpmn_xml.append('      <bpmn:outgoing>Flow_to_End</bpmn:outgoing>')
+        
+        bpmn_xml.append(f'    </{task_type}>')
+    
+    # Add end event
+    end_event_id = f"EndEvent_{str(uuid.uuid4())[:8]}"
+    bpmn_xml.append(f'    <bpmn:endEvent id="{end_event_id}" name="End">')
+    bpmn_xml.append('      <bpmn:incoming>Flow_to_End</bpmn:incoming>')
+    bpmn_xml.append('    </bpmn:endEvent>')
+    
+    # Add sequence flows between nodes
+    # First connect start event to first activity
+    if not activity_nodes.empty:
+        first_task_id = node_ids[activity_nodes.index[0]]
+        flow_id = f"Flow_Start"
+        bpmn_xml.append(f'    <bpmn:sequenceFlow id="{flow_id}" sourceRef="{start_event_id}" targetRef="{first_task_id}" />')
+    
+    # Connect activities based on their sequence
+    prev_group = None
+    prev_task_id = None
+    
+    for i, (idx, node) in enumerate(activity_nodes.iterrows()):
+        curr_task_id = node_ids[idx]
+        curr_group = node['parent']
+        
+        # First task in the sequence gets connected from previous group's last task or start event
+        if i > 0:
+            if prev_group != curr_group:
+                # This is the first task in a new group
+                # Connect from the last task of the previous group
+                flow_id = f"Flow_from_{prev_task_id}"
+                bpmn_xml.append(f'    <bpmn:sequenceFlow id="{flow_id}" sourceRef="{prev_task_id}" targetRef="{curr_task_id}" />')
+            else:
+                # Within the same group, connect sequentially
+                flow_id = f"Flow_from_{prev_task_id}"
+                bpmn_xml.append(f'    <bpmn:sequenceFlow id="{flow_id}" sourceRef="{prev_task_id}" targetRef="{curr_task_id}" />')
+            
+        # For all tasks (except first), add the incoming flow reference
+        if i > 0:
+            bpmn_xml.append(f'    <bpmn:sequenceFlow id="Flow_to_{curr_task_id}" sourceRef="{prev_task_id}" targetRef="{curr_task_id}" />')
+        else:
+            # First task incoming flow directly from start event
+            bpmn_xml.append(f'    <bpmn:sequenceFlow id="Flow_to_{curr_task_id}" sourceRef="{start_event_id}" targetRef="{curr_task_id}" />')
+        
+        prev_task_id = curr_task_id
+        prev_group = curr_group
+    
+    # Connect last activity to end event
+    if not activity_nodes.empty:
+        last_task_id = node_ids[activity_nodes.index[-1]]
+        flow_id = f"Flow_to_End"
+        bpmn_xml.append(f'    <bpmn:sequenceFlow id="{flow_id}" sourceRef="{last_task_id}" targetRef="{end_event_id}" />')
+    
+    # Close process and definitions
+    bpmn_xml.append('  </bpmn:process>')
+    
+    # Add BPMNDiagram section (minimal, without coordinates)
+    bpmn_xml.append('  <bpmndi:BPMNDiagram id="BPMNDiagram_1">')
+    # Ensure the BPMNPlane references the process ID correctly
+    bpmn_xml.append(f'    <bpmndi:BPMNPlane id="BPMNPlane_1" bpmnElement="{process_id}">')
+    
+    # Add basic shape information for each element so the diagram is valid
+    # Start event shape
+    bpmn_xml.append(f'      <bpmndi:BPMNShape id="{start_event_id}_di" bpmnElement="{start_event_id}">')
+    bpmn_xml.append('        <dc:Bounds x="152" y="142" width="36" height="36" />')
+    bpmn_xml.append('      </bpmndi:BPMNShape>')
+    
+    # Task shapes
+    x_pos = 240  # Starting x position
+    y_pos = 120  # Starting y position
+    for idx, task_id in node_ids.items():
+        bpmn_xml.append(f'      <bpmndi:BPMNShape id="{task_id}_di" bpmnElement="{task_id}">')
+        bpmn_xml.append(f'        <dc:Bounds x="{x_pos}" y="{y_pos}" width="100" height="80" />')
+        bpmn_xml.append('      </bpmndi:BPMNShape>')
+        x_pos += 150  # Increment x position for next task
+    
+    # End event shape
+    bpmn_xml.append(f'      <bpmndi:BPMNShape id="{end_event_id}_di" bpmnElement="{end_event_id}">')
+    bpmn_xml.append(f'        <dc:Bounds x="{x_pos}" y="142" width="36" height="36" />')
+    bpmn_xml.append('      </bpmndi:BPMNShape>')
+    
+    # Flow edges
+    # Start flow
+    if not activity_nodes.empty:
+        first_task_id = node_ids[activity_nodes.index[0]]
+        bpmn_xml.append(f'      <bpmndi:BPMNEdge id="Flow_Start_di" bpmnElement="Flow_Start">')
+        bpmn_xml.append('        <di:waypoint x="188" y="160" />')
+        bpmn_xml.append('        <di:waypoint x="240" y="160" />')
+        bpmn_xml.append('      </bpmndi:BPMNEdge>')
+    
+    # Task-to-task flows
+    x_pos = 240
+    for i, (idx, node) in enumerate(activity_nodes.iterrows()):
+        if i < len(activity_nodes) - 1:
+            next_idx = activity_nodes.index[i + 1]
+            curr_id = node_ids[idx]
+            next_id = node_ids[next_idx]
+            flow_id = f"Flow_from_{curr_id}"
+            
+            bpmn_xml.append(f'      <bpmndi:BPMNEdge id="{flow_id}_di" bpmnElement="{flow_id}">')
+            bpmn_xml.append(f'        <di:waypoint x="{x_pos + 100}" y="160" />')
+            bpmn_xml.append(f'        <di:waypoint x="{x_pos + 150}" y="160" />')
+            bpmn_xml.append('      </bpmndi:BPMNEdge>')
+            
+            x_pos += 150
+    
+    # End flow
+    if not activity_nodes.empty:
+        last_task_id = node_ids[activity_nodes.index[-1]]
+        bpmn_xml.append(f'      <bpmndi:BPMNEdge id="Flow_to_End_di" bpmnElement="Flow_to_End">')
+        bpmn_xml.append(f'        <di:waypoint x="{x_pos}" y="160" />')
+        bpmn_xml.append(f'        <di:waypoint x="{x_pos + 52}" y="160" />')
+        bpmn_xml.append('      </bpmndi:BPMNEdge>')
+    
+    bpmn_xml.append('    </bpmndi:BPMNPlane>')
+    bpmn_xml.append('  </bpmndi:BPMNDiagram>')
+    
+    bpmn_xml.append('</bpmn:definitions>')
+    
+    # Join all lines with newlines
+    bpmn_xml_content = '\n'.join(bpmn_xml)
+    
+    # Save to file
+    with open('bpmn.xml', 'w', encoding='utf-8') as f:
+        f.write(bpmn_xml_content)
+    
+    return bpmn_xml_content
+
 
 # --- Main Page Structure ---
 
@@ -1244,11 +1724,16 @@ def show():
         groups_table = build_groups_table(xls)
         # Set the correct indices before calling generate_additional_nodes
         activities_index = activities_table.set_index('TransportID').copy()
-        groups_index = groups_table.set_index('group_id').copy()
+        groups_index = groups_table.set_index('id').copy()
+        edges_table = build_edges_table(activities_index, groups_index)
+        
         
         # Now call the function with properly indexed dataframes
         try:
             updated_nodes, updated_groups = generate_additional_nodes(activities_index, groups_index)
+            # Debugging
+            st.write(updated_nodes.to_dict())
+            st.write(updated_groups.to_dict())
             with st.expander("Data Details", expanded=False):
                 st.write("Aktivitäten")
                 st.dataframe(activities_table)
@@ -1258,6 +1743,8 @@ def show():
                 st.dataframe(updated_nodes.reset_index())
                 st.write("Groups")
                 st.dataframe(updated_groups.reset_index())
+                st.write("Edges")
+                st.dataframe(edges_table)
             try:
                 st.subheader("Workflow Diagram")
                 
@@ -1288,17 +1775,41 @@ def show():
                 # Display the diagram directly in Streamlit
                 st.graphviz_chart(diagram)
                 
-                # Create download button for the SVG
-                try:
-                    with open(svg_path, "rb") as file:
-                        btn = st.download_button(
-                            label="Download as SVG",
-                            data=file,
-                            file_name="workflow_diagram.svg",
-                            mime="image/svg+xml",
+                # Create download buttons for the SVG and BPMN XML
+                col1, col2 = st.columns(2)
+                with col1:
+                    try:
+                        with open(svg_path, "rb") as file:
+                            btn = st.download_button(
+                                label="Download as SVG",
+                                data=file,
+                                file_name="workflow_diagram.svg",
+                                mime="image/svg+xml",
+                            )
+                    except Exception as e:
+                        st.warning(f"Could not create download button. Error: {str(e)}")
+                
+                with col2:
+                    if st.button("Generate BPMN XML"):
+                        # Generate BPMN XML content
+                        bpmn_xml_content = build_bpmn_xml(updated_nodes, updated_groups)
+                        
+                        # Save to file and provide download link
+                        with open('bpmn.xml', 'w', encoding='utf-8') as f:
+                            f.write(bpmn_xml_content)
+                        
+                        with open('bpmn.xml', 'r', encoding='utf-8') as f:
+                            bpmn_data = f.read()
+                            
+                        st.download_button(
+                            label="Download BPMN XML",
+                            data=bpmn_data,
+                            file_name="workflow_bpmn.xml",
+                            mime="application/xml",
                         )
-                except Exception as e:
-                    st.warning(f"Could not create download button. Error: {str(e)}")
+                        
+                        st.success("BPMN XML generated successfully!")
+
             except Exception as e:
                 st.error(f"Error generating workflow diagram: {str(e)}")
                 st.exception(e)
