@@ -1725,12 +1725,12 @@ def show():
         # Set the correct indices before calling generate_additional_nodes
         activities_index = activities_table.set_index('TransportID').copy()
         groups_index = groups_table.set_index('id').copy()
-        edges_table = build_edges_table(activities_index, groups_index)
-        
+               
         
         # Now call the function with properly indexed dataframes
         try:
             updated_nodes, updated_groups = generate_additional_nodes(activities_index, groups_index)
+            edges_table = build_edges_table(updated_nodes, updated_groups)
             # Debugging
             st.write(updated_nodes.to_dict())
             st.write(updated_groups.to_dict())
