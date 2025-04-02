@@ -1508,205 +1508,476 @@ def build_workflow_diagram(updated_nodes, updated_groups):
 
 # --- BPMN XML ---
 
-def build_bpmn_xml(updated_nodes, updated_groups):
-    """
-    Builds a BPMN XML file from the updated nodes and groups tables.
-    Currently only including activity nodes in their sequential order.
-    
-    Args:
-        updated_nodes: DataFrame containing all nodes with their properties
-        updated_groups: DataFrame containing all groups with their properties
-        
-    Returns:
-        String containing the BPMN XML content
-    """
-    import uuid
-    
-    # Filter only activity nodes and sort them by parent and SequenceNumber
-    activity_nodes = updated_nodes[updated_nodes['node_type'] == 'activity'].sort_values(
-        by=['parent', 'SequenceNumber']
-    )
-    
-    # Generate IDs once to ensure consistency
-    definitions_id = f"Definitions_{str(uuid.uuid4())}"
-    process_id = f"Process_{str(uuid.uuid4())}"
-    
-    # XML header and namespaces
-    bpmn_xml = [
-        '<?xml version="1.0" encoding="UTF-8"?>',
-        f'<bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL"',
-        '                 xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI"',
-        '                 xmlns:dc="http://www.omg.org/spec/DD/20100524/DC"',
-        '                 xmlns:di="http://www.omg.org/spec/DD/20100524/DI"',
-        f'                 id="{definitions_id}"',
-        '                 targetNamespace="http://bpmn.io/schema/bpmn"',
-        '                 exporter="GraphViewerApp" exporterVersion="1.0">',
-        f'  <bpmn:process id="{process_id}" isExecutable="false">'
-    ]
-    
-    # Add start event
-    start_event_id = f"StartEvent_{str(uuid.uuid4())[:8]}"
-    bpmn_xml.append(f'    <bpmn:startEvent id="{start_event_id}" name="Start">')
-    bpmn_xml.append('      <bpmn:outgoing>Flow_Start</bpmn:outgoing>')
-    bpmn_xml.append('    </bpmn:startEvent>')
-    
-    # Track all nodes and flow connections
-    node_ids = {}
-    flows = []
-    
-    # Create a unique ID for each activity node
-    for idx, node in activity_nodes.iterrows():
-        # Generate a unique ID for the BPMN task
-        task_id = f"Activity_{str(uuid.uuid4())[:8]}"
-        node_ids[idx] = task_id
-        
-        # Determine task type based on the activity type
-        task_type = "bpmn:userTask"
-        if node.get('type') == 'system':
-            task_type = "bpmn:serviceTask"
-        elif node.get('type') == 'script':
-            task_type = "bpmn:scriptTask"
-            
-        # Create the task element
-        name = node.get('name', 'Unnamed Task')
-        if pd.isna(name):
-            name = 'Unnamed Task'
-            
-        bpmn_xml.append(f'    <{task_type} id="{task_id}" name="{name}">')
-        
-        # Add incoming and outgoing flows (will be populated later)
-        bpmn_xml.append('      <bpmn:incoming>Flow_to_' + task_id + '</bpmn:incoming>')
-        if idx != activity_nodes.index[-1]:  # If not the last task
-            bpmn_xml.append('      <bpmn:outgoing>Flow_from_' + task_id + '</bpmn:outgoing>')
-        else:  # Last task connects to end event
-            bpmn_xml.append('      <bpmn:outgoing>Flow_to_End</bpmn:outgoing>')
-        
-        bpmn_xml.append(f'    </{task_type}>')
-    
-    # Add end event
-    end_event_id = f"EndEvent_{str(uuid.uuid4())[:8]}"
-    bpmn_xml.append(f'    <bpmn:endEvent id="{end_event_id}" name="End">')
-    bpmn_xml.append('      <bpmn:incoming>Flow_to_End</bpmn:incoming>')
-    bpmn_xml.append('    </bpmn:endEvent>')
-    
-    # Add sequence flows between nodes
-    # First connect start event to first activity
-    if not activity_nodes.empty:
-        first_task_id = node_ids[activity_nodes.index[0]]
-        flow_id = f"Flow_Start"
-        bpmn_xml.append(f'    <bpmn:sequenceFlow id="{flow_id}" sourceRef="{start_event_id}" targetRef="{first_task_id}" />')
-    
-    # Connect activities based on their sequence
-    prev_group = None
-    prev_task_id = None
-    
-    for i, (idx, node) in enumerate(activity_nodes.iterrows()):
-        curr_task_id = node_ids[idx]
-        curr_group = node['parent']
-        
-        # First task in the sequence gets connected from previous group's last task or start event
-        if i > 0:
-            if prev_group != curr_group:
-                # This is the first task in a new group
-                # Connect from the last task of the previous group
-                flow_id = f"Flow_from_{prev_task_id}"
-                bpmn_xml.append(f'    <bpmn:sequenceFlow id="{flow_id}" sourceRef="{prev_task_id}" targetRef="{curr_task_id}" />')
-            else:
-                # Within the same group, connect sequentially
-                flow_id = f"Flow_from_{prev_task_id}"
-                bpmn_xml.append(f'    <bpmn:sequenceFlow id="{flow_id}" sourceRef="{prev_task_id}" targetRef="{curr_task_id}" />')
-            
-        # For all tasks (except first), add the incoming flow reference
-        if i > 0:
-            bpmn_xml.append(f'    <bpmn:sequenceFlow id="Flow_to_{curr_task_id}" sourceRef="{prev_task_id}" targetRef="{curr_task_id}" />')
-        else:
-            # First task incoming flow directly from start event
-            bpmn_xml.append(f'    <bpmn:sequenceFlow id="Flow_to_{curr_task_id}" sourceRef="{start_event_id}" targetRef="{curr_task_id}" />')
-        
-        prev_task_id = curr_task_id
-        prev_group = curr_group
-    
-    # Connect last activity to end event
-    if not activity_nodes.empty:
-        last_task_id = node_ids[activity_nodes.index[-1]]
-        flow_id = f"Flow_to_End"
-        bpmn_xml.append(f'    <bpmn:sequenceFlow id="{flow_id}" sourceRef="{last_task_id}" targetRef="{end_event_id}" />')
-    
-    # Close process and definitions
-    bpmn_xml.append('  </bpmn:process>')
-    
-    # Add BPMNDiagram section (minimal, without coordinates)
-    bpmn_xml.append('  <bpmndi:BPMNDiagram id="BPMNDiagram_1">')
-    # Ensure the BPMNPlane references the process ID correctly
-    bpmn_xml.append(f'    <bpmndi:BPMNPlane id="BPMNPlane_1" bpmnElement="{process_id}">')
-    
-    # Add basic shape information for each element so the diagram is valid
-    # Start event shape
-    bpmn_xml.append(f'      <bpmndi:BPMNShape id="{start_event_id}_di" bpmnElement="{start_event_id}">')
-    bpmn_xml.append('        <dc:Bounds x="152" y="142" width="36" height="36" />')
-    bpmn_xml.append('      </bpmndi:BPMNShape>')
-    
-    # Task shapes
-    x_pos = 240  # Starting x position
-    y_pos = 120  # Starting y position
-    for idx, task_id in node_ids.items():
-        bpmn_xml.append(f'      <bpmndi:BPMNShape id="{task_id}_di" bpmnElement="{task_id}">')
-        bpmn_xml.append(f'        <dc:Bounds x="{x_pos}" y="{y_pos}" width="100" height="80" />')
-        bpmn_xml.append('      </bpmndi:BPMNShape>')
-        x_pos += 150  # Increment x position for next task
-    
-    # End event shape
-    bpmn_xml.append(f'      <bpmndi:BPMNShape id="{end_event_id}_di" bpmnElement="{end_event_id}">')
-    bpmn_xml.append(f'        <dc:Bounds x="{x_pos}" y="142" width="36" height="36" />')
-    bpmn_xml.append('      </bpmndi:BPMNShape>')
-    
-    # Flow edges
-    # Start flow
-    if not activity_nodes.empty:
-        first_task_id = node_ids[activity_nodes.index[0]]
-        bpmn_xml.append(f'      <bpmndi:BPMNEdge id="Flow_Start_di" bpmnElement="Flow_Start">')
-        bpmn_xml.append('        <di:waypoint x="188" y="160" />')
-        bpmn_xml.append('        <di:waypoint x="240" y="160" />')
-        bpmn_xml.append('      </bpmndi:BPMNEdge>')
-    
-    # Task-to-task flows
-    x_pos = 240
-    for i, (idx, node) in enumerate(activity_nodes.iterrows()):
-        if i < len(activity_nodes) - 1:
-            next_idx = activity_nodes.index[i + 1]
-            curr_id = node_ids[idx]
-            next_id = node_ids[next_idx]
-            flow_id = f"Flow_from_{curr_id}"
-            
-            bpmn_xml.append(f'      <bpmndi:BPMNEdge id="{flow_id}_di" bpmnElement="{flow_id}">')
-            bpmn_xml.append(f'        <di:waypoint x="{x_pos + 100}" y="160" />')
-            bpmn_xml.append(f'        <di:waypoint x="{x_pos + 150}" y="160" />')
-            bpmn_xml.append('      </bpmndi:BPMNEdge>')
-            
-            x_pos += 150
-    
-    # End flow
-    if not activity_nodes.empty:
-        last_task_id = node_ids[activity_nodes.index[-1]]
-        bpmn_xml.append(f'      <bpmndi:BPMNEdge id="Flow_to_End_di" bpmnElement="Flow_to_End">')
-        bpmn_xml.append(f'        <di:waypoint x="{x_pos}" y="160" />')
-        bpmn_xml.append(f'        <di:waypoint x="{x_pos + 52}" y="160" />')
-        bpmn_xml.append('      </bpmndi:BPMNEdge>')
-    
-    bpmn_xml.append('    </bpmndi:BPMNPlane>')
-    bpmn_xml.append('  </bpmndi:BPMNDiagram>')
-    
-    bpmn_xml.append('</bpmn:definitions>')
-    
-    # Join all lines with newlines
-    bpmn_xml_content = '\n'.join(bpmn_xml)
-    
-    # Save to file
-    with open('bpmn.xml', 'w', encoding='utf-8') as f:
-        f.write(bpmn_xml_content)
-    
-    return bpmn_xml_content
+import xml.etree.ElementTree as ET
 
+def sanitize_id(node_id):
+    """Convert invalid IDs to valid NCNames for BPMN."""
+    # First convert the ID to string if it's not already
+    node_id = str(node_id)
+    
+    # Replace all non-alphanumeric characters with underscore
+    import re
+    sanitized = re.sub(r'[^a-zA-Z0-9]', '_', node_id)
+    
+    # Ensure ID starts with a letter (prepend 'id_' if it starts with a number)
+    if sanitized and sanitized[0].isdigit():
+        sanitized = 'id_' + sanitized
+        
+    # If empty or just underscores, use a default
+    if not sanitized or sanitized.strip('_') == '':
+        sanitized = 'id_' + str(hash(node_id) % 100000)
+        
+    return sanitized
+
+def build_bpmn_xml(node_df, edges_df):
+    # Convert dictionaries to DataFrames if needed
+    if not isinstance(node_df, pd.DataFrame):
+        node_df = pd.DataFrame(node_df)
+    if not isinstance(edges_df, pd.DataFrame):
+        edges_df = pd.DataFrame(edges_df)
+
+    # Define namespaces
+    ns = {
+        "bpmn": "http://www.omg.org/spec/BPMN/20100524/MODEL",
+        "bpmndi": "http://www.omg.org/spec/BPMN/20100524/DI",
+        "dc": "http://www.omg.org/spec/DD/20100524/DC",
+        "di": "http://www.omg.org/spec/DD/20100524/DI",
+        "xsi": "http://www.w3.org/2001/XMLSchema-instance"
+    }
+    for prefix, uri in ns.items():
+        ET.register_namespace(prefix, uri)
+
+    # Create root element with namespaces
+    root = ET.Element("bpmn:definitions", {
+        "id": "Definitions_1",
+        "targetNamespace": "http://bpmn.io/schema/bpmn",
+        "exporter": "GraphViewerApp",
+        "exporterVersion": "1.0.0"
+    })
+    
+    # Add all namespace attributes to root element
+    for prefix, uri in ns.items():
+        root.set(f"xmlns:{prefix}", uri)
+    
+    process = ET.SubElement(root, "bpmn:process", {"id": "Process_1", "isExecutable": "false"})
+
+    # Track nodes that actually get created in the BPMN process
+    created_nodes = set()
+    
+    # Track incoming and outgoing edges for each node
+    incoming_flows = {}
+    outgoing_flows = {}
+
+    # Build ID mapping dictionary to ensure consistency
+    id_mapping = {
+        "start": "StartEvent_1",
+        "end": "EndEvent_1"
+    }
+    
+    # Reverse mapping for lookup
+    reverse_id_mapping = {
+        "StartEvent_1": "start",
+        "EndEvent_1": "end"
+    }
+    
+    # Simplify all IDs for better compatibility
+    for node_id in node_df.index:
+        simplified_id = sanitize_id(f"Task_{len(id_mapping)}")
+        id_mapping[node_id] = simplified_id
+        reverse_id_mapping[simplified_id] = node_id
+    
+    # We need to track flow IDs for connecting nodes properly
+    flow_dict = {}
+    flow_count = 0
+    
+    # First, create sequence flows to track connections - ONLY FROM EDGES_DF
+    print("Creating sequence flows...")
+    for idx, row in edges_df.iterrows():
+        source_id = row["source"]
+        target_id = row["target"]
+        
+        # Skip connections to/from helper nodes
+        if (source_id in node_df.index and node_df.loc[source_id].get("node_type") == "helper") or \
+           (target_id in node_df.index and node_df.loc[target_id].get("node_type") == "helper"):
+            continue
+            
+        # Convert source and target IDs to BPMN IDs
+        source_bpmn_id = id_mapping.get(source_id)
+        target_bpmn_id = id_mapping.get(target_id)
+        
+        # Skip if either source or target doesn't have a mapping
+        if not source_bpmn_id or not target_bpmn_id:
+            print(f"Skipping edge {source_id} -> {target_id}: Missing BPMN ID mapping")
+            continue
+            
+        # Skip self-loops 
+        if source_bpmn_id == target_bpmn_id:
+            print(f"Skipping self-loop: {source_bpmn_id}")
+            continue
+        
+        # Generate a flow ID - use a stable ID based on the source and target
+        flow_id = f"Flow_{flow_count}"
+        flow_count += 1
+        
+        # Store the flow mapping
+        flow_dict[(source_id, target_id)] = flow_id
+        
+        # Track incoming and outgoing for each node
+        if target_bpmn_id not in incoming_flows:
+            incoming_flows[target_bpmn_id] = []
+        incoming_flows[target_bpmn_id].append(flow_id)
+        
+        if source_bpmn_id not in outgoing_flows:
+            outgoing_flows[source_bpmn_id] = []
+        outgoing_flows[source_bpmn_id].append(flow_id)
+        
+        print(f"Created flow mapping {flow_id}: {source_bpmn_id} -> {target_bpmn_id}")
+    
+    # Create all nodes with incoming/outgoing references
+    # Start event
+    start_event = ET.SubElement(process, "bpmn:startEvent", {"id": "StartEvent_1", "name": "Start"})
+    if "StartEvent_1" in outgoing_flows:
+        for flow_id in outgoing_flows["StartEvent_1"]:
+            ET.SubElement(start_event, "bpmn:outgoing").text = flow_id
+    created_nodes.add("StartEvent_1")
+    
+    # End event
+    end_event = ET.SubElement(process, "bpmn:endEvent", {"id": "EndEvent_1", "name": "End"})
+    if "EndEvent_1" in incoming_flows:
+        for flow_id in incoming_flows["EndEvent_1"]:
+            ET.SubElement(end_event, "bpmn:incoming").text = flow_id
+    created_nodes.add("EndEvent_1")
+    
+    # Create all other nodes
+    for node_id, row in node_df.iterrows():
+        if node_id not in id_mapping:
+            continue
+            
+        sanitized_id = id_mapping[node_id]
+        node_type = row.get("node_type", "activity")
+        
+        if node_type == "activity":
+            task_type = row.get("type", "manual") if pd.notna(row.get("type", "manual")) else "manual"
+            
+            if task_type == "manual":
+                elem = ET.SubElement(process, "bpmn:userTask", {"id": sanitized_id})
+            elif task_type == "system":
+                elem = ET.SubElement(process, "bpmn:serviceTask", {"id": sanitized_id})
+            elif task_type == "script":
+                elem = ET.SubElement(process, "bpmn:scriptTask", {"id": sanitized_id})
+            else:
+                elem = ET.SubElement(process, "bpmn:task", {"id": sanitized_id})
+                
+            name = row.get("name", "") 
+            if pd.notna(name) and name:
+                elem.set("name", str(name))
+                
+            # Add incoming flows
+            if sanitized_id in incoming_flows:
+                for flow_id in incoming_flows[sanitized_id]:
+                    ET.SubElement(elem, "bpmn:incoming").text = flow_id
+                    
+            # Add outgoing flows
+            if sanitized_id in outgoing_flows:
+                for flow_id in outgoing_flows[sanitized_id]:
+                    ET.SubElement(elem, "bpmn:outgoing").text = flow_id
+                    
+            created_nodes.add(sanitized_id)
+                
+        elif node_type == "gateway":
+            label = row.get("label", "")
+            if pd.notna(label) and label == "X":
+                elem = ET.SubElement(process, "bpmn:exclusiveGateway", {"id": sanitized_id})
+            elif pd.notna(label) and label == "+":
+                elem = ET.SubElement(process, "bpmn:parallelGateway", {"id": sanitized_id})
+            else:
+                elem = ET.SubElement(process, "bpmn:inclusiveGateway", {"id": sanitized_id})
+                
+            # Add incoming flows
+            if sanitized_id in incoming_flows:
+                for flow_id in incoming_flows[sanitized_id]:
+                    ET.SubElement(elem, "bpmn:incoming").text = flow_id
+                    
+            # Add outgoing flows
+            if sanitized_id in outgoing_flows:
+                for flow_id in outgoing_flows[sanitized_id]:
+                    ET.SubElement(elem, "bpmn:outgoing").text = flow_id
+                    
+            created_nodes.add(sanitized_id)
+                
+        elif node_type == "decision":
+            elem = ET.SubElement(process, "bpmn:businessRuleTask", {"id": sanitized_id})
+            name = row.get("label", "")
+            if pd.notna(name) and name:
+                elem.set("name", str(name))
+                
+            # Add incoming flows
+            if sanitized_id in incoming_flows:
+                for flow_id in incoming_flows[sanitized_id]:
+                    ET.SubElement(elem, "bpmn:incoming").text = flow_id
+                    
+            # Add outgoing flows
+            if sanitized_id in outgoing_flows:
+                for flow_id in outgoing_flows[sanitized_id]:
+                    ET.SubElement(elem, "bpmn:outgoing").text = flow_id
+                    
+            created_nodes.add(sanitized_id)
+                
+        elif node_type in ["rule", "substeps"]:
+            # Text annotations don't have incoming/outgoing flows
+            annotation = ET.SubElement(process, "bpmn:textAnnotation", {"id": sanitized_id})
+            text = row.get("label", "") if pd.notna(row.get("label", "")) else ""
+            if text:
+                ET.SubElement(annotation, "bpmn:text").text = str(text)
+            created_nodes.add(sanitized_id)
+            
+        elif node_type == "helper":
+            # Skip helper nodes - they're just for layout
+            continue
+        else:
+            # Create a generic task for unknown types to ensure connectivity
+            elem = ET.SubElement(process, "bpmn:task", {"id": sanitized_id, "name": f"Unknown: {node_type}"})
+            
+            # Add incoming flows
+            if sanitized_id in incoming_flows:
+                for flow_id in incoming_flows[sanitized_id]:
+                    ET.SubElement(elem, "bpmn:incoming").text = flow_id
+                    
+            # Add outgoing flows
+            if sanitized_id in outgoing_flows:
+                for flow_id in outgoing_flows[sanitized_id]:
+                    ET.SubElement(elem, "bpmn:outgoing").text = flow_id
+                    
+            created_nodes.add(sanitized_id)
+    
+    # Now create sequence flows with proper sourceRef/targetRef - ONLY FROM FLOW_DICT
+    print("Creating sequence flow elements...")
+    for (source_id, target_id), flow_id in flow_dict.items():
+        source_bpmn_id = id_mapping.get(source_id)
+        target_bpmn_id = id_mapping.get(target_id)
+        
+        # Skip if nodes don't exist
+        if source_bpmn_id not in created_nodes or target_bpmn_id not in created_nodes:
+            continue
+            
+        attribs = {"id": flow_id, "sourceRef": source_bpmn_id, "targetRef": target_bpmn_id}
+        
+        # Add label if present
+        row_match = edges_df[(edges_df["source"] == source_id) & (edges_df["target"] == target_id)]
+        if not row_match.empty and pd.notna(row_match.iloc[0].get("label")):
+            attribs["name"] = str(row_match.iloc[0]["label"])
+        
+        ET.SubElement(process, "bpmn:sequenceFlow", attribs)
+        print(f"Created sequence flow element {flow_id}: {source_bpmn_id} -> {target_bpmn_id}")
+
+    # Add BPMN diagram section for visualization
+    diagram = ET.SubElement(root, "bpmndi:BPMNDiagram", {"id": "BPMNDiagram_1"})
+    plane = ET.SubElement(diagram, "bpmndi:BPMNPlane", {"id": "BPMNPlane_1", "bpmnElement": "Process_1"})
+
+    # Define node positioning - using a more structured approach
+    x_start = 150
+    y_start = 100
+    x_spacing = 150
+    
+    # Start with the start event
+    start_shape = ET.SubElement(plane, "bpmndi:BPMNShape", {
+        "id": "StartEvent_1_di",
+        "bpmnElement": "StartEvent_1"
+    })
+    ET.SubElement(start_shape, "dc:Bounds", {
+        "x": str(x_start), 
+        "y": str(y_start), 
+        "width": "36", 
+        "height": "36"
+    })
+    start_label = ET.SubElement(start_shape, "bpmndi:BPMNLabel")
+    ET.SubElement(start_label, "dc:Bounds", {
+        "x": str(x_start), 
+        "y": str(y_start + 36), 
+        "width": "36", 
+        "height": "14"
+    })
+    
+    # Track node positions for edge placement
+    node_positions = {
+        "StartEvent_1": {
+            "x": x_start,
+            "y": y_start,
+            "width": 36,
+            "height": 36
+        }
+    }
+    
+    # Position all task nodes
+    current_x = x_start + x_spacing
+    for node_id, sanitized_id in sorted(id_mapping.items(), key=lambda x: x[0]):
+        if sanitized_id in ["StartEvent_1", "EndEvent_1"] or sanitized_id not in created_nodes:
+            continue
+            
+        if node_id in node_df.index:
+            node_type = node_df.loc[node_id].get("node_type", "activity")
+            
+            # Skip text annotations for now
+            if node_type in ["rule", "substeps"]:
+                continue
+                
+            # Set size based on node type
+            if node_type == "gateway":
+                width, height = 50, 50
+            else:
+                width, height = 100, 80
+                
+            shape = ET.SubElement(plane, "bpmndi:BPMNShape", {
+                "id": f"{sanitized_id}_di", 
+                "bpmnElement": sanitized_id
+            })
+            
+            if node_type == "gateway":
+                shape.set("isMarkerVisible", "true")
+                
+            ET.SubElement(shape, "dc:Bounds", {
+                "x": str(current_x), 
+                "y": str(y_start), 
+                "width": str(width), 
+                "height": str(height)
+            })
+            
+            # Add label if needed
+            name = node_df.loc[node_id].get("name")
+            if pd.notna(name) and name:
+                label = ET.SubElement(shape, "bpmndi:BPMNLabel")
+                ET.SubElement(label, "dc:Bounds", {
+                    "x": str(current_x), 
+                    "y": str(y_start + height), 
+                    "width": str(width), 
+                    "height": "14"
+                })
+            
+            # Store position for edge connections
+            node_positions[sanitized_id] = {
+                "x": current_x,
+                "y": y_start,
+                "width": width,
+                "height": height
+            }
+            
+            # Update position for next node
+            current_x += x_spacing
+    
+    # Position the end event last
+    end_shape = ET.SubElement(plane, "bpmndi:BPMNShape", {
+        "id": "EndEvent_1_di",
+        "bpmnElement": "EndEvent_1"
+    })
+    ET.SubElement(end_shape, "dc:Bounds", {
+        "x": str(current_x), 
+        "y": str(y_start), 
+        "width": "36", 
+        "height": "36"
+    })
+    end_label = ET.SubElement(end_shape, "bpmndi:BPMNLabel")
+    ET.SubElement(end_label, "dc:Bounds", {
+        "x": str(current_x), 
+        "y": str(y_start + 36), 
+        "width": "36", 
+        "height": "14"
+    })
+    
+    # Store end event position
+    node_positions["EndEvent_1"] = {
+        "x": current_x,
+        "y": y_start,
+        "width": 36,
+        "height": 36
+    }
+    
+    # Now add text annotations (to the side of their parent elements)
+    for node_id, sanitized_id in id_mapping.items():
+        if node_id not in node_df.index or sanitized_id not in created_nodes:
+            continue
+            
+        node_type = node_df.loc[node_id].get("node_type")
+        if node_type not in ["rule", "substeps"]:
+            continue
+            
+        # Find the parent element to position next to
+        parent_id = node_df.loc[node_id].get("parent")
+        if pd.isna(parent_id) or parent_id not in id_mapping:
+            # Skip if no valid parent
+            continue
+            
+        parent_bpmn_id = id_mapping[parent_id]
+        if parent_bpmn_id not in node_positions:
+            # Skip if parent not positioned
+            continue
+            
+        # Position to the right of parent
+        parent_pos = node_positions[parent_bpmn_id]
+        annotation_x = parent_pos["x"] + parent_pos["width"] + 20
+        annotation_y = parent_pos["y"]
+        
+        # Create annotation shape
+        shape = ET.SubElement(plane, "bpmndi:BPMNShape", {
+            "id": f"{sanitized_id}_di", 
+            "bpmnElement": sanitized_id
+        })
+        ET.SubElement(shape, "dc:Bounds", {
+            "x": str(annotation_x), 
+            "y": str(annotation_y), 
+            "width": "100", 
+            "height": "60"
+        })
+    
+    # Add edges based on sequence flows - ONLY FROM FLOW_DICT
+    print("Creating edge visualizations...")
+    for (source_id, target_id), flow_id in flow_dict.items():
+        source_bpmn_id = id_mapping.get(source_id)
+        target_bpmn_id = id_mapping.get(target_id)
+        
+        if source_bpmn_id not in node_positions or target_bpmn_id not in node_positions:
+            continue
+            
+        source_pos = node_positions[source_bpmn_id]
+        target_pos = node_positions[target_bpmn_id]
+        
+        # Calculate waypoints - right center of source to left center of target
+        source_x = source_pos["x"] + source_pos["width"]
+        source_y = source_pos["y"] + source_pos["height"] / 2
+        target_x = target_pos["x"]
+        target_y = target_pos["y"] + target_pos["height"] / 2
+        
+        # Create the edge visualization
+        edge = ET.SubElement(plane, "bpmndi:BPMNEdge", {
+            "id": f"{flow_id}_di",
+            "bpmnElement": flow_id
+        })
+        
+        # Add waypoints
+        ET.SubElement(edge, "di:waypoint", {"x": str(source_x), "y": str(source_y)})
+        ET.SubElement(edge, "di:waypoint", {"x": str(target_x), "y": str(target_y)})
+        
+        print(f"Created edge visualization for {flow_id}: {source_bpmn_id} -> {target_bpmn_id}")
+    
+    # Generate XML string with proper formatting
+    from xml.dom import minidom
+    rough_string = ET.tostring(root, encoding="utf-8")
+    try:
+        reparsed = minidom.parseString(rough_string)
+        xml_str = reparsed.toprettyxml(indent="  ")
+        
+        # Debug: Check for edge elements in the XML
+        edge_count = xml_str.count("<bpmndi:BPMNEdge")
+        flow_count = xml_str.count("<bpmn:sequenceFlow")
+        print(f"Final XML contains {flow_count} sequence flows and {edge_count} edge visualizations")
+        
+        # Make sure they match (if not, there's a bug)
+        if flow_count != edge_count:
+            print(f"WARNING: Mismatch between sequence flows ({flow_count}) and edge visualizations ({edge_count})")
+        
+        return xml_str
+    except Exception as e:
+        # Fallback if minidom parsing fails
+        return f"Error parsing XML: {str(e)}\n{rough_string.decode('utf-8')}"
 
 # --- Main Page Structure ---
 
@@ -1734,6 +2005,7 @@ def show():
             # Debugging
             st.write(updated_nodes.to_dict())
             st.write(updated_groups.to_dict())
+            st.write(edges_table.to_dict())
             with st.expander("Data Details", expanded=False):
                 st.write("Aktivitäten")
                 st.dataframe(activities_table)
@@ -1792,7 +2064,7 @@ def show():
                 with col2:
                     if st.button("Generate BPMN XML"):
                         # Generate BPMN XML content
-                        bpmn_xml_content = build_bpmn_xml(updated_nodes, updated_groups)
+                        bpmn_xml_content = build_bpmn_xml(updated_nodes, edges_table)
                         
                         # Save to file and provide download link
                         with open('bpmn.xml', 'w', encoding='utf-8') as f:
