@@ -898,21 +898,29 @@ def build_edges_table(updated_nodes, updated_groups):
         
         for child_type, child_id, seq_num in children:
             if child_type == 'node':
-                node_type = updated_nodes.at[child_id, 'node_type'] if 'node_type' in updated_nodes.columns else 'activity'
+                # Safely get node_type as a single value, not a Series
+                if 'node_type' in updated_nodes.columns:
+                    node_type_value = updated_nodes.at[child_id, 'node_type']
+                    # Handle case where node_type is a Series
+                    if hasattr(node_type_value, 'iloc'):
+                        node_type_value = node_type_value.iloc[0]
+                else:
+                    node_type_value = 'activity'
+                    
                 # Substeps are special and handled separately
-                if node_type == 'substeps':
-                    special_nodes.append((child_type, child_id, seq_num, node_type))
+                if node_type_value == 'substeps':
+                    special_nodes.append((child_type, child_id, seq_num, node_type_value))
                 # Rules are special but connected to decision nodes later
-                elif node_type == 'rule':
-                    special_nodes.append((child_type, child_id, seq_num, node_type))
+                elif node_type_value == 'rule':
+                    special_nodes.append((child_type, child_id, seq_num, node_type_value))
                 # All other node types (including gateways, decisions) go in flow
                 else:
-                    flow_nodes.append((child_type, child_id, seq_num, node_type))
+                    flow_nodes.append((child_type, child_id, seq_num, node_type_value))
             else:
                 flow_nodes.append((child_type, child_id, seq_num, None))
         
         # Process flow nodes sequentially, respecting their order
-        for i, (child_type, child_id, _, node_type) in enumerate(flow_nodes):
+        for i, (child_type, child_id, _, node_type_value) in enumerate(flow_nodes):
             if child_type == 'node':
                 # Set first node if not already set
                 if first_node is None:
@@ -946,8 +954,8 @@ def build_edges_table(updated_nodes, updated_groups):
                         last_node = subgroup_last
         
         # Process special nodes (substeps) after processing flow nodes
-        for child_type, child_id, _, node_type in special_nodes:
-            if node_type == 'substeps':
+        for child_type, child_id, _, node_type_value in special_nodes:
+            if node_type_value == 'substeps':
                 # Connect substep nodes from their parent activity
                 parent_id = updated_nodes.at[child_id, 'parent']
                 if pd.notna(parent_id) and parent_id in updated_nodes.index and (parent_id, child_id) not in edge_set:
@@ -955,8 +963,8 @@ def build_edges_table(updated_nodes, updated_groups):
                     edge_set.add((parent_id, child_id))
         
         # Handle rule nodes by connecting them to their parent decision nodes
-        for child_type, child_id, _, node_type in special_nodes:
-            if node_type == 'rule':
+        for child_type, child_id, _, node_type_value in special_nodes:
+            if node_type_value == 'rule':
                 parent_id = updated_nodes.at[child_id, 'parent']
                 if pd.notna(parent_id) and parent_id in updated_nodes.index and (child_id, parent_id) not in edge_set:
                     edges.append((child_id, parent_id, None, 'dotted_arrow'))
@@ -1176,16 +1184,24 @@ def wrap_text(text, max_chars_per_line):
 
 def get_port(node_id, updated_nodes, direction):
     """Return the port for edge connections based on node type and direction."""
-    if node_id in updated_nodes.index and updated_nodes.at[node_id, 'node_type'] == 'activity':
-        return ':w' if direction == 'in' else ':e'
+    if node_id in updated_nodes.index:
+        node_type = updated_nodes.at[node_id, 'node_type']
+        # Handle case where node_type is a Series
+        if hasattr(node_type, 'iloc'):
+            node_type = node_type.iloc[0]
+            
+        if node_type == 'activity':
+            return ':w' if direction == 'in' else ':e'
     return ''
 
 def add_node(dot, node_id, node, edge_set, updated_nodes):
     """Add a node to the Graphviz diagram based on its type."""
+    # Get node_type and handle if it's a Series
     node_type = node['node_type']
+    
     label = str(node['label']) if pd.notna(node['label']) else ''
 
-    if node_type == 'rule':
+    if is_node_type(node_type, 'rule'):
         if node_id.startswith('repeat_rule') or node_id.startswith('skip_rule'):
             label = f"📄\n{label}"
         dot.node(node_id, label=label, shape='none')
@@ -1195,7 +1211,7 @@ def add_node(dot, node_id, node, edge_set, updated_nodes):
             edge_set.add((node_id, parent_activity))
         return False
 
-    elif node_type == 'substeps':
+    elif is_node_type(node_type, 'substeps'):
         dot.node(
             node_id,
             label=label,
@@ -1220,7 +1236,7 @@ def add_node(dot, node_id, node, edge_set, updated_nodes):
         return False
 
     else:
-        if node_type == 'activity':
+        if is_node_type(node_type, 'activity'):
             empfanger = node['Empfänger'] if pd.notna(node['Empfänger']) else ''
             name_de = node['name'] if pd.notna(node['name']) else ''
             activity_type = node['type'] if pd.notna(node['type']) else ''
@@ -1254,18 +1270,18 @@ def add_node(dot, node_id, node, edge_set, updated_nodes):
 <TR><TD ALIGN="center"><FONT POINT-SIZE="{font_size}">{formatted_name}</FONT></TD></TR>
 </TABLE>>'''
             label = html_label
-        elif node_type == 'helper':
+        elif is_node_type(node_type, 'helper'):
             label = ''
         
         attrs = {}
-        if node_type == 'gateway':
+        if is_node_type(node_type, 'gateway'):
             attrs['fontsize'] = '16'
             attrs['shape'] = 'diamond'
-        elif node_type == 'helper':
+        elif is_node_type(node_type, 'helper'):
             attrs['width'] = '0.1'
             attrs['height'] = '0.1'
             attrs['shape'] = 'point'
-        elif node_type == 'activity':
+        elif is_node_type(node_type, 'activity'):
             attrs['shape'] = 'box'
             attrs['style'] = 'rounded'
             attrs['margin'] = '0'
@@ -1275,6 +1291,12 @@ def add_node(dot, node_id, node, edge_set, updated_nodes):
             
         dot.node(node_id, label=label, **attrs)
         return True
+
+def is_node_type(value, type_to_check):
+    """Safely check if a node type equals a specific value, handling Series."""
+    if hasattr(value, 'iloc'):
+        return value.iloc[0] == type_to_check
+    return value == type_to_check
 
 def add_group(group_id, dot, updated_nodes, updated_groups, edge_set, processed_substeps=None):
     """Build a group in the BPMN diagram recursively."""
@@ -1289,16 +1311,40 @@ def add_group(group_id, dot, updated_nodes, updated_groups, edge_set, processed_
     for node_id in nodes.index:
         children.append(('node', node_id, nodes.at[node_id, 'SequenceNumber']))
 
-    for decision_id in nodes[nodes['node_type'] == 'decision'].index:
-        rule_nodes = updated_nodes[(updated_nodes['parent'] == decision_id) & 
-                                   (updated_nodes['node_type'] == 'rule')]
-        for rule_id in rule_nodes.index:
+    # Find decision node IDs safely
+    decision_ids = []
+    for node_id in nodes.index:
+        node_type = nodes.at[node_id, 'node_type']
+        if is_node_type(node_type, 'decision'):
+            decision_ids.append(node_id)
+    
+    for decision_id in decision_ids:
+        # Find rule nodes connected to this decision
+        rule_ids = []
+        for node_id in updated_nodes[updated_nodes['parent'] == decision_id].index:
+            node_type = updated_nodes.at[node_id, 'node_type']
+            if is_node_type(node_type, 'rule'):
+                rule_ids.append(node_id)
+        
+        for rule_id in rule_ids:
             children.append(('node', rule_id, updated_nodes.at[rule_id, 'SequenceNumber']))
 
-    for activity_id in nodes[nodes['node_type'] == 'activity'].index:
-        substep_nodes = updated_nodes[(updated_nodes['parent'] == activity_id) & 
-                                      (updated_nodes['node_type'] == 'substeps')]
-        for substep_id in substep_nodes.index:
+    # Find activity node IDs safely
+    activity_ids = []
+    for node_id in nodes.index:
+        node_type = nodes.at[node_id, 'node_type']
+        if is_node_type(node_type, 'activity'):
+            activity_ids.append(node_id)
+    
+    for activity_id in activity_ids:
+        # Find substep nodes connected to this activity
+        substep_ids = []
+        for node_id in updated_nodes[updated_nodes['parent'] == activity_id].index:
+            node_type = updated_nodes.at[node_id, 'node_type']
+            if is_node_type(node_type, 'substeps'):
+                substep_ids.append(node_id)
+        
+        for substep_id in substep_ids:
             if substep_id not in processed_substeps:
                 processed_substeps.add(substep_id)
                 children.append(('node', substep_id, updated_nodes.at[substep_id, 'SequenceNumber']))
@@ -1319,18 +1365,29 @@ def add_group(group_id, dot, updated_nodes, updated_groups, edge_set, processed_
         repeat_gateway, repeat_helper = repeat_data.get('gateway'), repeat_data.get('helper')
 
     for child_type, child_id, _ in children:
-        if child_type == 'node' and updated_nodes.at[child_id, 'node_type'] == 'gateway':
-            if 'gateway_split' in child_id and 'skip' not in child_id:
-                gateway_split = child_id
-            elif 'gateway_join' in child_id and 'skip' not in child_id:
-                gateway_join = child_id
-            elif 'skip_gateway_split' in child_id:
-                skip_gateway_split = child_id
-            elif 'skip_gateway_join' in child_id:
-                skip_gateway_join = child_id
+        if child_type == 'node':
+            # Safely get node_type and handle if it's a Series
+            node_type = updated_nodes.at[child_id, 'node_type']
+            if is_node_type(node_type, 'gateway'):
+                if 'gateway_split' in child_id and 'skip' not in child_id:
+                    gateway_split = child_id
+                elif 'gateway_join' in child_id and 'skip' not in child_id:
+                    gateway_join = child_id
+                elif 'skip_gateway_split' in child_id:
+                    skip_gateway_split = child_id
+                elif 'skip_gateway_join' in child_id:
+                    skip_gateway_join = child_id
 
     if group['type'] == 'parallel' and gateway_split and gateway_join:
-        split_seq, join_seq = updated_nodes.at[gateway_split, 'SequenceNumber'], updated_nodes.at[gateway_join, 'SequenceNumber']
+        split_seq = updated_nodes.at[gateway_split, 'SequenceNumber']
+        join_seq = updated_nodes.at[gateway_join, 'SequenceNumber']
+        
+        # Handle potential Series objects
+        if hasattr(split_seq, 'iloc'):
+            split_seq = split_seq.iloc[0]
+        if hasattr(join_seq, 'iloc'):
+            join_seq = join_seq.iloc[0]
+            
         parallel_branches = [child for child in children if split_seq < child[2] < join_seq]
 
     prev_node = first_node = last_node = first_real_node = None
@@ -1341,7 +1398,9 @@ def add_group(group_id, dot, updated_nodes, updated_groups, edge_set, processed_
             if in_flow:
                 if first_node is None:
                     first_node = child_id
-                if first_real_node is None and node['node_type'] != 'helper':
+                # Safely check node type
+                node_type = node['node_type']
+                if first_real_node is None and not is_node_type(node_type, 'helper'):
                     first_real_node = child_id
                 last_node = child_id
                 if prev_node and (prev_node, child_id) not in edge_set:
@@ -1563,6 +1622,8 @@ def create_basic_bpmn_xml(node_df, edges_df):
 
         cleaned_id = id_mapping[node_id]
         node_data = node_df.loc[node_id]
+        
+        # Get node_type safely
         node_type = node_data["node_type"]
         
         # Handle NaN values by converting to empty string
@@ -1575,19 +1636,23 @@ def create_basic_bpmn_xml(node_df, edges_df):
             name = f"{name}: {substeps}" if name else substeps
 
         # Map node_type to BPMN elements
-        if node_type == "activity":
+        if is_node_type(node_type, "activity"):
             task_type = node_data["type"]
+            # Safely handle task_type if it's a Series
+            if hasattr(task_type, 'iloc'):
+                task_type = task_type.iloc[0]
+                
             if task_type == "manual":
                 ET.SubElement(process, "bpmn:userTask", {"id": cleaned_id, "name": name})
             elif task_type in ["system", "script"]:
                 ET.SubElement(process, "bpmn:scriptTask", {"id": cleaned_id, "name": name})
-        elif node_type == "decision":
+        elif is_node_type(node_type, "decision"):
             ET.SubElement(process, "bpmn:businessRuleTask", {"id": cleaned_id, "name": label or name})
-        elif node_type == "gateway":
+        elif is_node_type(node_type, "gateway"):
             # Default to exclusiveGateway; "X" label confirms it
             gateway_type = "bpmn:exclusiveGateway" if label == "X" else "bpmn:exclusiveGateway"  # Simplified to exclusive
             ET.SubElement(process, gateway_type, {"id": cleaned_id})
-        elif node_type == "helper":
+        elif is_node_type(node_type, "helper"):
             # Treat helper as a script task for simplicity
             ET.SubElement(process, "bpmn:scriptTask", {"id": cleaned_id, "name": name})
 
