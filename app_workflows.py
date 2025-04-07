@@ -1185,32 +1185,39 @@ def wrap_text(text, max_chars_per_line):
 def get_port(node_id, updated_nodes, direction):
     """Return the port for edge connections based on node type and direction."""
     if node_id in updated_nodes.index:
-        node_type = updated_nodes.at[node_id, 'node_type']
-        # Handle case where node_type is a Series
-        if hasattr(node_type, 'iloc'):
-            node_type = node_type.iloc[0]
-            
-        if node_type == 'activity':
-            return ':w' if direction == 'in' else ':e'
+        try:
+            # Handle Series objects safely
+            node_type = updated_nodes.loc[node_id, 'node_type']
+            if hasattr(node_type, 'iloc'):
+                node_type = node_type.iloc[0]
+                
+            if isinstance(node_type, str) and node_type == 'activity':
+                return ':w' if direction == 'in' else ':e'
+        except (IndexError, KeyError, AttributeError):
+            # If any error occurs, return default empty string
+            pass
     return ''
 
 def add_node(dot, node_id, node, edge_set, updated_nodes):
     """Add a node to the Graphviz diagram based on its type."""
     # Get node_type and handle if it's a Series
     node_type = node['node_type']
+    if hasattr(node_type, 'iloc'):
+        node_type = node_type.iloc[0]
     
-    label = str(node['label']) if pd.notna(node['label']) else ''
-
+    label_value = get_safe_value(node, 'label', '')
+    label = str(label_value)
+    
     if is_node_type(node_type, 'rule'):
         if node_id.startswith('repeat_rule') or node_id.startswith('skip_rule'):
             label = f"📄\n{label}"
         dot.node(node_id, label=label, shape='none')
-        parent_activity = node['parent']
-        if pd.notna(parent_activity) and (node_id, parent_activity) not in edge_set:
+        parent_activity = get_safe_value(node, 'parent', '')
+        if parent_activity and (node_id, parent_activity) not in edge_set:
             dot.edge(node_id, parent_activity, style='dotted')
             edge_set.add((node_id, parent_activity))
         return False
-
+    
     elif is_node_type(node_type, 'substeps'):
         dot.node(
             node_id,
@@ -1219,10 +1226,10 @@ def add_node(dot, node_id, node, edge_set, updated_nodes):
             style='',
             fontsize='14',
             align='left',
-            group=node['parent']
+            group=get_safe_value(node, 'parent', '')
         )
-        parent_activity = node['parent']
-        if pd.notna(parent_activity) and (parent_activity, node_id) not in edge_set:
+        parent_activity = get_safe_value(node, 'parent', '')
+        if parent_activity and (parent_activity, node_id) not in edge_set:
             dot.edge(
                 parent_activity,
                 node_id,
@@ -1234,12 +1241,11 @@ def add_node(dot, node_id, node, edge_set, updated_nodes):
             )
             edge_set.add((parent_activity, node_id))
         return False
-
     else:
         if is_node_type(node_type, 'activity'):
-            empfanger = node['Empfänger'] if pd.notna(node['Empfänger']) else ''
-            name_de = node['name'] if pd.notna(node['name']) else ''
-            activity_type = node['type'] if pd.notna(node['type']) else ''
+            empfanger = get_safe_value(node, 'Empfänger', '')
+            name_de = get_safe_value(node, 'name', '')
+            activity_type = get_safe_value(node, 'type', '')
             
             emoji = ''
             if activity_type == 'manual':
@@ -1268,11 +1274,10 @@ def add_node(dot, node_id, node, edge_set, updated_nodes):
             html_label = f'''<<TABLE BORDER="0" CELLBORDER="0" CELLSPACING="0" CELLPADDING="6" WIDTH="{ACTIVITY_TABLE_WIDTH}">
 <TR><TD ALIGN="left" VALIGN="top"><FONT POINT-SIZE="{ACTIVITY_FONT_SIZE}">{formatted_empfanger}</FONT></TD></TR>
 <TR><TD ALIGN="center"><FONT POINT-SIZE="{font_size}">{formatted_name}</FONT></TD></TR>
-</TABLE>>'''
+</TABLE>>''' 
             label = html_label
         elif is_node_type(node_type, 'helper'):
             label = ''
-        
         attrs = {}
         if is_node_type(node_type, 'gateway'):
             attrs['fontsize'] = '16'
@@ -1288,14 +1293,21 @@ def add_node(dot, node_id, node, edge_set, updated_nodes):
             attrs['group'] = node_id
         else:
             attrs['shape'] = 'box'
-            
         dot.node(node_id, label=label, **attrs)
         return True
 
 def is_node_type(value, type_to_check):
     """Safely check if a node type equals a specific value, handling Series."""
+    if pd.isna(value):
+        return False
+        
+    # If it's a Series, extract the first value
     if hasattr(value, 'iloc'):
-        return value.iloc[0] == type_to_check
+        try:
+            value = value.iloc[0]
+        except (IndexError, AttributeError):
+            return False
+            
     return value == type_to_check
 
 def add_group(group_id, dot, updated_nodes, updated_groups, edge_set, processed_substeps=None):
@@ -1305,16 +1317,17 @@ def add_group(group_id, dot, updated_nodes, updated_groups, edge_set, processed_
     
     group = updated_groups.loc[group_id]
     children = []
-    group_name = group['name'] if pd.notna(group['name']) else ''
+    group_name = get_safe_value(group, 'name')
     
     nodes = updated_nodes[updated_nodes['parent'] == group_id]
     for node_id in nodes.index:
-        children.append(('node', node_id, nodes.at[node_id, 'SequenceNumber']))
+        seq_num = get_safe_value(nodes.loc[node_id], 'SequenceNumber', 0)
+        children.append(('node', node_id, seq_num))
 
     # Find decision node IDs safely
     decision_ids = []
     for node_id in nodes.index:
-        node_type = nodes.at[node_id, 'node_type']
+        node_type = get_safe_value(nodes.loc[node_id], 'node_type')
         if is_node_type(node_type, 'decision'):
             decision_ids.append(node_id)
     
@@ -1322,17 +1335,17 @@ def add_group(group_id, dot, updated_nodes, updated_groups, edge_set, processed_
         # Find rule nodes connected to this decision
         rule_ids = []
         for node_id in updated_nodes[updated_nodes['parent'] == decision_id].index:
-            node_type = updated_nodes.at[node_id, 'node_type']
+            node_type = get_safe_value(updated_nodes.loc[node_id], 'node_type')
             if is_node_type(node_type, 'rule'):
                 rule_ids.append(node_id)
-        
         for rule_id in rule_ids:
-            children.append(('node', rule_id, updated_nodes.at[rule_id, 'SequenceNumber']))
+            seq_num = get_safe_value(updated_nodes.loc[rule_id], 'SequenceNumber', 0)
+            children.append(('node', rule_id, seq_num))
 
     # Find activity node IDs safely
     activity_ids = []
     for node_id in nodes.index:
-        node_type = nodes.at[node_id, 'node_type']
+        node_type = get_safe_value(nodes.loc[node_id], 'node_type')
         if is_node_type(node_type, 'activity'):
             activity_ids.append(node_id)
     
@@ -1340,34 +1353,52 @@ def add_group(group_id, dot, updated_nodes, updated_groups, edge_set, processed_
         # Find substep nodes connected to this activity
         substep_ids = []
         for node_id in updated_nodes[updated_nodes['parent'] == activity_id].index:
-            node_type = updated_nodes.at[node_id, 'node_type']
+            node_type = get_safe_value(updated_nodes.loc[node_id], 'node_type')
             if is_node_type(node_type, 'substeps'):
                 substep_ids.append(node_id)
-        
         for substep_id in substep_ids:
             if substep_id not in processed_substeps:
                 processed_substeps.add(substep_id)
-                children.append(('node', substep_id, updated_nodes.at[substep_id, 'SequenceNumber']))
+                seq_num = get_safe_value(updated_nodes.loc[substep_id], 'SequenceNumber', 0)
+                children.append(('node', substep_id, seq_num))
 
     subgroups = updated_groups[updated_groups['parent'] == group_id]
     for subgroup_id in subgroups.index:
-        children.append(('group', subgroup_id, subgroups.at[subgroup_id, 'SequenceNumber']))
+        seq_num = get_safe_value(subgroups.loc[subgroup_id], 'SequenceNumber', 0)
+        children.append(('group', subgroup_id, seq_num))
 
     children.sort(key=lambda x: x[2])
     
     gateway_split = gateway_join = skip_gateway_split = skip_gateway_join = repeat_gateway = repeat_helper = None
     parallel_branches = []
     gateway_connected_nodes = set()
-    labels = group['parallel_condition_name'].split(';') if group['type'] == 'parallel' and pd.notna(group.get('parallel_condition_name')) else []
-
-    if pd.notna(group.get('repeat_connections')):
-        repeat_data = group['repeat_connections']
-        repeat_gateway, repeat_helper = repeat_data.get('gateway'), repeat_data.get('helper')
-
+    
+    # Safely get group type
+    group_type = get_safe_value(group, 'type')
+    
+    # Safely get parallel condition names and compute labels
+    parallel_condition_name = get_safe_value(group, 'parallel_condition_name')
+    labels = parallel_condition_name.split(';') if group_type == 'parallel' and parallel_condition_name else []
+    
+    # Safely get repeat connections
+    repeat_connections = get_safe_value(group, 'repeat_connections')
+    if repeat_connections:
+        if isinstance(repeat_connections, dict):
+            repeat_gateway = repeat_connections.get('gateway')
+            repeat_helper = repeat_connections.get('helper')
+        elif isinstance(repeat_connections, str) and "gateway" in repeat_connections:
+            import ast
+            try:
+                repeat_dict = ast.literal_eval(repeat_connections)
+                repeat_gateway = repeat_dict.get('gateway')
+                repeat_helper = repeat_dict.get('helper')
+            except:
+                repeat_gateway = repeat_helper = None
+    
     for child_type, child_id, _ in children:
         if child_type == 'node':
-            # Safely get node_type and handle if it's a Series
-            node_type = updated_nodes.at[child_id, 'node_type']
+            # Safely get node_type for further checks
+            node_type = get_safe_value(updated_nodes.loc[child_id], 'node_type')
             if is_node_type(node_type, 'gateway'):
                 if 'gateway_split' in child_id and 'skip' not in child_id:
                     gateway_split = child_id
@@ -1377,44 +1408,37 @@ def add_group(group_id, dot, updated_nodes, updated_groups, edge_set, processed_
                     skip_gateway_split = child_id
                 elif 'skip_gateway_join' in child_id:
                     skip_gateway_join = child_id
-
-    if group['type'] == 'parallel' and gateway_split and gateway_join:
-        split_seq = updated_nodes.at[gateway_split, 'SequenceNumber']
-        join_seq = updated_nodes.at[gateway_join, 'SequenceNumber']
         
-        # Handle potential Series objects
-        if hasattr(split_seq, 'iloc'):
-            split_seq = split_seq.iloc[0]
-        if hasattr(join_seq, 'iloc'):
-            join_seq = join_seq.iloc[0]
-            
+    if group_type == 'parallel' and gateway_split and gateway_join:
+        split_seq = get_safe_value(updated_nodes.loc[gateway_split], 'SequenceNumber', 0)
+        join_seq = get_safe_value(updated_nodes.loc[gateway_join], 'SequenceNumber', float('inf'))
         parallel_branches = [child for child in children if split_seq < child[2] < join_seq]
-
+    
     prev_node = first_node = last_node = first_real_node = None
-    for child_type, child_id, seq in children:
+    for child in children:
+        child_type, child_id, _ = child
         if child_type == 'node':
             node = updated_nodes.loc[child_id]
             in_flow = add_node(dot, child_id, node, edge_set, updated_nodes)
             if in_flow:
                 if first_node is None:
                     first_node = child_id
-                # Safely check node type
-                node_type = node['node_type']
+                node_type = get_safe_value(node, 'node_type')
                 if first_real_node is None and not is_node_type(node_type, 'helper'):
                     first_real_node = child_id
                 last_node = child_id
                 if prev_node and (prev_node, child_id) not in edge_set:
-                    if group['type'] != 'parallel' or (prev_node not in gateway_connected_nodes and child_id not in gateway_connected_nodes):
+                    if group_type != 'parallel' or (prev_node not in gateway_connected_nodes and child_id not in gateway_connected_nodes):
                         from_port = get_port(prev_node, updated_nodes, 'out')
                         to_port = get_port(child_id, updated_nodes, 'in')
                         dot.edge(prev_node + from_port, child_id + to_port, minlen=EDGE_MIN_LENGTH, weight='2', constraint='true')
                         edge_set.add((prev_node, child_id))
                 prev_node = child_id
-
         elif child_type == 'group':
             with dot.subgraph(name=f'cluster_{child_id}') as sub_dot:
+                subgroup_name = get_safe_value(updated_groups.loc[child_id], "name", "")
                 sub_dot.attr(
-                    label=f'<<TABLE BORDER="0" CELLBORDER="0" CELLSPACING="0" CELLPADDING="2"><TR><TD ALIGN="left"><B>{updated_groups.at[child_id, "name"]}</B></TD></TR></TABLE>>',
+                    label=f'<<TABLE BORDER="0" CELLBORDER="0" CELLSPACING="0" CELLPADDING="2"><TR><TD ALIGN="left"><B>{subgroup_name}</B></TD></TR></TABLE>>',
                     style='rounded,dashed',
                     penwidth='1.0',
                     labelloc='t',
@@ -1423,26 +1447,19 @@ def add_group(group_id, dot, updated_nodes, updated_groups, edge_set, processed_
                     fontname='sans-serif'
                 )
                 subgroup_first, subgroup_last = add_group(child_id, sub_dot, updated_nodes, updated_groups, edge_set, processed_substeps)
-            
             if subgroup_first and subgroup_last:
                 if first_node is None:
                     first_node = subgroup_first
                 if first_real_node is None:
                     first_real_node = subgroup_first
                 last_node = subgroup_last
-                if group['type'] == 'parallel' and (child_type, child_id, seq) in parallel_branches:
-                    idx = parallel_branches.index((child_type, child_id, seq))
+                if group_type == 'parallel' and (child, child_id, _) in parallel_branches:
+                    idx = parallel_branches.index((child, child_id, _))
                     label = labels[idx] if idx < len(labels) else None
                     if gateway_split and (gateway_split, subgroup_first) not in edge_set:
                         from_port = ''
                         to_port = get_port(subgroup_first, updated_nodes, 'in')
-                        dot.edge(gateway_split + from_port, subgroup_first + to_port, 
-                                 xlabel=label, 
-                                 labelangle='0', 
-                                 labeldistance=EDGE_LABEL_DISTANCE,
-                                 minlen=str(float(EDGE_MIN_LENGTH) + 0.2),
-                                 weight='2',
-                                 constraint='true')
+                        dot.edge(gateway_split + from_port, subgroup_first + to_port, xlabel=label, labelangle='0', labeldistance=EDGE_LABEL_DISTANCE, minlen=str(float(EDGE_MIN_LENGTH) + 0.2), weight='2', constraint='true')
                         edge_set.add((gateway_split, subgroup_first))
                         gateway_connected_nodes.add(subgroup_first)
                     if gateway_join and (subgroup_last, gateway_join) not in edge_set:
@@ -1458,8 +1475,8 @@ def add_group(group_id, dot, updated_nodes, updated_groups, edge_set, processed_
                         dot.edge(prev_node + from_port, subgroup_first + to_port, minlen=EDGE_MIN_LENGTH, weight='2', constraint='true')
                         edge_set.add((prev_node, subgroup_first))
                 prev_node = subgroup_last
-
-    if group['type'] == 'parallel' and gateway_split and gateway_join:
+    
+    if group_type == 'parallel' and gateway_split and gateway_join:
         for i, branch in enumerate(parallel_branches):
             if branch[0] == 'node':
                 node_id = branch[1]
@@ -1467,13 +1484,7 @@ def add_group(group_id, dot, updated_nodes, updated_groups, edge_set, processed_
                 if (gateway_split, node_id) not in edge_set:
                     from_port = ''
                     to_port = get_port(node_id, updated_nodes, 'in')
-                    dot.edge(gateway_split + from_port, node_id + to_port, 
-                             xlabel=label, 
-                             labelangle='0', 
-                             labeldistance=EDGE_LABEL_DISTANCE,
-                             minlen=str(float(EDGE_MIN_LENGTH) + 0.2),
-                             weight='2',
-                             constraint='true')
+                    dot.edge(gateway_split + from_port, node_id + to_port, xlabel=label, labelangle='0', labeldistance=EDGE_LABEL_DISTANCE, minlen=str(float(EDGE_MIN_LENGTH) + 0.2), weight='2', constraint='true')
                     edge_set.add((gateway_split, node_id))
                     gateway_connected_nodes.add(node_id)
                 if (node_id, gateway_join) not in edge_set:
@@ -1482,34 +1493,24 @@ def add_group(group_id, dot, updated_nodes, updated_groups, edge_set, processed_
                     dot.edge(node_id + from_port, gateway_join + to_port, minlen=EDGE_MIN_LENGTH, weight='2', constraint='true')
                     edge_set.add((node_id, gateway_join))
                     gateway_connected_nodes.add(node_id)
-
+    
     if skip_gateway_split and skip_gateway_join and (skip_gateway_split, skip_gateway_join) not in edge_set:
-        label = group['skip_name'] if pd.notna(group.get('skip_name')) else None
-        dot.edge(skip_gateway_split, skip_gateway_join, 
-                 xlabel=label, 
-                 labelangle='0', 
-                 labeldistance=EDGE_LABEL_DISTANCE,
-                 constraint='false',
-                 minlen=str(float(EDGE_MIN_LENGTH) + 0.5),
-                 weight='1')
+        skip_name = get_safe_value(group, 'skip_name')
+        label = skip_name if skip_name else None
+        dot.edge(skip_gateway_split, skip_gateway_join, xlabel=label, labelangle='0', labeldistance=EDGE_LABEL_DISTANCE, constraint='false', minlen=str(float(EDGE_MIN_LENGTH) + 0.5), weight='1')
         edge_set.add((skip_gateway_split, skip_gateway_join))
-
+    
     if repeat_gateway and repeat_helper and (repeat_gateway, repeat_helper) not in edge_set:
-        label = group['repeat_name'] if pd.notna(group.get('repeat_name')) else None
-        dot.edge(repeat_gateway, repeat_helper, 
-                 xlabel=label, 
-                 labelangle='0', 
-                 labeldistance=EDGE_LABEL_DISTANCE,
-                 constraint='false',
-                 minlen=str(float(EDGE_MIN_LENGTH) + 0.5),
-                 weight='1')
+        repeat_name = get_safe_value(group, 'repeat_name')
+        label = repeat_name if repeat_name else None
+        dot.edge(repeat_gateway, repeat_helper, xlabel=label, labelangle='0', labeldistance=EDGE_LABEL_DISTANCE, constraint='false', minlen=str(float(EDGE_MIN_LENGTH) + 0.5), weight='1')
         edge_set.add((repeat_gateway, repeat_helper))
     if repeat_helper and first_real_node and (repeat_helper, first_real_node) not in edge_set:
         from_port = get_port(repeat_helper, updated_nodes, 'out')
         to_port = get_port(first_real_node, updated_nodes, 'in')
         dot.edge(repeat_helper + from_port, first_real_node + to_port, minlen=EDGE_MIN_LENGTH, weight='2', constraint='true')
         edge_set.add((repeat_helper, first_real_node))
-
+    
     return first_node, last_node
 
 def build_workflow_diagram(updated_nodes, updated_groups):
@@ -1576,7 +1577,8 @@ def create_basic_bpmn_xml(node_df, edges_df):
         "bpmn": "http://www.omg.org/spec/BPMN/20100524/MODEL",
         "bpmndi": "http://www.omg.org/spec/BPMN/20100524/DI",
         "dc": "http://www.omg.org/spec/DD/20100524/DC",
-        "di": "http://www.omg.org/spec/DD/20100524/DI"
+        "di": "http://www.omg.org/spec/DD/20100524/DI",
+        "xsi": "http://www.w3.org/2001/XMLSchema-instance"
     }
     
     # Register namespaces
@@ -1590,7 +1592,8 @@ def create_basic_bpmn_xml(node_df, edges_df):
         "xmlns:bpmn": namespaces["bpmn"],
         "xmlns:bpmndi": namespaces["bpmndi"],
         "xmlns:dc": namespaces["dc"],
-        "xmlns:di": namespaces["di"]
+        "xmlns:di": namespaces["di"],
+        "xmlns:xsi": namespaces["xsi"]
     })
 
     # Create <process> element
@@ -1614,8 +1617,42 @@ def create_basic_bpmn_xml(node_df, edges_df):
     # Add cleaned IDs for start and end events
     id_mapping["start"] = "id_start"
     id_mapping["end"] = "id_end"
+    
+    # Create reverse mapping for lookups
+    reverse_id_mapping = {v: k for k, v in id_mapping.items()}
+    
+    # Track incoming and outgoing flows for each node
+    incoming_flows = {node_id: [] for node_id in id_mapping.values()}
+    outgoing_flows = {node_id: [] for node_id in id_mapping.values()}
+    
+    # First, create all the sequence flows and track them
+    flows = []
+    for idx, edge in edges_df.iterrows():
+        source = edge["source"]
+        target = edge["target"]
+        edge_label = edge["label"]
+
+        # Use cleaned IDs
+        cleaned_source = id_mapping.get(source, source)
+        cleaned_target = id_mapping.get(target, target)
+
+        # Create a unique flow ID
+        flow_id = f"flow_{idx}"
+        
+        # Add flow to tracking lists
+        outgoing_flows[cleaned_source].append(flow_id)
+        incoming_flows[cleaned_target].append(flow_id)
+        
+        # Store flow data for later creation
+        flows.append({
+            "id": flow_id,
+            "source": cleaned_source,
+            "target": cleaned_target,
+            "label": edge_label
+        })
 
     # Process nodes from node_df
+    element_mapping = {}  # Map node IDs to XML elements
     for node_id in node_df.index:
         if node_id not in connected_nodes:
             continue  # Skip nodes without edges
@@ -1631,7 +1668,7 @@ def create_basic_bpmn_xml(node_df, edges_df):
         label = str(node_data["label"]) if pd.notna(node_data["label"]) else ""
 
         # Append substeps to name if present
-        substeps = node_data["substeps"]
+        substeps = node_data.get("substeps")
         if pd.notna(substeps) and isinstance(substeps, str):
             name = f"{name}: {substeps}" if name else substeps
 
@@ -1643,44 +1680,87 @@ def create_basic_bpmn_xml(node_df, edges_df):
                 task_type = task_type.iloc[0]
                 
             if task_type == "manual":
-                ET.SubElement(process, "bpmn:userTask", {"id": cleaned_id, "name": name})
+                element = ET.SubElement(process, "bpmn:userTask", {"id": cleaned_id, "name": name})
             elif task_type in ["system", "script"]:
-                ET.SubElement(process, "bpmn:scriptTask", {"id": cleaned_id, "name": name})
+                element = ET.SubElement(process, "bpmn:scriptTask", {"id": cleaned_id, "name": name})
+            else:
+                element = ET.SubElement(process, "bpmn:task", {"id": cleaned_id, "name": name})
         elif is_node_type(node_type, "decision"):
-            ET.SubElement(process, "bpmn:businessRuleTask", {"id": cleaned_id, "name": label or name})
+            element = ET.SubElement(process, "bpmn:businessRuleTask", {"id": cleaned_id, "name": label or name})
         elif is_node_type(node_type, "gateway"):
-            # Default to exclusiveGateway; "X" label confirms it
-            gateway_type = "bpmn:exclusiveGateway" if label == "X" else "bpmn:exclusiveGateway"  # Simplified to exclusive
-            ET.SubElement(process, gateway_type, {"id": cleaned_id})
+            # Determine gateway type from label
+            gateway_label = label if pd.notna(label) else ""
+            
+            if gateway_label == "+":
+                gateway_type = "bpmn:parallelGateway"
+            elif gateway_label == "X" or gateway_label == "":
+                gateway_type = "bpmn:exclusiveGateway"
+            else:
+                gateway_type = "bpmn:exclusiveGateway"  # Default
+                
+            element = ET.SubElement(process, gateway_type, {"id": cleaned_id})
         elif is_node_type(node_type, "helper"):
-            # Treat helper as a script task for simplicity
-            ET.SubElement(process, "bpmn:scriptTask", {"id": cleaned_id, "name": name})
+            element = ET.SubElement(process, "bpmn:intermediateThrowEvent", {"id": cleaned_id})
+        else:
+            # Default to generic task
+            element = ET.SubElement(process, "bpmn:task", {"id": cleaned_id, "name": name})
+            
+        # Add incoming flow references
+        for flow_id in incoming_flows.get(cleaned_id, []):
+            ET.SubElement(element, "bpmn:incoming").text = flow_id
+            
+        # Add outgoing flow references
+        for flow_id in outgoing_flows.get(cleaned_id, []):
+            ET.SubElement(element, "bpmn:outgoing").text = flow_id
+            
+        # Store element for potential later use
+        element_mapping[cleaned_id] = element
 
     # Add start and end events with cleaned IDs
-    ET.SubElement(process, "bpmn:startEvent", {"id": id_mapping["start"]})
-    ET.SubElement(process, "bpmn:endEvent", {"id": id_mapping["end"]})
+    start_element = ET.SubElement(process, "bpmn:startEvent", {"id": id_mapping["start"]})
+    for flow_id in outgoing_flows.get(id_mapping["start"], []):
+        ET.SubElement(start_element, "bpmn:outgoing").text = flow_id
+        
+    end_element = ET.SubElement(process, "bpmn:endEvent", {"id": id_mapping["end"]})
+    for flow_id in incoming_flows.get(id_mapping["end"], []):
+        ET.SubElement(end_element, "bpmn:incoming").text = flow_id
 
-    # Process edges from edges_df
-    for idx, edge in edges_df.iterrows():
-        source = edge["source"]
-        target = edge["target"]
-        edge_label = edge["label"]
-
-        # Use cleaned IDs
-        cleaned_source = id_mapping[source]
-        cleaned_target = id_mapping[target]
-
-        # Create sequence flow
-        flow = ET.SubElement(process, "bpmn:sequenceFlow", {
-            "id": f"flow{idx}",  # Cleaned flow ID (no underscore)
-            "sourceRef": cleaned_source,
-            "targetRef": cleaned_target
+    # Now create all the sequence flows
+    for flow in flows:
+        flow_element = ET.SubElement(process, "bpmn:sequenceFlow", {
+            "id": flow["id"],
+            "sourceRef": flow["source"],
+            "targetRef": flow["target"]
         })
-
+        
         # Add condition expression if label exists and source is a gateway
-        if pd.notna(edge_label) and source in node_df.index and node_df.loc[source, "node_type"] == "gateway":
-            condition = ET.SubElement(flow, "bpmn:conditionExpression")
-            condition.text = str(edge_label)
+        source_orig = reverse_id_mapping.get(flow["source"], flow["source"])
+        if pd.notna(flow["label"]) and source_orig in node_df.index and is_node_type(node_df.loc[source_orig, "node_type"], "gateway"):
+            condition = ET.SubElement(flow_element, "bpmn:conditionExpression", {
+                "xsi:type": "bpmn:tFormalExpression"
+            })
+            condition.text = str(flow["label"])
+    
+    # Add a basic BPMNDiagram section with LR orientation hint
+    diagram = ET.SubElement(root, "bpmndi:BPMNDiagram", {"id": "BPMNDiagram_1"})
+    plane = ET.SubElement(diagram, "bpmndi:BPMNPlane", {
+        "id": "BPMNPlane_1", 
+        "bpmnElement": "process_1"
+    })
+    
+    # Add a simple note as a text annotation indicating LR orientation
+    # This is a hint for the auto-layout, not a technical requirement
+    annotation = ET.SubElement(process, "bpmn:textAnnotation", {"id": "TextAnnotation_LRLayout"})
+    ET.SubElement(annotation, "bpmn:text").text = "Layout: LR (Left to Right)"
+    
+    # Add annotation shape to diagram
+    annotation_shape = ET.SubElement(plane, "bpmndi:BPMNShape", {
+        "id": "TextAnnotation_LRLayout_di",
+        "bpmnElement": "TextAnnotation_LRLayout"
+    })
+    bounds = ET.SubElement(annotation_shape, "dc:Bounds", {
+        "x": "10", "y": "10", "width": "150", "height": "30"
+    })
 
     # Convert to string with proper formatting
     rough_string = ET.tostring(root, "utf-8")
@@ -1696,6 +1776,21 @@ def get_base64_of_file(file_path):
     with open(file_path, "rb") as f:
         data = f.read()
     return base64.b64encode(data).decode()
+
+# Helper function to safely get values from a pandas Series
+def get_safe_value(node, key, default=''):
+    """Safely extract a value from a node, handling Series objects"""
+    if key not in node:
+        return default
+        
+    value = node[key]
+    # Handle Series objects: convert to scalar by taking the first element if applicable
+    if hasattr(value, 'iloc'):
+        value = value.iloc[0]
+    if pd.isna(value):
+        return default
+        
+    return value
 
 # --- Main Page Structure ---
 
