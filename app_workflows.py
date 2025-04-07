@@ -1539,8 +1539,28 @@ def create_basic_bpmn_xml(node_df, edges_df):
     incoming_flows = {node_id: [] for node_id in id_mapping.values()}
     outgoing_flows = {node_id: [] for node_id in id_mapping.values()}
     
+    # Track node types and parent relationships
+    node_types = {}
+    parent_relationships = {}
+    
+    # Identify all rule and substep nodes and their parents
+    for node_id in node_df.index:
+        if node_id not in connected_nodes:
+            continue
+            
+        node_data = node_df.loc[node_id]
+        node_type = get_safe_value(node_data, "node_type", "")
+        parent_id = get_safe_value(node_data, "parent", None)
+        
+        node_types[node_id] = node_type
+        
+        if node_type in ['rule', 'substeps'] and parent_id:
+            parent_relationships[node_id] = parent_id
+    
     # First, create all the sequence flows and track them
     flows = []
+    special_flows = []  # To track parent-child flows
+    
     for idx, edge in edges_df.iterrows():
         source = edge["source"]
         target = edge["target"]
@@ -1549,6 +1569,19 @@ def create_basic_bpmn_xml(node_df, edges_df):
         # Use cleaned IDs
         cleaned_source = id_mapping.get(source, source)
         cleaned_target = id_mapping.get(target, target)
+
+        # Check if this is a special parent-child flow
+        is_special = False
+        
+        if source in node_types and target in node_types:
+            source_type = node_types[source]
+            target_type = node_types[target]
+            
+            # Parent -> Substep or Rule -> Parent connections
+            if (source_type not in ['rule', 'substeps'] and target_type in ['rule', 'substeps']) or \
+               (source_type in ['rule', 'substeps'] and target_type not in ['rule', 'substeps']):
+                is_special = True
+                special_flows.append((source, target, idx))
 
         # Create a unique flow ID
         flow_id = f"flow_{idx}"
@@ -1562,7 +1595,8 @@ def create_basic_bpmn_xml(node_df, edges_df):
             "id": flow_id,
             "source": cleaned_source,
             "target": cleaned_target,
-            "label": edge_label
+            "label": edge_label,
+            "is_special": is_special
         })
 
     # Process nodes from node_df
@@ -1651,25 +1685,212 @@ def create_basic_bpmn_xml(node_df, edges_df):
             })
             condition.text = str(flow["label"])
     
-    # Add a basic BPMNDiagram section with LR orientation hint
+    # Add BPMNDiagram with specific positioning
     diagram = ET.SubElement(root, "bpmndi:BPMNDiagram", {"id": "BPMNDiagram_1"})
     plane = ET.SubElement(diagram, "bpmndi:BPMNPlane", {
         "id": "BPMNPlane_1", 
         "bpmnElement": "process_1"
     })
     
-    # Add a simple note as a text annotation indicating LR orientation
-    # This is a hint for the auto-layout, not a technical requirement
+    # Create an explicit layout with rule/substeps nodes directly beneath parents
+    # Calculate positions for all nodes first, then create shapes
+    node_positions = {}
+    
+    # 1. First pass: Position standard nodes (not rule or substeps) in a horizontal line
+    horizontal_position = 150
+    for node_id in node_df.index:
+        if node_id not in connected_nodes:
+            continue
+            
+        node_type = node_types.get(node_id, "")
+        
+        # Skip rule and substeps nodes for now
+        if node_type in ['rule', 'substeps']:
+            continue
+            
+        # Position regular node
+        width = 100
+        height = 80
+        
+        if is_node_type(node_type, "gateway"):
+            width = 50
+            height = 50
+        elif is_node_type(node_type, "helper"):
+            width = 36
+            height = 36
+            
+        node_positions[node_id] = {
+            'x': horizontal_position,
+            'y': 100,  # Standard Y position
+            'width': width,
+            'height': height
+        }
+        
+        horizontal_position += 150  # Space between nodes
+    
+    # Position start and end nodes
+    node_positions['start'] = {
+        'x': 50,
+        'y': 100,
+        'width': 36,
+        'height': 36
+    }
+    
+    node_positions['end'] = {
+        'x': horizontal_position,
+        'y': 100,
+        'width': 36,
+        'height': 36
+    }
+    
+    # 2. Second pass: Position rule and substeps nodes directly beneath their parents
+    for node_id in node_df.index:
+        if node_id not in connected_nodes:
+            continue
+            
+        node_type = node_types.get(node_id, "")
+        
+        if node_type in ['rule', 'substeps']:
+            parent_id = parent_relationships.get(node_id)
+            
+            if parent_id and parent_id in node_positions:
+                parent_pos = node_positions[parent_id]
+                
+                # Position directly beneath parent with fixed offset
+                width = 100
+                height = 80
+                
+                if is_node_type(node_type, "gateway"):
+                    width = 50
+                    height = 50
+                elif is_node_type(node_type, "helper"):
+                    width = 36
+                    height = 36
+                
+                # Center align with parent
+                x_position = parent_pos['x'] + (parent_pos['width'] - width) / 2
+                
+                node_positions[node_id] = {
+                    'x': x_position,
+                    'y': parent_pos['y'] + parent_pos['height'] + 30,  # Fixed distance below parent
+                    'width': width,
+                    'height': height
+                }
+    
+    # 3. Create the shapes with the calculated positions
+    for node_id, position in node_positions.items():
+        if node_id == 'start':
+            element_id = id_mapping['start']
+        elif node_id == 'end':
+            element_id = id_mapping['end']
+        else:
+            element_id = id_mapping[node_id]
+            
+        # Create shape for node
+        shape = ET.SubElement(plane, "bpmndi:BPMNShape", {
+            "id": f"{element_id}_di",
+            "bpmnElement": element_id
+        })
+        
+        bounds = ET.SubElement(shape, "dc:Bounds", {
+            "x": str(position['x']),
+            "y": str(position['y']),
+            "width": str(position['width']),
+            "height": str(position['height'])
+        })
+    
+    # 4. Create edges with explicit waypoints
+    for flow in flows:
+        source_id = reverse_id_mapping.get(flow["source"], flow["source"])
+        target_id = reverse_id_mapping.get(flow["target"], flow["target"])
+        
+        edge = ET.SubElement(plane, "bpmndi:BPMNEdge", {
+            "id": f"{flow['id']}_di",
+            "bpmnElement": flow["id"]
+        })
+        
+        source_pos = node_positions.get(source_id)
+        target_pos = node_positions.get(target_id)
+        
+        if not source_pos or not target_pos:
+            # Default waypoints if positions are unknown
+            ET.SubElement(edge, "di:waypoint", {"x": "100", "y": "100"})
+            ET.SubElement(edge, "di:waypoint", {"x": "200", "y": "100"})
+            continue
+            
+        # Check if this is a special parent-child connection
+        source_type = node_types.get(source_id, "")
+        target_type = node_types.get(target_id, "")
+        
+        is_parent_to_child = source_type not in ['rule', 'substeps'] and target_type in ['rule', 'substeps']
+        is_child_to_parent = source_type in ['rule', 'substeps'] and target_type not in ['rule', 'substeps']
+        
+        if is_parent_to_child:
+            # Parent to child (vertical down connection)
+            # Exit from parent's south port, enter child's north port
+            source_x = source_pos['x'] + (source_pos['width'] / 2)
+            source_y = source_pos['y'] + source_pos['height']
+            
+            target_x = target_pos['x'] + (target_pos['width'] / 2)
+            target_y = target_pos['y']
+            
+            # Create waypoints for a vertical connection
+            ET.SubElement(edge, "di:waypoint", {"x": str(source_x), "y": str(source_y)})
+            ET.SubElement(edge, "di:waypoint", {"x": str(source_x), "y": str((source_y + target_y) / 2)})
+            ET.SubElement(edge, "di:waypoint", {"x": str(target_x), "y": str((source_y + target_y) / 2)})
+            ET.SubElement(edge, "di:waypoint", {"x": str(target_x), "y": str(target_y)})
+            
+        elif is_child_to_parent:
+            # Child to parent (vertical up connection)
+            # Exit from child's north port, enter parent's south port
+            source_x = source_pos['x'] + (source_pos['width'] / 2)
+            source_y = source_pos['y']
+            
+            target_x = target_pos['x'] + (target_pos['width'] / 2)
+            target_y = target_pos['y'] + target_pos['height']
+            
+            # Create waypoints for a vertical connection
+            ET.SubElement(edge, "di:waypoint", {"x": str(source_x), "y": str(source_y)})
+            ET.SubElement(edge, "di:waypoint", {"x": str(source_x), "y": str((source_y + target_y) / 2)})
+            ET.SubElement(edge, "di:waypoint", {"x": str(target_x), "y": str((source_y + target_y) / 2)})
+            ET.SubElement(edge, "di:waypoint", {"x": str(target_x), "y": str(target_y)})
+            
+        else:
+            # Regular horizontal connection
+            # Exit from source's east port, enter target's west port
+            source_x = source_pos['x'] + source_pos['width']
+            source_y = source_pos['y'] + (source_pos['height'] / 2)
+            
+            target_x = target_pos['x']
+            target_y = target_pos['y'] + (target_pos['height'] / 2)
+            
+            # Simple direct connection for regular nodes
+            ET.SubElement(edge, "di:waypoint", {"x": str(source_x), "y": str(source_y)})
+            ET.SubElement(edge, "di:waypoint", {"x": str(target_x), "y": str(target_y)})
+    
+    # Add annotation as a hint for LR orientation
     annotation = ET.SubElement(process, "bpmn:textAnnotation", {"id": "TextAnnotation_LRLayout"})
     ET.SubElement(annotation, "bpmn:text").text = "Layout: LR (Left to Right)"
     
-    # Add annotation shape to diagram
+    # Position the annotation
     annotation_shape = ET.SubElement(plane, "bpmndi:BPMNShape", {
         "id": "TextAnnotation_LRLayout_di",
         "bpmnElement": "TextAnnotation_LRLayout"
     })
     bounds = ET.SubElement(annotation_shape, "dc:Bounds", {
         "x": "10", "y": "10", "width": "150", "height": "30"
+    })
+    
+    # Add special annotation for rule and substeps placement
+    annotation2 = ET.SubElement(process, "bpmn:textAnnotation", {"id": "TextAnnotation_SpecialNodes"})
+    ET.SubElement(annotation2, "bpmn:text").text = "Rule and Substeps nodes placed directly beneath parent nodes"
+    
+    annotation2_shape = ET.SubElement(plane, "bpmndi:BPMNShape", {
+        "id": "TextAnnotation_SpecialNodes_di",
+        "bpmnElement": "TextAnnotation_SpecialNodes"
+    })
+    bounds = ET.SubElement(annotation2_shape, "dc:Bounds", {
+        "x": "10", "y": "50", "width": "250", "height": "30"
     })
 
     # Convert to string with proper formatting
