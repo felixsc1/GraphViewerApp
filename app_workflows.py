@@ -7,7 +7,8 @@ import xml.etree.ElementTree as ET
 from xml.dom import minidom
 import streamlit.components.v1 as components
 import hashlib
-
+from collections import defaultdict
+import re
 
 def initialize_state():
     # Create workflows directory if it doesn't exist
@@ -1923,6 +1924,7 @@ def get_safe_value(node, key, default=''):
         
     return value
 
+
 # --- Main Page Structure ---
 
 def show():
@@ -1947,9 +1949,9 @@ def show():
             updated_nodes, updated_groups = generate_additional_nodes(activities_index, groups_index)
             edges_table = build_edges_table(updated_nodes, updated_groups)
             # Debugging
-            st.write(updated_nodes.to_dict())
-            st.write(updated_groups.to_dict())
-            st.write(edges_table.to_dict())
+            # st.write(updated_nodes.to_dict())
+            # st.write(updated_groups.to_dict())
+            # st.write(edges_table.to_dict())
             with st.expander("Data Details", expanded=False):
                 st.write("Aktivitäten")
                 st.dataframe(activities_table)
@@ -1992,6 +1994,7 @@ def show():
                 st.graphviz_chart(diagram)
                 
                 basic_xml = create_basic_bpmn_xml(updated_nodes, edges_table)
+
                 
                 # Create download buttons for the SVG and BPMN XML
                 col1, col2 = st.columns(2)
