@@ -891,14 +891,14 @@ def build_edges_table(updated_nodes, updated_groups):
         children.sort(key=lambda x: x[2])
 
         # Handle both 'sequential' and 'process' types similarly
-        if get_safe_value(group, 'type') in ['sequential', 'process']:
+        if get_safe_value_bpmn(group, 'type') in ['sequential', 'process']:
             first_node = None
             last_node = None
             local_prev = prev_node
 
             for child_type, child_id, _ in children:
                 if child_type == 'node':
-                    node_type = get_safe_value(updated_nodes.loc[child_id], 'node_type')
+                    node_type = get_safe_value_bpmn(updated_nodes.loc[child_id], 'node_type')
                     # Skip special nodes in main flow
                     if node_type in ['substeps', 'rule']:
                         continue
@@ -926,7 +926,7 @@ def build_edges_table(updated_nodes, updated_groups):
             handle_repeat(group, children)
             return first_node, last_node
 
-        elif get_safe_value(group, 'type') == 'parallel':
+        elif get_safe_value_bpmn(group, 'type') == 'parallel':
             decision = split = join = None
             for c_type, c_id, seq in children:
                 if c_type == 'node':
@@ -953,7 +953,7 @@ def build_edges_table(updated_nodes, updated_groups):
 
             for b_type, b_id, _ in branches:
                 if b_type == 'node':
-                    node_type = get_safe_value(updated_nodes.loc[b_id], 'node_type')
+                    node_type = get_safe_value_bpmn(updated_nodes.loc[b_id], 'node_type')
                     if node_type in ['substeps', 'rule']:
                         continue
                     if (split, b_id) not in edge_set:
@@ -974,7 +974,7 @@ def build_edges_table(updated_nodes, updated_groups):
             return decision, join
 
         else:
-            print(f"Unknown group type: {get_safe_value(group, 'type')}")
+            print(f"Unknown group type: {get_safe_value_bpmn(group, 'type')}")
             return None, None
 
     def handle_skip(group, children):
@@ -988,7 +988,7 @@ def build_edges_table(updated_nodes, updated_groups):
                     split = c_id
                 elif 'skip_gateway_join' in c_id:
                     join = c_id
-                elif get_safe_value(updated_nodes.loc[c_id], 'node_type') == 'activity':
+                elif get_safe_value_bpmn(updated_nodes.loc[c_id], 'node_type') == 'activity':
                     activity = c_id
 
         if decision and split and join and activity:
@@ -1016,7 +1016,7 @@ def build_edges_table(updated_nodes, updated_groups):
                     gateway = c_id
                 elif 'repeat_helper' in c_id:
                     helper = c_id
-                elif get_safe_value(updated_nodes.loc[c_id], 'node_type') == 'activity':
+                elif get_safe_value_bpmn(updated_nodes.loc[c_id], 'node_type') == 'activity':
                     activity = c_id
 
         if decision and gateway and helper and activity:
@@ -1047,8 +1047,8 @@ def build_edges_table(updated_nodes, updated_groups):
 
     # Add special node connections
     for node_id in updated_nodes.index:
-        node_type = get_safe_value(updated_nodes.loc[node_id], 'node_type')
-        parent_id = get_safe_value(updated_nodes.loc[node_id], 'parent')
+        node_type = get_safe_value_bpmn(updated_nodes.loc[node_id], 'node_type')
+        parent_id = get_safe_value_bpmn(updated_nodes.loc[node_id], 'parent')
         if node_type == 'substeps' and pd.notna(parent_id) and (parent_id, node_id) not in edge_set:
             edges.append((parent_id, node_id))
             edge_set.add((parent_id, node_id))
@@ -1120,14 +1120,14 @@ def add_node(dot, node_id, node, edge_set, updated_nodes):
     if hasattr(node_type, 'iloc'):
         node_type = node_type.iloc[0]
     
-    label_value = get_safe_value(node, 'label', '')
+    label_value = get_safe_value_bpmn(node, 'label', '')
     label = str(label_value)
     
     if is_node_type(node_type, 'rule'):
         if node_id.startswith('repeat_rule') or node_id.startswith('skip_rule'):
             label = f"📄\n{label}"
         dot.node(node_id, label=label, shape='none')
-        parent_activity = get_safe_value(node, 'parent', '')
+        parent_activity = get_safe_value_bpmn(node, 'parent', '')
         if parent_activity and (node_id, parent_activity) not in edge_set:
             dot.edge(node_id, parent_activity, style='dotted')
             edge_set.add((node_id, parent_activity))
@@ -1141,9 +1141,9 @@ def add_node(dot, node_id, node, edge_set, updated_nodes):
             style='',
             fontsize='14',
             align='left',
-            group=get_safe_value(node, 'parent', '')
+            group=get_safe_value_bpmn(node, 'parent', '')
         )
-        parent_activity = get_safe_value(node, 'parent', '')
+        parent_activity = get_safe_value_bpmn(node, 'parent', '')
         if parent_activity and (parent_activity, node_id) not in edge_set:
             dot.edge(
                 parent_activity,
@@ -1158,9 +1158,9 @@ def add_node(dot, node_id, node, edge_set, updated_nodes):
         return False
     else:
         if is_node_type(node_type, 'activity'):
-            empfanger = get_safe_value(node, 'Empfänger', '')
-            name_de = get_safe_value(node, 'name', '')
-            activity_type = get_safe_value(node, 'type', '')
+            empfanger = get_safe_value_bpmn(node, 'Empfänger', '')
+            name_de = get_safe_value_bpmn(node, 'name', '')
+            activity_type = get_safe_value_bpmn(node, 'type', '')
             
             emoji = ''
             if activity_type == 'manual':
@@ -1232,17 +1232,17 @@ def add_group(group_id, dot, updated_nodes, updated_groups, edge_set, processed_
     
     group = updated_groups.loc[group_id]
     children = []
-    group_name = get_safe_value(group, 'name')
+    group_name = get_safe_value_bpmn(group, 'name')
     
     nodes = updated_nodes[updated_nodes['parent'] == group_id]
     for node_id in nodes.index:
-        seq_num = get_safe_value(nodes.loc[node_id], 'SequenceNumber', 0)
+        seq_num = get_safe_value_bpmn(nodes.loc[node_id], 'SequenceNumber', 0)
         children.append(('node', node_id, seq_num))
 
     # Find decision node IDs safely
     decision_ids = []
     for node_id in nodes.index:
-        node_type = get_safe_value(nodes.loc[node_id], 'node_type')
+        node_type = get_safe_value_bpmn(nodes.loc[node_id], 'node_type')
         if is_node_type(node_type, 'decision'):
             decision_ids.append(node_id)
     
@@ -1250,17 +1250,17 @@ def add_group(group_id, dot, updated_nodes, updated_groups, edge_set, processed_
         # Find rule nodes connected to this decision
         rule_ids = []
         for node_id in updated_nodes[updated_nodes['parent'] == decision_id].index:
-            node_type = get_safe_value(updated_nodes.loc[node_id], 'node_type')
+            node_type = get_safe_value_bpmn(updated_nodes.loc[node_id], 'node_type')
             if is_node_type(node_type, 'rule'):
                 rule_ids.append(node_id)
         for rule_id in rule_ids:
-            seq_num = get_safe_value(updated_nodes.loc[rule_id], 'SequenceNumber', 0)
+            seq_num = get_safe_value_bpmn(updated_nodes.loc[rule_id], 'SequenceNumber', 0)
             children.append(('node', rule_id, seq_num))
 
     # Find activity node IDs safely
     activity_ids = []
     for node_id in nodes.index:
-        node_type = get_safe_value(nodes.loc[node_id], 'node_type')
+        node_type = get_safe_value_bpmn(nodes.loc[node_id], 'node_type')
         if is_node_type(node_type, 'activity'):
             activity_ids.append(node_id)
     
@@ -1268,18 +1268,18 @@ def add_group(group_id, dot, updated_nodes, updated_groups, edge_set, processed_
         # Find substep nodes connected to this activity
         substep_ids = []
         for node_id in updated_nodes[updated_nodes['parent'] == activity_id].index:
-            node_type = get_safe_value(updated_nodes.loc[node_id], 'node_type')
+            node_type = get_safe_value_bpmn(updated_nodes.loc[node_id], 'node_type')
             if is_node_type(node_type, 'substeps'):
                 substep_ids.append(node_id)
         for substep_id in substep_ids:
             if substep_id not in processed_substeps:
                 processed_substeps.add(substep_id)
-                seq_num = get_safe_value(updated_nodes.loc[substep_id], 'SequenceNumber', 0)
+                seq_num = get_safe_value_bpmn(updated_nodes.loc[substep_id], 'SequenceNumber', 0)
                 children.append(('node', substep_id, seq_num))
 
     subgroups = updated_groups[updated_groups['parent'] == group_id]
     for subgroup_id in subgroups.index:
-        seq_num = get_safe_value(subgroups.loc[subgroup_id], 'SequenceNumber', 0)
+        seq_num = get_safe_value_bpmn(subgroups.loc[subgroup_id], 'SequenceNumber', 0)
         children.append(('group', subgroup_id, seq_num))
 
     children.sort(key=lambda x: x[2])
@@ -1289,14 +1289,14 @@ def add_group(group_id, dot, updated_nodes, updated_groups, edge_set, processed_
     gateway_connected_nodes = set()
     
     # Safely get group type
-    group_type = get_safe_value(group, 'type')
+    group_type = get_safe_value_bpmn(group, 'type')
     
     # Safely get parallel condition names and compute labels
-    parallel_condition_name = get_safe_value(group, 'parallel_condition_name')
+    parallel_condition_name = get_safe_value_bpmn(group, 'parallel_condition_name')
     labels = parallel_condition_name.split(';') if group_type == 'parallel' and parallel_condition_name else []
     
     # Safely get repeat connections
-    repeat_connections = get_safe_value(group, 'repeat_connections')
+    repeat_connections = get_safe_value_bpmn(group, 'repeat_connections')
     if repeat_connections:
         if isinstance(repeat_connections, dict):
             repeat_gateway = repeat_connections.get('gateway')
@@ -1313,7 +1313,7 @@ def add_group(group_id, dot, updated_nodes, updated_groups, edge_set, processed_
     for child_type, child_id, _ in children:
         if child_type == 'node':
             # Safely get node_type for further checks
-            node_type = get_safe_value(updated_nodes.loc[child_id], 'node_type')
+            node_type = get_safe_value_bpmn(updated_nodes.loc[child_id], 'node_type')
             if is_node_type(node_type, 'gateway'):
                 if 'gateway_split' in child_id and 'skip' not in child_id:
                     gateway_split = child_id
@@ -1325,8 +1325,8 @@ def add_group(group_id, dot, updated_nodes, updated_groups, edge_set, processed_
                     skip_gateway_join = child_id
         
     if group_type == 'parallel' and gateway_split and gateway_join:
-        split_seq = get_safe_value(updated_nodes.loc[gateway_split], 'SequenceNumber', 0)
-        join_seq = get_safe_value(updated_nodes.loc[gateway_join], 'SequenceNumber', float('inf'))
+        split_seq = get_safe_value_bpmn(updated_nodes.loc[gateway_split], 'SequenceNumber', 0)
+        join_seq = get_safe_value_bpmn(updated_nodes.loc[gateway_join], 'SequenceNumber', float('inf'))
         parallel_branches = [child for child in children if split_seq < child[2] < join_seq]
     
     prev_node = first_node = last_node = first_real_node = None
@@ -1338,7 +1338,7 @@ def add_group(group_id, dot, updated_nodes, updated_groups, edge_set, processed_
             if in_flow:
                 if first_node is None:
                     first_node = child_id
-                node_type = get_safe_value(node, 'node_type')
+                node_type = get_safe_value_bpmn(node, 'node_type')
                 if first_real_node is None and not is_node_type(node_type, 'helper'):
                     first_real_node = child_id
                 last_node = child_id
@@ -1351,7 +1351,7 @@ def add_group(group_id, dot, updated_nodes, updated_groups, edge_set, processed_
                 prev_node = child_id
         elif child_type == 'group':
             with dot.subgraph(name=f'cluster_{child_id}') as sub_dot:
-                subgroup_name = get_safe_value(updated_groups.loc[child_id], "name", "")
+                subgroup_name = get_safe_value_bpmn(updated_groups.loc[child_id], "name", "")
                 sub_dot.attr(
                     label=f'<<TABLE BORDER="0" CELLBORDER="0" CELLSPACING="0" CELLPADDING="2"><TR><TD ALIGN="left"><B>{subgroup_name}</B></TD></TR></TABLE>>',
                     style='rounded,dashed',
@@ -1410,13 +1410,13 @@ def add_group(group_id, dot, updated_nodes, updated_groups, edge_set, processed_
                     gateway_connected_nodes.add(node_id)
     
     if skip_gateway_split and skip_gateway_join and (skip_gateway_split, skip_gateway_join) not in edge_set:
-        skip_name = get_safe_value(group, 'skip_name')
+        skip_name = get_safe_value_bpmn(group, 'skip_name')
         label = skip_name if skip_name else None
         dot.edge(skip_gateway_split, skip_gateway_join, xlabel=label, labelangle='0', labeldistance=EDGE_LABEL_DISTANCE, constraint='false', minlen=str(float(EDGE_MIN_LENGTH) + 0.5), weight='1')
         edge_set.add((skip_gateway_split, skip_gateway_join))
     
     if repeat_gateway and repeat_helper and (repeat_gateway, repeat_helper) not in edge_set:
-        repeat_name = get_safe_value(group, 'repeat_name')
+        repeat_name = get_safe_value_bpmn(group, 'repeat_name')
         label = repeat_name if repeat_name else None
         dot.edge(repeat_gateway, repeat_helper, xlabel=label, labelangle='0', labeldistance=EDGE_LABEL_DISTANCE, constraint='false', minlen=str(float(EDGE_MIN_LENGTH) + 0.5), weight='1')
         edge_set.add((repeat_gateway, repeat_helper))
@@ -1484,9 +1484,32 @@ def build_workflow_diagram(updated_nodes, updated_groups):
     
     return dot
 
+# --- BPMN XML HELPER FUNCTIONS ---
+
+
+def get_safe_value_bpmn(data, key, default='something'):
+    """Safely get a value from a data row, handling Series or scalar."""
+    value = data.get(key, default)
+    if isinstance(value, pd.Series):
+        return value.iloc[0] if not value.empty else default
+    return value if pd.notna(value) else default
+
+def is_node_type(node_type, target_type):
+    """Check if node_type matches or contains target_type."""
+    return str(node_type).lower() == target_type.lower() or target_type.lower() in str(node_type).lower()
+
+
+# Function to encode file as base64 (for embedding JS)
+import base64
+def get_base64_of_file(file_path):
+    with open(file_path, "rb") as f:
+        data = f.read()
+    return base64.b64encode(data).decode()
+
+
 # --- BPMN XML ---
 
-def create_basic_bpmn_xml(node_df, edges_df):
+def create_main_flow_bpmn_xml(node_df, edges_df):
     # Define namespaces
     namespaces = {
         "bpmn": "http://www.omg.org/spec/BPMN/20100524/MODEL",
@@ -1500,7 +1523,7 @@ def create_basic_bpmn_xml(node_df, edges_df):
     for prefix, uri in namespaces.items():
         ET.register_namespace(prefix, uri)
 
-    # Create root element: <definitions> with explicit namespace declarations
+    # Create root element
     root = ET.Element("bpmn:definitions", {
         "id": "definitions_1",
         "targetNamespace": "http://bpmn.io/schema/bpmn",
@@ -1511,119 +1534,55 @@ def create_basic_bpmn_xml(node_df, edges_df):
         "xmlns:xsi": namespaces["xsi"]
     })
 
-    # Create <process> element
-    process = ET.SubElement(root, "bpmn:process", {
-        "id": "process_1",
-        "isExecutable": "true"
-    })
+    # Create process element
+    process = ET.SubElement(root, "bpmn:process", {"id": "process_1", "isExecutable": "true"})
 
-    # Track nodes that are part of the flow (have edges)
+    # Identify connected nodes (nodes with edges)
     connected_nodes = set(edges_df["source"]).union(set(edges_df["target"]))
     connected_nodes.discard("start")
     connected_nodes.discard("end")
 
-    # Create a mapping of original IDs to cleaned IDs
+    # Filter main flow nodes (exclude "rule" and "substeps")
+    flow_nodes = [n for n in connected_nodes if get_safe_value_bpmn(node_df.loc[n], "node_type", "") not in ["rule", "substeps"]]
+
+    # Create ID mapping for flow nodes and start/end
     id_mapping = {}
-    for old_id in connected_nodes:
-        # Clean ID: remove dashes and underscores, prefix with "id_"
-        cleaned_id = "id_" + old_id.replace("-", "").replace("_", "")
-        id_mapping[old_id] = cleaned_id
-
-    # Add cleaned IDs for start and end events
-    id_mapping["start"] = "id_start"
-    id_mapping["end"] = "id_end"
-    
-    # Create reverse mapping for lookups
+    for node_id in flow_nodes + ["start", "end"]:
+        cleaned_id = "id_" + node_id.replace("-", "").replace("_", "") if node_id in connected_nodes else f"id_{node_id}"
+        id_mapping[node_id] = cleaned_id
     reverse_id_mapping = {v: k for k, v in id_mapping.items()}
-    
-    # Track incoming and outgoing flows for each node
-    incoming_flows = {node_id: [] for node_id in id_mapping.values()}
-    outgoing_flows = {node_id: [] for node_id in id_mapping.values()}
-    
-    # Track node types and parent relationships
-    node_types = {}
-    parent_relationships = {}
-    
-    # Identify all rule and substep nodes and their parents
-    for node_id in node_df.index:
-        if node_id not in connected_nodes:
-            continue
-            
-        node_data = node_df.loc[node_id]
-        node_type = get_safe_value(node_data, "node_type", "")
-        parent_id = get_safe_value(node_data, "parent", None)
-        
-        node_types[node_id] = node_type
-        
-        if node_type in ['rule', 'substeps'] and parent_id:
-            parent_relationships[node_id] = parent_id
-    
-    # First, create all the sequence flows and track them
-    flows = []
-    special_flows = []  # To track parent-child flows
-    
-    for idx, edge in edges_df.iterrows():
-        source = edge["source"]
-        target = edge["target"]
-        edge_label = edge["label"]
 
-        # Use cleaned IDs
-        cleaned_source = id_mapping.get(source, source)
-        cleaned_target = id_mapping.get(target, target)
+    # Filter edges for sequence flows (only between flow nodes)
+    flow_edges = edges_df[
+        (edges_df["source"].isin(flow_nodes + ["start"])) &
+        (edges_df["target"].isin(flow_nodes + ["end"]))
+    ]
 
-        # Check if this is a special parent-child flow
-        is_special = False
-        
-        if source in node_types and target in node_types:
-            source_type = node_types[source]
-            target_type = node_types[target]
-            
-            # Parent -> Substep or Rule -> Parent connections
-            if (source_type not in ['rule', 'substeps'] and target_type in ['rule', 'substeps']) or \
-               (source_type in ['rule', 'substeps'] and target_type not in ['rule', 'substeps']):
-                is_special = True
-                special_flows.append((source, target, idx))
+    # Track incoming and outgoing sequence flows
+    incoming_flows = {id_mapping[n]: [] for n in flow_nodes + ["start", "end"]}
+    outgoing_flows = {id_mapping[n]: [] for n in flow_nodes + ["start", "end"]}
 
-        # Create a unique flow ID
+    # Create sequence flows and track them
+    sequence_flows = []
+    for idx, edge in flow_edges.iterrows():
+        source = id_mapping[edge["source"]]
+        target = id_mapping[edge["target"]]
         flow_id = f"flow_{idx}"
-        
-        # Add flow to tracking lists
-        outgoing_flows[cleaned_source].append(flow_id)
-        incoming_flows[cleaned_target].append(flow_id)
-        
-        # Store flow data for later creation
-        flows.append({
-            "id": flow_id,
-            "source": cleaned_source,
-            "target": cleaned_target,
-            "label": edge_label,
-            "is_special": is_special
-        })
+        sequence_flows.append({"id": flow_id, "source": source, "target": target, "label": edge["label"]})
+        outgoing_flows[source].append(flow_id)
+        incoming_flows[target].append(flow_id)
 
-    # Process nodes from node_df
-    element_mapping = {}  # Map node IDs to XML elements
-    for node_id in node_df.index:
-        if node_id not in connected_nodes:
-            continue  # Skip nodes without edges
-
+    # Create elements for flow nodes
+    element_mapping = {}
+    for node_id in flow_nodes:
         cleaned_id = id_mapping[node_id]
         node_data = node_df.loc[node_id]
-        
-        # Get node_type safely
-        node_type = get_safe_value(node_data, "node_type", "")
-        name = get_safe_value(node_data, "name", "")
-        label = get_safe_value(node_data, "label", "")
-        substeps = get_safe_value(node_data, "substeps", "")
-        if substeps:
-            name = f"{name}: {substeps}" if name else substeps
-        
-        # Map node_type to BPMN elements
+        node_type = get_safe_value_bpmn(node_data, "node_type", "")
+        name = get_safe_value_bpmn(node_data, "name", "")
+        label = get_safe_value_bpmn(node_data, "label", "")
+
         if is_node_type(node_type, "activity"):
-            task_type = node_data["type"]
-            # Safely handle task_type if it's a Series
-            if hasattr(task_type, 'iloc'):
-                task_type = task_type.iloc[0]
-                
+            task_type = get_safe_value_bpmn(node_data, "type", "")
             if task_type == "manual":
                 element = ET.SubElement(process, "bpmn:userTask", {"id": cleaned_id, "name": name})
             elif task_type in ["system", "script"]:
@@ -1633,296 +1592,280 @@ def create_basic_bpmn_xml(node_df, edges_df):
         elif is_node_type(node_type, "decision"):
             element = ET.SubElement(process, "bpmn:businessRuleTask", {"id": cleaned_id, "name": label or name})
         elif is_node_type(node_type, "gateway"):
-            # Determine gateway type from label
             gateway_label = label if pd.notna(label) else ""
-            
-            if gateway_label == "+":
-                gateway_type = "bpmn:parallelGateway"
-            elif gateway_label == "X" or gateway_label == "":
-                gateway_type = "bpmn:exclusiveGateway"
-            else:
-                gateway_type = "bpmn:exclusiveGateway"  # Default
-                
+            gateway_type = "bpmn:parallelGateway" if gateway_label == "+" else "bpmn:exclusiveGateway"
             element = ET.SubElement(process, gateway_type, {"id": cleaned_id})
         elif is_node_type(node_type, "helper"):
             element = ET.SubElement(process, "bpmn:intermediateThrowEvent", {"id": cleaned_id})
         else:
-            # Default to generic task
             element = ET.SubElement(process, "bpmn:task", {"id": cleaned_id, "name": name})
-            
-        # Add incoming flow references
+
         for flow_id in incoming_flows.get(cleaned_id, []):
             ET.SubElement(element, "bpmn:incoming").text = flow_id
-            
-        # Add outgoing flow references
         for flow_id in outgoing_flows.get(cleaned_id, []):
             ET.SubElement(element, "bpmn:outgoing").text = flow_id
-            
-        # Store element for potential later use
         element_mapping[cleaned_id] = element
 
-    # Add start and end events with cleaned IDs
+    # Add start and end events
     start_element = ET.SubElement(process, "bpmn:startEvent", {"id": id_mapping["start"]})
-    for flow_id in outgoing_flows.get(id_mapping["start"], []):
+    for flow_id in outgoing_flows[id_mapping["start"]]:
         ET.SubElement(start_element, "bpmn:outgoing").text = flow_id
-        
+
     end_element = ET.SubElement(process, "bpmn:endEvent", {"id": id_mapping["end"]})
-    for flow_id in incoming_flows.get(id_mapping["end"], []):
+    for flow_id in incoming_flows[id_mapping["end"]]:
         ET.SubElement(end_element, "bpmn:incoming").text = flow_id
 
-    # Now create all the sequence flows
-    for flow in flows:
+    # Add sequence flows to process
+    for flow in sequence_flows:
         flow_element = ET.SubElement(process, "bpmn:sequenceFlow", {
             "id": flow["id"],
             "sourceRef": flow["source"],
             "targetRef": flow["target"]
         })
-        
-        # Add condition expression if label exists and source is a gateway
-        source_orig = reverse_id_mapping.get(flow["source"], flow["source"])
-        if pd.notna(flow["label"]) and source_orig in node_df.index and is_node_type(node_df.loc[source_orig, "node_type"], "gateway"):
-            condition = ET.SubElement(flow_element, "bpmn:conditionExpression", {
-                "xsi:type": "bpmn:tFormalExpression"
-            })
-            condition.text = str(flow["label"])
-    
-    # Add BPMNDiagram with specific positioning
-    diagram = ET.SubElement(root, "bpmndi:BPMNDiagram", {"id": "BPMNDiagram_1"})
-    plane = ET.SubElement(diagram, "bpmndi:BPMNPlane", {
-        "id": "BPMNPlane_1", 
-        "bpmnElement": "process_1"
-    })
-    
-    # Create an explicit layout with rule/substeps nodes directly beneath parents
-    # Calculate positions for all nodes first, then create shapes
-    node_positions = {}
-    
-    # 1. First pass: Position standard nodes (not rule or substeps) in a horizontal line
-    horizontal_position = 150
-    for node_id in node_df.index:
-        if node_id not in connected_nodes:
-            continue
-            
-        node_type = node_types.get(node_id, "")
-        
-        # Skip rule and substeps nodes for now
-        if node_type in ['rule', 'substeps']:
-            continue
-            
-        # Position regular node
-        width = 100
-        height = 80
-        
-        if is_node_type(node_type, "gateway"):
-            width = 50
-            height = 50
-        elif is_node_type(node_type, "helper"):
-            width = 36
-            height = 36
-            
-        node_positions[node_id] = {
-            'x': horizontal_position,
-            'y': 100,  # Standard Y position
-            'width': width,
-            'height': height
-        }
-        
-        horizontal_position += 150  # Space between nodes
-    
-    # Position start and end nodes
-    node_positions['start'] = {
-        'x': 50,
-        'y': 100,
-        'width': 36,
-        'height': 36
-    }
-    
-    node_positions['end'] = {
-        'x': horizontal_position,
-        'y': 100,
-        'width': 36,
-        'height': 36
-    }
-    
-    # 2. Second pass: Position rule and substeps nodes directly beneath their parents
-    for node_id in node_df.index:
-        if node_id not in connected_nodes:
-            continue
-            
-        node_type = node_types.get(node_id, "")
-        
-        if node_type in ['rule', 'substeps']:
-            parent_id = parent_relationships.get(node_id)
-            
-            if parent_id and parent_id in node_positions:
-                parent_pos = node_positions[parent_id]
-                
-                # Position directly beneath parent with fixed offset
-                width = 100
-                height = 80
-                
-                if is_node_type(node_type, "gateway"):
-                    width = 50
-                    height = 50
-                elif is_node_type(node_type, "helper"):
-                    width = 36
-                    height = 36
-                
-                # Center align with parent
-                x_position = parent_pos['x'] + (parent_pos['width'] - width) / 2
-                
-                node_positions[node_id] = {
-                    'x': x_position,
-                    'y': parent_pos['y'] + parent_pos['height'] + 30,  # Fixed distance below parent
-                    'width': width,
-                    'height': height
-                }
-    
-    # 3. Create the shapes with the calculated positions
-    for node_id, position in node_positions.items():
-        if node_id == 'start':
-            element_id = id_mapping['start']
-        elif node_id == 'end':
-            element_id = id_mapping['end']
-        else:
-            element_id = id_mapping[node_id]
-            
-        # Create shape for node
-        shape = ET.SubElement(plane, "bpmndi:BPMNShape", {
-            "id": f"{element_id}_di",
-            "bpmnElement": element_id
-        })
-        
-        bounds = ET.SubElement(shape, "dc:Bounds", {
-            "x": str(position['x']),
-            "y": str(position['y']),
-            "width": str(position['width']),
-            "height": str(position['height'])
-        })
-    
-    # 4. Create edges with explicit waypoints
-    for flow in flows:
-        source_id = reverse_id_mapping.get(flow["source"], flow["source"])
-        target_id = reverse_id_mapping.get(flow["target"], flow["target"])
-        
-        edge = ET.SubElement(plane, "bpmndi:BPMNEdge", {
-            "id": f"{flow['id']}_di",
-            "bpmnElement": flow["id"]
-        })
-        
-        source_pos = node_positions.get(source_id)
-        target_pos = node_positions.get(target_id)
-        
-        if not source_pos or not target_pos:
-            # Default waypoints if positions are unknown
-            ET.SubElement(edge, "di:waypoint", {"x": "100", "y": "100"})
-            ET.SubElement(edge, "di:waypoint", {"x": "200", "y": "100"})
-            continue
-            
-        # Check if this is a special parent-child connection
-        source_type = node_types.get(source_id, "")
-        target_type = node_types.get(target_id, "")
-        
-        is_parent_to_child = source_type not in ['rule', 'substeps'] and target_type in ['rule', 'substeps']
-        is_child_to_parent = source_type in ['rule', 'substeps'] and target_type not in ['rule', 'substeps']
-        
-        if is_parent_to_child:
-            # Parent to child (vertical down connection)
-            # Exit from parent's south port, enter child's north port
-            source_x = source_pos['x'] + (source_pos['width'] / 2)
-            source_y = source_pos['y'] + source_pos['height']
-            
-            target_x = target_pos['x'] + (target_pos['width'] / 2)
-            target_y = target_pos['y']
-            
-            # Create waypoints for a vertical connection
-            ET.SubElement(edge, "di:waypoint", {"x": str(source_x), "y": str(source_y)})
-            ET.SubElement(edge, "di:waypoint", {"x": str(source_x), "y": str((source_y + target_y) / 2)})
-            ET.SubElement(edge, "di:waypoint", {"x": str(target_x), "y": str((source_y + target_y) / 2)})
-            ET.SubElement(edge, "di:waypoint", {"x": str(target_x), "y": str(target_y)})
-            
-        elif is_child_to_parent:
-            # Child to parent (vertical up connection)
-            # Exit from child's north port, enter parent's south port
-            source_x = source_pos['x'] + (source_pos['width'] / 2)
-            source_y = source_pos['y']
-            
-            target_x = target_pos['x'] + (target_pos['width'] / 2)
-            target_y = target_pos['y'] + target_pos['height']
-            
-            # Create waypoints for a vertical connection
-            ET.SubElement(edge, "di:waypoint", {"x": str(source_x), "y": str(source_y)})
-            ET.SubElement(edge, "di:waypoint", {"x": str(source_x), "y": str((source_y + target_y) / 2)})
-            ET.SubElement(edge, "di:waypoint", {"x": str(target_x), "y": str((source_y + target_y) / 2)})
-            ET.SubElement(edge, "di:waypoint", {"x": str(target_x), "y": str(target_y)})
-            
-        else:
-            # Regular horizontal connection
-            # Exit from source's east port, enter target's west port
-            source_x = source_pos['x'] + source_pos['width']
-            source_y = source_pos['y'] + (source_pos['height'] / 2)
-            
-            target_x = target_pos['x']
-            target_y = target_pos['y'] + (target_pos['height'] / 2)
-            
-            # Simple direct connection for regular nodes
-            ET.SubElement(edge, "di:waypoint", {"x": str(source_x), "y": str(source_y)})
-            ET.SubElement(edge, "di:waypoint", {"x": str(target_x), "y": str(target_y)})
-    
-    # Add annotation as a hint for LR orientation
-    annotation = ET.SubElement(process, "bpmn:textAnnotation", {"id": "TextAnnotation_LRLayout"})
-    ET.SubElement(annotation, "bpmn:text").text = "Layout: LR (Left to Right)"
-    
-    # Position the annotation
-    annotation_shape = ET.SubElement(plane, "bpmndi:BPMNShape", {
-        "id": "TextAnnotation_LRLayout_di",
-        "bpmnElement": "TextAnnotation_LRLayout"
-    })
-    bounds = ET.SubElement(annotation_shape, "dc:Bounds", {
-        "x": "10", "y": "10", "width": "150", "height": "30"
-    })
-    
-    # Add special annotation for rule and substeps placement
-    annotation2 = ET.SubElement(process, "bpmn:textAnnotation", {"id": "TextAnnotation_SpecialNodes"})
-    ET.SubElement(annotation2, "bpmn:text").text = "Rule and Substeps nodes placed directly beneath parent nodes"
-    
-    annotation2_shape = ET.SubElement(plane, "bpmndi:BPMNShape", {
-        "id": "TextAnnotation_SpecialNodes_di",
-        "bpmnElement": "TextAnnotation_SpecialNodes"
-    })
-    bounds = ET.SubElement(annotation2_shape, "dc:Bounds", {
-        "x": "10", "y": "50", "width": "250", "height": "30"
-    })
+        if pd.notna(flow["label"]):
+            source_orig = reverse_id_mapping[flow["source"]]
+            if source_orig in node_df.index and is_node_type(node_df.loc[source_orig, "node_type"], "gateway"):
+                condition = ET.SubElement(flow_element, "bpmn:conditionExpression", {"xsi:type": "bpmn:tFormalExpression"})
+                condition.text = str(flow["label"])
 
-    # Convert to string with proper formatting
+    # Create diagram
+    diagram = ET.SubElement(root, "bpmndi:BPMNDiagram", {"id": "BPMNDiagram_1"})
+    plane = ET.SubElement(diagram, "bpmndi:BPMNPlane", {"id": "BPMNPlane_1", "bpmnElement": "process_1"})
+    node_positions = {}
+
+    # Position flow nodes minimally (horizontal line)
+    x_pos = 50
+    for node_id in ["start"] + flow_nodes + ["end"]:
+        cleaned_id = id_mapping[node_id]
+        if node_id in ["start", "end"] or is_node_type(node_df.loc[node_id, "node_type"], "helper"):
+            width, height = 36, 36
+        elif is_node_type(node_df.loc[node_id, "node_type"], "gateway"):
+            width, height = 50, 50
+        else:
+            width, height = 100, 80
+        node_positions[cleaned_id] = {"x": x_pos, "y": 100, "width": width, "height": height}
+        x_pos += 150
+
+    # Create shapes
+    for element_id, pos in node_positions.items():
+        shape = ET.SubElement(plane, "bpmndi:BPMNShape", {"id": f"{element_id}_di", "bpmnElement": element_id})
+        ET.SubElement(shape, "dc:Bounds", {k: str(v) for k, v in pos.items()})
+
+    # Create sequence flow edges (no waypoints, let layout engine handle)
+    for flow in sequence_flows:
+        ET.SubElement(plane, "bpmndi:BPMNEdge", {"id": f"{flow['id']}_di", "bpmnElement": flow["id"]})
+
+    # Format XML
     rough_string = ET.tostring(root, "utf-8")
     reparsed = minidom.parseString(rough_string)
     pretty_xml = reparsed.toprettyxml(indent="  ")
-
     return pretty_xml
 
+# --- Generate BPMN Diagram ---
 
-# Function to encode file as base64 (for embedding JS)
-import base64
 def get_base64_of_file(file_path):
+    import base64
     with open(file_path, "rb") as f:
         data = f.read()
     return base64.b64encode(data).decode()
 
-# Helper function to safely get values from a pandas Series
-def get_safe_value(node, key, default=''):
-    """Safely extract a value from a node, handling Series objects"""
-    if key not in node:
-        return default
+
+def process_bpmn_layout(basic_xml):
+    """
+    Process the BPMN XML with auto-layout and return the result.
+    
+    Args:
+        basic_xml (str): The basic BPMN XML to process
         
-    value = node[key]
-    # Handle Series objects: convert to scalar by taking the first element if applicable
-    if hasattr(value, 'iloc'):
-        value = value.iloc[0]
-    if pd.isna(value):
-        return default
+    Returns:
+        str: The processed BPMN XML with layout information
+    """
+    import os
+    import uuid
+    import streamlit as st
+    import streamlit.components.v1 as components
+    
+    # Load bpmn-auto-layout.js
+    js_path = os.path.join(st.session_state['cwd'], "js/bpmn-auto-layout.js")
+    
+    # Encode JS file as base64 to embed in HTML
+    js_base64 = get_base64_of_file(js_path)
+
+    # Escape XML for JavaScript
+    xml_output_escaped = basic_xml.replace("'", "\\'").replace("\n", "\\n")
+    
+    # Create a container for the processed XML
+    layout_container = st.container()
+    with layout_container:
+        result_placeholder = st.empty()
+        status_placeholder = st.empty()
+        status_placeholder.info("Processing layout...")
+    
+    # Create unique key for this session
+    if 'bpmn_layout_key' not in st.session_state:
+        st.session_state['bpmn_layout_key'] = str(uuid.uuid4())
+    layout_key = st.session_state['bpmn_layout_key']
+    
+    # HTML with JS to run layout and store in page
+    html_content = f"""
+    <html>
+    <body>
+        <script src="data:text/javascript;base64,{js_base64}"></script>
+        <textarea id="bpmn_layout_result_{layout_key}" style="display:none;"></textarea>
+        <script>
+            const inputXML = '{xml_output_escaped}';
+            
+            // Run layout process - use the exported BpmnAutoLayout global object
+            BpmnAutoLayout.layoutProcess(inputXML)
+                .then(layoutedXML => {{
+                    // Store the result in the hidden textarea
+                    document.getElementById('bpmn_layout_result_{layout_key}').value = layoutedXML;
+                    
+                    // Signal completion to Streamlit
+                    const event = new CustomEvent('streamlit:message', {{ 
+                        detail: {{
+                            type: 'streamlit:custom',
+                            key: 'bpmn_layout_{layout_key}',
+                            value: 'complete'
+                        }}
+                    }});
+                    window.dispatchEvent(event);
+                    
+                    // Also create download for convenience
+                    const blob = new Blob([layoutedXML], {{type: 'application/xml'}});
+                    const url = URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.href = url;
+                    a.download = 'laid_out_workflow.bpmn';
+                    a.style.display = 'none';
+                    document.body.appendChild(a);
+                    a.click();
+                    document.body.removeChild(a);
+                    URL.revokeObjectURL(url);
+                }})
+                .catch(err => {{
+                    console.error('Error laying out BPMN:', err);
+                    document.getElementById('bpmn_layout_result_{layout_key}').value = 'ERROR: ' + err.message;
+                    
+                    // Signal error to Streamlit
+                    const event = new CustomEvent('streamlit:message', {{ 
+                        detail: {{
+                            type: 'streamlit:custom',
+                            key: 'bpmn_layout_{layout_key}',
+                            value: 'error'
+                        }}
+                    }});
+                    window.dispatchEvent(event);
+                }});
+                
+            // Function to check for result and report back to Streamlit
+            function checkForResult() {{
+                const result = document.getElementById('bpmn_layout_result_{layout_key}').value;
+                if (result) {{
+                    // Send the result to Streamlit via URL parameters
+                    const baseUrl = window.location.pathname;
+                    const params = new URLSearchParams(window.location.search);
+                    params.set('bpmn_result_{layout_key}', 'ready');
+                    
+                    fetch(baseUrl + '?' + params.toString(), {{
+                        method: 'GET',
+                        headers: {{
+                            'Content-Type': 'application/x-www-form-urlencoded',
+                        }},
+                    }});
+                }}
+            }}
+            
+            // Check periodically
+            setInterval(checkForResult, 1000);
+        </script>
+    </body>
+    </html>
+    """
+
+    # Render HTML component
+    components.html(html_content, height=0)
+    
+    # Check if we have a result parameter in the URL
+    params = st.experimental_get_query_params()
+    result_key = f'bpmn_result_{layout_key}'
+    
+    if result_key in params and params[result_key][0] == 'ready':
+        # Need to re-run the script to extract the data
+        if 'bpmn_layout_extracted' not in st.session_state:
+            st.session_state['bpmn_layout_extracted'] = False
+            
+            # Create HTML to extract the result
+            extract_html = f"""
+            <html>
+            <body>
+                <script>
+                    window.onload = function() {{
+                        const result = document.getElementById('bpmn_layout_result_{layout_key}').value;
+                        if (result) {{
+                            // Store the result
+                            fetch('/_stcore/upload_file', {{
+                                method: 'POST',
+                                headers: {{
+                                    'Content-Type': 'application/octet-stream',
+                                }},
+                                body: result,
+                            }})
+                            .then(response => response.json())
+                            .then(data => {{
+                                // Set the file_id parameter to signal Streamlit
+                                const baseUrl = window.location.pathname;
+                                const params = new URLSearchParams(window.location.search);
+                                params.set('bpmn_file_id_{layout_key}', data.file_id);
+                                window.location.href = baseUrl + '?' + params.toString();
+                            }});
+                        }}
+                    }};
+                </script>
+            </body>
+            </html>
+            """
+            components.html(extract_html, height=0)
+            
+    # Check if we have a file_id parameter (indicating upload completed)
+    file_id_key = f'bpmn_file_id_{layout_key}'
+    if file_id_key in params:
+        file_id = params[file_id_key][0]
         
-    return value
+        # Get the file content from Streamlit's storage
+        import streamlit.runtime.uploaded_file_manager as ufm
+        result_xml = ufm.get_uploaded_file_info(file_id).file.getvalue().decode('utf-8')
+        
+        # Now you have the XML in a Python variable!
+        st.session_state['bpmn_layout_result'] = result_xml
+        
+        # Show success and update placeholders
+        status_placeholder.success("Layout processing complete!")
+        
+        # Download button for the result
+        st.download_button(
+            label="Download Laid-Out BPMN XML",
+            data=result_xml,
+            file_name="laid_out_workflow.bpmn",
+            mime="application/xml"
+        )
+        
+        # You can do further processing here with result_xml
+        # For example, display a preview or save to a file
+        with st.expander("Preview XML"):
+            st.code(result_xml[:1000] + "..." if len(result_xml) > 1000 else result_xml, language="xml")
+        
+        # Example: Save to a file for later use
+        output_path = os.path.join(st.session_state['cwd'], "data", "workflows", "latest_layout.bpmn")
+        os.makedirs(os.path.dirname(output_path), exist_ok=True)
+        with open(output_path, "w") as f:
+            f.write(result_xml)
+        st.info(f"XML saved to: {output_path}")
+        
+        return result_xml
+    else:
+        status_placeholder.info("Waiting for layout processing to complete...")
+        return None
 
 
 # --- Main Page Structure ---
@@ -1966,21 +1909,6 @@ def show():
             try:
                 st.subheader("Workflow Diagram")
                 
-                # Configuration section in an expander element
-                # with st.expander("Advanced Graph Settings", expanded=False):
-                #     global GRAPH_NODE_SEPARATION, GRAPH_RANK_SEPARATION, EDGE_MIN_LENGTH, EDGE_LABEL_DISTANCE
-                    
-                #     col1, col2 = st.columns(2)
-                #     with col1:
-                #         GRAPH_NODE_SEPARATION = st.text_input("Node Separation", GRAPH_NODE_SEPARATION, 
-                #                                           help="Horizontal space between nodes (default: 0.6)")
-                #         EDGE_MIN_LENGTH = st.text_input("Edge Minimum Length", EDGE_MIN_LENGTH,
-                #                                       help="Minimum edge length (default: 1.2)")
-                #     with col2:
-                #         GRAPH_RANK_SEPARATION = st.text_input("Rank Separation", GRAPH_RANK_SEPARATION,
-                #                                           help="Vertical space between ranks (default: 0.8)")
-                #         EDGE_LABEL_DISTANCE = st.text_input("Edge Label Distance", EDGE_LABEL_DISTANCE,
-                #                                           help="Distance of labels from edges (default: 1.8)")
                                     
                 diagram = build_workflow_diagram(updated_nodes, updated_groups)
                 
@@ -1993,7 +1921,7 @@ def show():
                 # Display the diagram directly in Streamlit
                 st.graphviz_chart(diagram)
                 
-                basic_xml = create_basic_bpmn_xml(updated_nodes, edges_table)
+                basic_xml = create_main_flow_bpmn_xml(updated_nodes, edges_table)
 
                 
                 # Create download buttons for the SVG and BPMN XML
@@ -2021,53 +1949,9 @@ def show():
                         )
                         
                     if st.button("Generate Laid-Out BPMN XML"):
-                        # Load bpmn-auto-layout.js (assuming it's in static/js/)
-                        # For this example, we'll embed it via a local file
-                        js_path = os.path.join(st.session_state['cwd'], "js/bpmn-auto-layout.js")
-                
-                        # Encode JS file as base64 to embed in HTML
-                        js_base64 = get_base64_of_file(js_path)
-
-                        # Escape XML for JavaScript
-                        xml_output_escaped = basic_xml.replace("'", "\\'").replace("\n", "\\n")
-                        # Create a placeholder for the processed XML
-                        result_placeholder = st.empty()
-                        
-                        # HTML with JS to run layout and trigger download
-                        html_content = f"""
-                        <html>
-                        <body>
-                            <script src="data:text/javascript;base64,{js_base64}"></script>
-                            <script>
-                                const inputXML = '{xml_output_escaped}';
-                                
-                                // Run layout process - use the exported BpmnAutoLayout global object
-                                BpmnAutoLayout.layoutProcess(inputXML)
-                                    .then(layoutedXML => {{
-                                        // Create a Blob and trigger download
-                                        const blob = new Blob([layoutedXML], {{type: 'application/xml'}});
-                                        const url = URL.createObjectURL(blob);
-                                        const a = document.createElement('a');
-                                        a.href = url;
-                                        a.download = 'laid_out_workflow.bpmn';
-                                        document.body.appendChild(a);
-                                        a.click();
-                                        document.body.removeChild(a);
-                                        URL.revokeObjectURL(url);
-                                    }})
-                                    .catch(err => {{
-                                        console.error('Error laying out BPMN:', err);
-                                        alert('Error processing layout: ' + err.message);
-                                    }});
-                            </script>
-                        </body>
-                        </html>
-                        """
-
-                        # Render HTML component (hidden)
-                        components.html(html_content, height=0)
-                        st.success("Layout processing started. The laid-out XML will download automatically once complete.")
-                        
+                        # Process BPMN layout with the refactored function
+                        process_bpmn_layout(basic_xml)
+                            
             except Exception as e:
                 st.error(f"Error generating workflow diagram: {str(e)}")
                 st.exception(e)
