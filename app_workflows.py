@@ -9,6 +9,8 @@ import streamlit.components.v1 as components
 import hashlib
 from collections import defaultdict
 import re
+import json
+from streamlit_javascript import st_javascript
 
 def initialize_state():
     # Create workflows directory if it doesn't exist
@@ -291,7 +293,8 @@ def build_activities_table(xls):
     if activities_df["TransportID"].duplicated().any():
         print("Warning: Duplicate TransportIDs found in the activities table.")
     else:
-        print("All TransportIDs are unique.")
+        # print("All TransportIDs are unique.")
+        pass
     
     # Step 7.5: Add substeps from "Manueller Arbeitsschritt" sheet
     activities_df["substeps"] = None  # Initialize the substeps column as None
@@ -1599,7 +1602,6 @@ def create_main_flow_bpmn_xml(node_df, edges_df):
             element = ET.SubElement(process, "bpmn:intermediateThrowEvent", {"id": cleaned_id})
         else:
             element = ET.SubElement(process, "bpmn:task", {"id": cleaned_id, "name": name})
-
         for flow_id in incoming_flows.get(cleaned_id, []):
             ET.SubElement(element, "bpmn:incoming").text = flow_id
         for flow_id in outgoing_flows.get(cleaned_id, []):
@@ -1670,202 +1672,282 @@ def get_base64_of_file(file_path):
     return base64.b64encode(data).decode()
 
 
+
 def process_bpmn_layout(basic_xml):
     """
-    Process the BPMN XML with auto-layout and return the result.
+    Process BPMN XML, provide a file download mechanism, and handle file upload for further processing.
     
     Args:
-        basic_xml (str): The basic BPMN XML to process
-        
-    Returns:
-        str: The processed BPMN XML with layout information
+        basic_xml (str): The input BPMN XML string to process.
     """
-    import os
-    import uuid
-    import streamlit as st
-    import streamlit.components.v1 as components
-    
-    # Load bpmn-auto-layout.js
-    js_path = os.path.join(st.session_state['cwd'], "js/bpmn-auto-layout.js")
-    
-    # Encode JS file as base64 to embed in HTML
-    js_base64 = get_base64_of_file(js_path)
+    # Initialize session state variables
+    if 'bpmn_workflow_state' not in st.session_state:
+        st.session_state['bpmn_workflow_state'] = 'initial'
+    if 'basic_bpmn_xml' not in st.session_state:
+        st.session_state['basic_bpmn_xml'] = basic_xml
+    if 'bpmn_layout_result' not in st.session_state:
+        st.session_state['bpmn_layout_result'] = None
 
-    # Escape XML for JavaScript
-    xml_output_escaped = basic_xml.replace("'", "\\'").replace("\n", "\\n")
-    
-    # Create a container for the processed XML
-    layout_container = st.container()
-    with layout_container:
-        result_placeholder = st.empty()
-        status_placeholder = st.empty()
-        status_placeholder.info("Processing layout...")
-    
-    # Create unique key for this session
-    if 'bpmn_layout_key' not in st.session_state:
-        st.session_state['bpmn_layout_key'] = str(uuid.uuid4())
-    layout_key = st.session_state['bpmn_layout_key']
-    
-    # HTML with JS to run layout and store in page
-    html_content = f"""
+    # Load the JavaScript library
+    js_path = os.path.join(os.getcwd(), "js/bpmn-auto-layout.js")  # Adjust path as needed
+    if not os.path.exists(js_path):
+        st.error(f"Cannot find bpmn-auto-layout.js at {js_path}")
+        return
+    with open(js_path, "r") as f:
+        bpmn_layout_js = f.read()
+
+    # Escape the XML to safely embed it in JavaScript
+    escaped_xml = basic_xml.replace('"', '\\"').replace('\n', '\\n')
+
+    # HTML component with file download capability
+    html_content = f'''
     <html>
-    <body>
-        <script src="data:text/javascript;base64,{js_base64}"></script>
-        <textarea id="bpmn_layout_result_{layout_key}" style="display:none;"></textarea>
+      <body>
+        <div id="status">Processing layout...</div>
+        <div id="xml-preview" style="font-family: monospace; height: 100px; overflow: auto; border: 1px solid #ccc; padding: 5px;"></div>
+        <button id="download-button" style="padding: 8px; background-color: #1E88E5; color: white; border: none; border-radius: 4px;" disabled>Download Layout XML</button>
+        <div id="status-message" style="margin-top: 10px;"></div>
+        <div id="error-output" style="color: red;"></div>
+
         <script>
-            const inputXML = '{xml_output_escaped}';
+        {bpmn_layout_js}
+        </script>
+        <script>
+          document.addEventListener('DOMContentLoaded', async function() {{
+            const status = document.getElementById("status");
+            const preview = document.getElementById("xml-preview");
+            const downloadButton = document.getElementById("download-button");
+            const statusMessage = document.getElementById("status-message");
+            const errorOutput = document.getElementById("error-output");
             
-            // Run layout process - use the exported BpmnAutoLayout global object
-            BpmnAutoLayout.layoutProcess(inputXML)
-                .then(layoutedXML => {{
-                    // Store the result in the hidden textarea
-                    document.getElementById('bpmn_layout_result_{layout_key}').value = layoutedXML;
-                    
-                    // Signal completion to Streamlit
-                    const event = new CustomEvent('streamlit:message', {{ 
-                        detail: {{
-                            type: 'streamlit:custom',
-                            key: 'bpmn_layout_{layout_key}',
-                            value: 'complete'
-                        }}
-                    }});
-                    window.dispatchEvent(event);
-                    
-                    // Also create download for convenience
-                    const blob = new Blob([layoutedXML], {{type: 'application/xml'}});
-                    const url = URL.createObjectURL(blob);
-                    const a = document.createElement('a');
-                    a.href = url;
-                    a.download = 'laid_out_workflow.bpmn';
-                    a.style.display = 'none';
-                    document.body.appendChild(a);
-                    a.click();
+            let layoutedXML = null;
+
+            try {{
+              status.textContent = "Processing BPMN layout...";
+              const inputXML = "{escaped_xml}";
+              layoutedXML = await BpmnAutoLayout.layoutProcess(inputXML);
+              
+              preview.textContent = layoutedXML.substring(0, 500) + "...";
+              status.textContent = "Layout completed!";
+              downloadButton.disabled = false;
+
+              downloadButton.addEventListener("click", function() {{
+                try {{
+                  const blob = new Blob([layoutedXML], {{type: 'application/xml'}});
+                  const url = URL.createObjectURL(blob);
+                  const a = document.createElement('a');
+                  a.href = url;
+                  a.download = 'bpmn_layout.xml';
+                  document.body.appendChild(a);
+                  a.click();
+                  setTimeout(function() {{
                     document.body.removeChild(a);
                     URL.revokeObjectURL(url);
-                }})
-                .catch(err => {{
-                    console.error('Error laying out BPMN:', err);
-                    document.getElementById('bpmn_layout_result_{layout_key}').value = 'ERROR: ' + err.message;
-                    
-                    // Signal error to Streamlit
-                    const event = new CustomEvent('streamlit:message', {{ 
-                        detail: {{
-                            type: 'streamlit:custom',
-                            key: 'bpmn_layout_{layout_key}',
-                            value: 'error'
-                        }}
-                    }});
-                    window.dispatchEvent(event);
-                }});
-                
-            // Function to check for result and report back to Streamlit
-            function checkForResult() {{
-                const result = document.getElementById('bpmn_layout_result_{layout_key}').value;
-                if (result) {{
-                    // Send the result to Streamlit via URL parameters
-                    const baseUrl = window.location.pathname;
-                    const params = new URLSearchParams(window.location.search);
-                    params.set('bpmn_result_{layout_key}', 'ready');
-                    
-                    fetch(baseUrl + '?' + params.toString(), {{
-                        method: 'GET',
-                        headers: {{
-                            'Content-Type': 'application/x-www-form-urlencoded',
-                        }},
-                    }});
+                  }}, 0);
+                  statusMessage.textContent = "✅ Layout downloaded! Now upload the XML file in Step 2 below.";
+                  statusMessage.style.color = "green";
+                }} catch (e) {{
+                  errorOutput.textContent = "Error creating download: " + e.message;
+                  console.error("Download error:", e);
                 }}
+              }});
+            }} catch (e) {{
+              errorOutput.textContent = "Error: " + e.message;
+              console.error("Layout error:", e);
             }}
-            
-            // Check periodically
-            setInterval(checkForResult, 1000);
+          }});
         </script>
-    </body>
+      </body>
     </html>
-    """
+    '''
 
-    # Render HTML component
-    components.html(html_content, height=0)
+    # Step 1: Process and Download
+    st.write("### Step 1: Process and Download the Layout")
+    st.write("Wait for processing to finish, then click 'Download Layout XML' to save the file:")
+    st.components.v1.html(html_content, height=250)
+
+    # Step 2: Upload the Layout XML
+    st.write("### Step 2: Upload the Layout XML")
+    st.write("Upload the XML file you just downloaded:")
+    uploaded_file = st.file_uploader("Upload BPMN layout XML", type=["xml", "bpmn"], key="bpmn_layout_uploader")
+
+    # Handle file upload
+    if uploaded_file is not None:
+        try:
+            # Read and decode the uploaded file
+            xml_data = uploaded_file.read().decode('utf-8')
+            # Validate it's XML
+            if xml_data.startswith("<?xml"):
+                st.session_state['bpmn_layout_result'] = xml_data
+                st.session_state['bpmn_workflow_state'] = 'uploaded'
+                st.success(f"✅ Successfully loaded BPMN layout! Length: {len(xml_data)} characters")
+            else:
+                st.error("❌ The uploaded file doesn't appear to be valid XML.")
+                st.write("File starts with:", xml_data[:100])
+        except Exception as e:
+            st.error(f"❌ Error processing uploaded file: {str(e)}")
+
+
+
+def add_special_nodes_and_annotations():
+    """
+    Adds 'rule' and 'substep' nodes as DataObjectReference elements below their parents
+    in the BPMN diagram, connects them with DataOutputAssociation edges, and creates
+    text annotations with full labels below the diagram.
     
-    # Check if we have a result parameter in the URL
-    params = st.experimental_get_query_params()
-    result_key = f'bpmn_result_{layout_key}'
-    
-    if result_key in params and params[result_key][0] == 'ready':
-        # Need to re-run the script to extract the data
-        if 'bpmn_layout_extracted' not in st.session_state:
-            st.session_state['bpmn_layout_extracted'] = False
-            
-            # Create HTML to extract the result
-            extract_html = f"""
-            <html>
-            <body>
-                <script>
-                    window.onload = function() {{
-                        const result = document.getElementById('bpmn_layout_result_{layout_key}').value;
-                        if (result) {{
-                            // Store the result
-                            fetch('/_stcore/upload_file', {{
-                                method: 'POST',
-                                headers: {{
-                                    'Content-Type': 'application/octet-stream',
-                                }},
-                                body: result,
-                            }})
-                            .then(response => response.json())
-                            .then(data => {{
-                                // Set the file_id parameter to signal Streamlit
-                                const baseUrl = window.location.pathname;
-                                const params = new URLSearchParams(window.location.search);
-                                params.set('bpmn_file_id_{layout_key}', data.file_id);
-                                window.location.href = baseUrl + '?' + params.toString();
-                            }});
-                        }}
-                    }};
-                </script>
-            </body>
-            </html>
-            """
-            components.html(extract_html, height=0)
-            
-    # Check if we have a file_id parameter (indicating upload completed)
-    file_id_key = f'bpmn_file_id_{layout_key}'
-    if file_id_key in params:
-        file_id = params[file_id_key][0]
-        
-        # Get the file content from Streamlit's storage
-        import streamlit.runtime.uploaded_file_manager as ufm
-        result_xml = ufm.get_uploaded_file_info(file_id).file.getvalue().decode('utf-8')
-        
-        # Now you have the XML in a Python variable!
-        st.session_state['bpmn_layout_result'] = result_xml
-        
-        # Show success and update placeholders
-        status_placeholder.success("Layout processing complete!")
-        
-        # Download button for the result
-        st.download_button(
-            label="Download Laid-Out BPMN XML",
-            data=result_xml,
-            file_name="laid_out_workflow.bpmn",
-            mime="application/xml"
-        )
-        
-        # You can do further processing here with result_xml
-        # For example, display a preview or save to a file
-        with st.expander("Preview XML"):
-            st.code(result_xml[:1000] + "..." if len(result_xml) > 1000 else result_xml, language="xml")
-        
-        # Example: Save to a file for later use
-        output_path = os.path.join(st.session_state['cwd'], "data", "workflows", "latest_layout.bpmn")
-        os.makedirs(os.path.dirname(output_path), exist_ok=True)
-        with open(output_path, "w") as f:
-            f.write(result_xml)
-        st.info(f"XML saved to: {output_path}")
-        
-        return result_xml
-    else:
-        status_placeholder.info("Waiting for layout processing to complete...")
+    Returns:
+        str: The updated BPMN XML with annotations added, or None if processing fails
+    """
+    # Check if the laid-out BPMN XML is available
+    if 'bpmn_layout_result' not in st.session_state or st.session_state['bpmn_layout_result'] is None:
+        st.error("No BPMN layout result is available. Please process the layout first.")
         return None
+        
+    # Load the laid-out BPMN XML from session state
+    laid_out_xml = st.session_state['bpmn_layout_result']
+    print(laid_out_xml)
+    try:
+        root = ET.fromstring(laid_out_xml)
+
+        # Access node_df and edges_df from session state (assumed to be set in Step 1)
+        if 'nodes_df' not in st.session_state:
+            st.error("Node data is missing. Please generate the workflow first.")
+            return None
+            
+        node_df = st.session_state['nodes_df']
+        edges_df = st.session_state['edges_df']
+
+        # Namespace definitions for BPMN XML
+        namespaces = {
+            'bpmn': 'http://www.omg.org/spec/BPMN/20100524/MODEL',
+            'bpmndi': 'http://www.omg.org/spec/BPMN/20100524/DI',
+            'dc': 'http://www.omg.org/spec/DD/20100524/DC',
+            'di': 'http://www.omg.org/spec/DD/20100524/DI'
+        }
+
+        # Find process and plane elements in the XML
+        process = root.find('.//bpmn:process', namespaces)
+        plane = root.find('.//bpmndi:BPMNPlane', namespaces)
+
+        # Step 1: Identify "rule" and "substep" nodes
+        special_nodes = node_df[node_df['node_type'].isin(['rule', 'substeps'])]
+        if special_nodes.empty:
+            st.info("No 'rule' or 'substeps' nodes found. Skipping annotation step.")
+            return laid_out_xml
+
+        # Step 2: Extract parent positions from the laid-out diagram
+        parent_positions = {}
+        for shape in plane.findall('.//bpmndi:BPMNShape', namespaces):
+            bpmn_element = shape.get('bpmnElement')
+            bounds = shape.find('dc:Bounds', namespaces)
+            if bounds is not None:
+                x = float(bounds.get('x'))
+                y = float(bounds.get('y'))
+                width = float(bounds.get('width'))
+                height = float(bounds.get('height'))
+                parent_positions[bpmn_element] = {'x': x, 'y': y, 'width': width, 'height': height}
+
+        # Step 3: Add DataObjectReference nodes and DataOutputAssociation edges
+        legend_counter = 1
+        annotations = []  # Store annotation data for later placement
+        for index, row in special_nodes.iterrows():
+            parent_id = row['parent']
+            # Map parent id to the cleaned id used in the BPMN XML
+            parent_key = parent_id
+            if parent_key not in parent_positions:
+                parent_key = "id_" + str(parent_id).replace("-", "").replace("_", "")
+            if parent_key in parent_positions:
+                parent_pos = parent_positions[parent_key]
+            else:
+                # If still not found, skip this special node
+                continue
+
+            data_ref_id = f"DataObjectRef_{index}"
+            data_object_id = f"DataObject_{index}"
+            association_id = f"Association_{index}"
+            legend_label = f"({legend_counter})"
+
+            # Create DataObject and DataObjectReference in the process
+            ET.SubElement(process, "bpmn:dataObject", {"id": data_object_id})
+            data_ref = ET.SubElement(process, "bpmn:dataObjectReference", {
+                "id": data_ref_id,
+                "dataObjectRef": data_object_id,
+                "name": legend_label  # Use legend reference instead of full label
+            })
+
+            # Connect with DataOutputAssociation; use parent_key for lookup
+            parent_element = process.find(f".//*[@id='{parent_key}']")
+            if parent_element is not None:
+                print(parent_element)
+                association = ET.SubElement(parent_element, "bpmn:dataOutputAssociation", {"id": association_id})
+                ET.SubElement(association, "bpmn:targetRef").text = data_ref_id
+
+            # Position DataObjectReference 35 pixels below parent (centered horizontally)
+            data_ref_x = parent_pos['x'] + (parent_pos['width'] - 36) / 2
+            data_ref_y = parent_pos['y'] + parent_pos['height'] + 35
+            data_ref_shape = ET.SubElement(plane, "bpmndi:BPMNShape", {
+                "id": f"{data_ref_id}_di",
+                "bpmnElement": data_ref_id
+            })
+            ET.SubElement(data_ref_shape, "dc:Bounds", {
+                "x": str(data_ref_x),
+                "y": str(data_ref_y),
+                "width": "36",
+                "height": "50"
+            })
+
+            # Add DataOutputAssociation edge with waypoints
+            edge = ET.SubElement(plane, "bpmndi:BPMNEdge", {
+                "id": f"{association_id}_di",
+                "bpmnElement": association_id
+            })
+            ET.SubElement(edge, "di:waypoint", {
+                "x": str(parent_pos['x'] + parent_pos['width'] / 2),  # Bottom center of parent
+                "y": str(parent_pos['y'] + parent_pos['height'])
+            })
+            ET.SubElement(edge, "di:waypoint", {
+                "x": str(data_ref_x + 18),  # Top center of DataObjectReference
+                "y": str(data_ref_y)
+            })
+
+            # Store annotation info
+            annotations.append((f"({legend_counter})\n{row['label']}", legend_counter))
+            legend_counter += 1
+
+        # Step 4: Determine the bottom of the main diagram
+        max_y = max([pos['y'] + pos['height'] for pos in parent_positions.values()], default=0)
+        annotation_y = max_y + 100  # 100 pixels below the main diagram
+
+        # Step 5: Add text annotations horizontally
+        annotation_x = 50  # Starting x position
+        for annotation_text, counter in annotations:
+            annotation_id = f"TextAnnotation_{counter}"
+            annotation = ET.SubElement(process, "bpmn:textAnnotation", {"id": annotation_id})
+            ET.SubElement(annotation, "bpmn:text").text = annotation_text
+
+            # Position the annotation
+            annotation_shape = ET.SubElement(plane, "bpmndi:BPMNShape", {
+                "id": f"{annotation_id}_di",
+                "bpmnElement": annotation_id
+            })
+            ET.SubElement(annotation_shape, "dc:Bounds", {
+                "x": str(annotation_x),
+                "y": str(annotation_y),
+                "width": "300",
+                "height": "50"
+            })
+
+            # Move to the next position (300 width + 50 space)
+            annotation_x += 350
+
+        # Step 6: Return the updated BPMN XML as a string
+        updated_xml = ET.tostring(root, encoding="utf-8").decode("utf-8")
+        return updated_xml
+        
+    except Exception as e:
+        st.error(f"Error adding annotations to BPMN: {str(e)}")
+        return None
+
 
 
 # --- Main Page Structure ---
@@ -1879,6 +1961,8 @@ def show():
         st.session_state['user_dict'] = {}
         st.info("User list has been reset.")
     xls = upload_dossier()
+
+    
     if xls is not None:
         activities_table = build_activities_table(xls)
         groups_table = build_groups_table(xls)
@@ -1890,7 +1974,9 @@ def show():
         # Now call the function with properly indexed dataframes
         try:
             updated_nodes, updated_groups = generate_additional_nodes(activities_index, groups_index)
+            st.session_state['nodes_df'] = updated_nodes
             edges_table = build_edges_table(updated_nodes, updated_groups)
+            st.session_state['edges_df'] = edges_table
             # Debugging
             # st.write(updated_nodes.to_dict())
             # st.write(updated_groups.to_dict())
@@ -1948,9 +2034,24 @@ def show():
                             mime="application/xml"
                         )
                         
+                    process_bpmn_layout(basic_xml)
                     if st.button("Generate Laid-Out BPMN XML"):
-                        # Process BPMN layout with the refactored function
-                        process_bpmn_layout(basic_xml)
+                        
+                        # Only proceed with annotations if layout completed successfully
+                        if 'bpmn_layout_result' in st.session_state:
+                            # Add special nodes and annotations
+                            final_bpmn_xml = add_special_nodes_and_annotations()
+                            if final_bpmn_xml is not None:
+                                st.success("BPMN diagram with annotations completed successfully!")
+                                # Add download button for the final XML
+                                st.download_button(
+                                    label="Download Complete BPMN XML",
+                                    data=final_bpmn_xml,
+                                    file_name="complete_workflow.bpmn",
+                                    mime="application/xml"
+                                )
+                        else:
+                            st.info("Please wait for the layout processing to complete and then try again.")
                             
             except Exception as e:
                 st.error(f"Error generating workflow diagram: {str(e)}")
@@ -1959,4 +2060,5 @@ def show():
             st.error(f"Error in generate_additional_nodes: {str(e)}")
             st.exception(e)
         
+
 
