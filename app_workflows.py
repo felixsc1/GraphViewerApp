@@ -873,6 +873,7 @@ def build_edges_table(updated_nodes, updated_groups):
     """
     edges = []
     edge_set = set()  # Prevent duplicate edges
+    edge_labels = {}  # Store edge labels
 
     def process_group(group_id, prev_node=None):
         """
@@ -949,11 +950,21 @@ def build_edges_table(updated_nodes, updated_groups):
                 edges.append((decision, split))
                 edge_set.add((decision, split))
 
+            # Extract labels from decision node for parallel branches
+            decision_labels = []
+            if decision in updated_nodes.index:
+                decision_label = get_safe_value_bpmn(updated_nodes.loc[decision], 'label', '')
+                if decision_label and '\n' in decision_label:
+                    # First line is the decision label, subsequent lines are edge labels
+                    decision_labels = decision_label.split('\n')[1:]
+
             # Identify branches (between split and join)
             split_seq = next(seq for _, c_id, seq in children if c_id == split)
             join_seq = next(seq for _, c_id, seq in children if c_id == join)
             branches = [c for c in children if split_seq < c[2] < join_seq]
 
+            # Track branch index for label assignment
+            branch_index = 0
             for b_type, b_id, _ in branches:
                 if b_type == 'node':
                     node_type = get_safe_value_bpmn(updated_nodes.loc[b_id], 'node_type')
@@ -962,6 +973,10 @@ def build_edges_table(updated_nodes, updated_groups):
                     if (split, b_id) not in edge_set:
                         edges.append((split, b_id))
                         edge_set.add((split, b_id))
+                        # Assign label if available
+                        if branch_index < len(decision_labels):
+                            edge_labels[(split, b_id)] = decision_labels[branch_index]
+                            branch_index += 1
                     if (b_id, join) not in edge_set:
                         edges.append((b_id, join))
                         edge_set.add((b_id, join))
@@ -970,6 +985,10 @@ def build_edges_table(updated_nodes, updated_groups):
                     if b_first and (split, b_first) not in edge_set:
                         edges.append((split, b_first))
                         edge_set.add((split, b_first))
+                        # Assign label if available
+                        if branch_index < len(decision_labels):
+                            edge_labels[(split, b_first)] = decision_labels[branch_index]
+                            branch_index += 1
                     if b_last and (b_last, join) not in edge_set:
                         edges.append((b_last, join))
                         edge_set.add((b_last, join))
@@ -1007,6 +1026,14 @@ def build_edges_table(updated_nodes, updated_groups):
             if (split, join) not in edge_set:
                 edges.append((split, join))
                 edge_set.add((split, join))
+                
+                # Extract skip condition label from decision node
+                if decision in updated_nodes.index:
+                    decision_label = get_safe_value_bpmn(updated_nodes.loc[decision], 'label', '')
+                    if decision_label and '\n' in decision_label:
+                        # Second line is the edge label for the skip path
+                        skip_label = decision_label.split('\n')[1]
+                        edge_labels[(split, join)] = skip_label
 
     def handle_repeat(group, children):
         """Handle repeat constructs within a group."""
@@ -1035,6 +1062,14 @@ def build_edges_table(updated_nodes, updated_groups):
             if (gateway, helper) not in edge_set:
                 edges.append((gateway, helper))
                 edge_set.add((gateway, helper))
+                
+                # Extract repeat condition label from decision node
+                if decision in updated_nodes.index:
+                    decision_label = get_safe_value_bpmn(updated_nodes.loc[decision], 'label', '')
+                    if decision_label and '\n' in decision_label:
+                        # Second line is the edge label for the repeat path
+                        repeat_label = decision_label.split('\n')[1]
+                        edge_labels[(gateway, helper)] = repeat_label
 
     # Process top-level group
     top_group_id = updated_groups[updated_groups['parent'].isna()].index[0]
@@ -1061,7 +1096,13 @@ def build_edges_table(updated_nodes, updated_groups):
 
     # Create edges DataFrame
     edges_df = pd.DataFrame(edges, columns=['source', 'target'])
+    
+    # Assign labels to edges
     edges_df['label'] = None
+    for i, (source, target) in enumerate(zip(edges_df['source'], edges_df['target'])):
+        if (source, target) in edge_labels:
+            edges_df.loc[i, 'label'] = edge_labels[(source, target)]
+    
     edges_df['style'] = 'solid_arrow'
     return edges_df
 
