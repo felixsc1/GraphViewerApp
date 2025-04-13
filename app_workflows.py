@@ -1588,15 +1588,17 @@ def create_main_flow_bpmn_xml(node_df, edges_df):
             task_type = get_safe_value_bpmn(node_data, "type", "")
             if task_type == "manual":
                 element = ET.SubElement(process, "bpmn:userTask", {"id": cleaned_id, "name": name})
-            elif task_type in ["system", "script"]:
+            elif task_type == "script":
                 element = ET.SubElement(process, "bpmn:scriptTask", {"id": cleaned_id, "name": name})
+            elif task_type == "system":
+                element = ET.SubElement(process, "bpmn:serviceTask", {"id": cleaned_id, "name": name})
             else:
                 element = ET.SubElement(process, "bpmn:task", {"id": cleaned_id, "name": name})
         elif is_node_type(node_type, "decision"):
-            element = ET.SubElement(process, "bpmn:businessRuleTask", {"id": cleaned_id, "name": label or name})
+            element = ET.SubElement(process, "bpmn:businessRuleTask", {"id": cleaned_id, "name": label.split("\n")[0] or name})
         elif is_node_type(node_type, "gateway"):
             gateway_label = label if pd.notna(label) else ""
-            gateway_type = "bpmn:parallelGateway" if gateway_label == "+" else "bpmn:exclusiveGateway"
+            gateway_type = "bpmn:exclusiveGateway" if gateway_label == "X" else "bpmn:eventBasedGateway"
             element = ET.SubElement(process, gateway_type, {"id": cleaned_id})
         elif is_node_type(node_type, "helper"):
             element = ET.SubElement(process, "bpmn:intermediateThrowEvent", {"id": cleaned_id})
@@ -1847,7 +1849,19 @@ def add_special_nodes_and_annotations():
                 height = float(bounds.get('height'))
                 parent_positions[bpmn_element] = {'x': x, 'y': y, 'width': width, 'height': height}
 
-        # Step 3: Add DataObjectReference nodes and DataOutputAssociation edges
+        # Step 3: Sort special nodes by parent x-coordinate
+        def get_parent_x(node_row):
+            parent_id = node_row['parent']
+            parent_key = parent_id
+            if parent_key not in parent_positions:
+                parent_key = "id_" + str(parent_id).replace("-", "").replace("_", "")
+            return parent_positions.get(parent_key, {}).get('x', 0)
+
+        special_nodes = special_nodes.copy()
+        special_nodes['parent_x'] = special_nodes.apply(get_parent_x, axis=1)
+        special_nodes = special_nodes.sort_values('parent_x')
+
+        # Step 4: Add DataObjectReference nodes and DataOutputAssociation edges
         legend_counter = 1
         annotations = []  # Store annotation data for later placement
         for index, row in special_nodes.iterrows():
@@ -1914,11 +1928,11 @@ def add_special_nodes_and_annotations():
             annotations.append((f"({legend_counter})\n{row['label']}", legend_counter))
             legend_counter += 1
 
-        # Step 4: Determine the bottom of the main diagram
+        # Step 5: Determine the bottom of the main diagram
         max_y = max([pos['y'] + pos['height'] for pos in parent_positions.values()], default=0)
-        annotation_y = max_y + 100  # 100 pixels below the main diagram
+        annotation_y = max_y + 150  # 100 pixels below the main diagram
 
-        # Step 5: Add text annotations horizontally
+        # Step 6: Add text annotations horizontally
         annotation_x = 50  # Starting x position
         for annotation_text, counter in annotations:
             annotation_id = f"TextAnnotation_{counter}"
@@ -1940,7 +1954,7 @@ def add_special_nodes_and_annotations():
             # Move to the next position (300 width + 50 space)
             annotation_x += 350
 
-        # Step 6: Return the updated BPMN XML as a string
+        # Step 7: Return the updated BPMN XML as a string
         updated_xml = ET.tostring(root, encoding="utf-8").decode("utf-8")
         return updated_xml
         
