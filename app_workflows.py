@@ -1662,11 +1662,20 @@ def create_main_flow_bpmn_xml(node_df, edges_df):
 
     # Add sequence flows to process
     for flow in sequence_flows:
-        flow_element = ET.SubElement(process, "bpmn:sequenceFlow", {
+        # Create the base flow element
+        flow_attrs = {
             "id": flow["id"],
             "sourceRef": flow["source"],
             "targetRef": flow["target"]
-        })
+        }
+        
+        # Add name attribute if there's a label
+        if pd.notna(flow["label"]):
+            flow_attrs["name"] = str(flow["label"])
+            
+        flow_element = ET.SubElement(process, "bpmn:sequenceFlow", flow_attrs)
+        
+        # Add condition expression for flows from gateways
         if pd.notna(flow["label"]):
             source_orig = reverse_id_mapping[flow["source"]]
             if source_orig in node_df.index and is_node_type(node_df.loc[source_orig, "node_type"], "gateway"):
@@ -1696,9 +1705,15 @@ def create_main_flow_bpmn_xml(node_df, edges_df):
         shape = ET.SubElement(plane, "bpmndi:BPMNShape", {"id": f"{element_id}_di", "bpmnElement": element_id})
         ET.SubElement(shape, "dc:Bounds", {k: str(v) for k, v in pos.items()})
 
-    # Create sequence flow edges (no waypoints, let layout engine handle)
+    # Create sequence flow edges with labels for diagram
     for flow in sequence_flows:
-        ET.SubElement(plane, "bpmndi:BPMNEdge", {"id": f"{flow['id']}_di", "bpmnElement": flow["id"]})
+        edge = ET.SubElement(plane, "bpmndi:BPMNEdge", {"id": f"{flow['id']}_di", "bpmnElement": flow["id"]})
+        
+        # Add label element for the edge if there's a label
+        if pd.notna(flow["label"]):
+            # Add a BPMNLabel element with centered position
+            label_element = ET.SubElement(edge, "bpmndi:BPMNLabel")
+            # Position will be determined by the layout engine
 
     # Format XML
     rough_string = ET.tostring(root, "utf-8")
@@ -1848,7 +1863,6 @@ def add_special_nodes_and_annotations():
         
     # Load the laid-out BPMN XML from session state
     laid_out_xml = st.session_state['bpmn_layout_result']
-    print(laid_out_xml)
     try:
         root = ET.fromstring(laid_out_xml)
 
