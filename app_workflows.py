@@ -68,121 +68,135 @@ def initialize_state():
         pickle.dump({'user_dict': loaded_dict, 'user_legend': loaded_legend}, f)
 
 def upload_user_list():
-    uploaded_file = st.file_uploader("Upload Benutzerliste", type=["xlsx"])
+    uploaded_files = st.file_uploader("Upload Benutzerliste", type=["xlsx"], accept_multiple_files=True)
     
-    if uploaded_file is not None:
+    if uploaded_files:
         try:
-            # Read the file only if it's a new upload (not on refresh)
-            file_hash = hashlib.md5(uploaded_file.getvalue()).hexdigest()
-            if 'last_upload_hash' in st.session_state and st.session_state['last_upload_hash'] == file_hash:
-                st.info("Using previously uploaded file data")
-                return
+            # Initialize dictionaries if they don't exist
+            if 'user_dict' not in st.session_state:
+                st.session_state['user_dict'] = {}
+            if 'user_legend' not in st.session_state:
+                st.session_state['user_legend'] = {}
             
-            st.session_state['last_upload_hash'] = file_hash
+            # Track processed files to avoid duplicates
+            if 'processed_files' not in st.session_state:
+                st.session_state['processed_files'] = set()
             
-            # Read the second sheet of the Excel file
-            df = pd.read_excel(uploaded_file, sheet_name=1, header=0)
-            
-            # Get the actual column names
-            transport_id_col = get_column_name(df.columns, 'TransportID')
-            vorname_col = get_column_name(df.columns, 'Vorname')
-            nachname_col = get_column_name(df.columns, 'Nachname')
-            name_de_col = get_column_name(df.columns, 'Name:de')
-            name_abbreviation_col = get_column_name(df.columns, 'Erweiterte Einstellungen.Zeichen')
-            
-            # Check if TransportID is found
-            if not transport_id_col:
-                st.error("Could not find column starting with: TransportID")
-                return
-            
-            # Determine how to create user names
-            use_names = vorname_col and nachname_col
-            use_name_de = name_de_col is not None
-            
-            if not (use_names or use_name_de):
-                st.error("Could not find either (Vorname and Nachname) or Name:de columns")
-                return
-            
-            # Load existing dictionaries from session state
-            user_dict = st.session_state.get('user_dict', {}).copy()
-            user_legend = st.session_state.get('user_legend', {}).copy()
-            
-            # Create reverse lookup for name combinations to abbreviations
-            name_to_abbr = {v: k for k, v in user_legend.items()}
-            
-            # Add new entries to user_dict and user_legend
-            for _, row in df.iterrows():
-                transport_id = row[transport_id_col]
-                
-                # Skip rows with missing TransportID
-                if pd.isna(transport_id):
+            # Process each uploaded file
+            for uploaded_file in uploaded_files:
+                # Skip if we've already processed this file
+                file_hash = hashlib.md5(uploaded_file.getvalue()).hexdigest()
+                if file_hash in st.session_state['processed_files']:
                     continue
                 
-                transport_id = str(transport_id)
+                st.session_state['processed_files'].add(file_hash)
                 
-                # Skip if this TransportID already exists with an abbreviation
-                if transport_id in user_dict and user_dict[transport_id] in user_legend:
+                # Read the second sheet of the Excel file
+                df = pd.read_excel(uploaded_file, sheet_name=1, header=0)
+                
+                # Get the actual column names
+                transport_id_col = get_column_name(df.columns, 'TransportID')
+                vorname_col = get_column_name(df.columns, 'Vorname')
+                nachname_col = get_column_name(df.columns, 'Nachname')
+                name_de_col = get_column_name(df.columns, 'Name:de')
+                name_abbreviation_col = get_column_name(df.columns, 'Erweiterte Einstellungen.Zeichen')
+                
+                # Check if TransportID is found
+                if not transport_id_col:
+                    st.error(f"Could not find column starting with: TransportID in {uploaded_file.name}")
                     continue
                 
-                # Get the full name (for legend)
-                full_name = None
-                if use_names and pd.notna(row[vorname_col]) and pd.notna(row[nachname_col]):
-                    full_name = f"{row[vorname_col]} {row[nachname_col]}"
-                elif use_name_de and pd.notna(row[name_de_col]):
-                    full_name = row[name_de_col]
+                # Determine how to create user names
+                use_names = vorname_col and nachname_col
+                use_name_de = name_de_col is not None
                 
-                # Skip if we can't determine a name
-                if not full_name:
+                if not (use_names or use_name_de):
+                    st.error(f"Could not find either (Vorname and Nachname) or Name:de columns in {uploaded_file.name}")
                     continue
                 
-                # Check if we already have an abbreviation for this name
-                if full_name in name_to_abbr:
-                    user_dict[transport_id] = name_to_abbr[full_name]
-                    continue
+                # Load existing dictionaries from session state
+                user_dict = st.session_state.get('user_dict', {}).copy()
+                user_legend = st.session_state.get('user_legend', {}).copy()
                 
-                # Get or generate the abbreviation
-                abbreviation = None
-                if name_abbreviation_col and pd.notna(row.get(name_abbreviation_col)):
-                    abbreviation = str(row[name_abbreviation_col]).strip()
+                # Create reverse lookup for name combinations to abbreviations
+                name_to_abbr = {v: k for k, v in user_legend.items()}
                 
-                # Generate abbreviation if not provided or empty
-                if not abbreviation and use_names:
-                    # First two letters of last name + first letter of first name
-                    last_part = row[nachname_col][:2].upper() if pd.notna(row[nachname_col]) else ''
-                    first_part = row[vorname_col][:1].upper() if pd.notna(row[vorname_col]) else ''
-                    base_abbr = f"{last_part}{first_part}"
+                # Add new entries to user_dict and user_legend
+                for _, row in df.iterrows():
+                    transport_id = row[transport_id_col]
                     
-                    # Handle duplicates
-                    if base_abbr in user_legend:
-                        counter = 1
-                        while f"{base_abbr}{counter}" in user_legend:
-                            counter += 1
-                        abbreviation = f"{base_abbr}{counter}"
-                    else:
-                        abbreviation = base_abbr
+                    # Skip rows with missing TransportID
+                    if pd.isna(transport_id):
+                        continue
+                    
+                    transport_id = str(transport_id)
+                    
+                    # Skip if this TransportID already exists with an abbreviation
+                    if transport_id in user_dict and user_dict[transport_id] in user_legend:
+                        continue
+                    
+                    # Get the full name (for legend)
+                    full_name = None
+                    if use_names and pd.notna(row[vorname_col]) and pd.notna(row[nachname_col]):
+                        full_name = f"{row[vorname_col]} {row[nachname_col]}"
+                    elif use_name_de and pd.notna(row[name_de_col]):
+                        full_name = row[name_de_col]
+                    
+                    # Skip if we can't determine a name
+                    if not full_name:
+                        continue
+                    
+                    # Check if we already have an abbreviation for this name
+                    if full_name in name_to_abbr:
+                        user_dict[transport_id] = name_to_abbr[full_name]
+                        continue
+                    
+                    # Get or generate the abbreviation
+                    abbreviation = None
+                    if name_abbreviation_col and pd.notna(row.get(name_abbreviation_col)):
+                        abbreviation = str(row[name_abbreviation_col]).strip()
+                    
+                    # Generate abbreviation if not provided or empty
+                    if not abbreviation and use_names:
+                        # First two letters of last name + first letter of first name
+                        last_part = row[nachname_col][:2].upper() if pd.notna(row[nachname_col]) else ''
+                        first_part = row[vorname_col][:1].upper() if pd.notna(row[vorname_col]) else ''
+                        base_abbr = f"{last_part}{first_part}"
+                        
+                        # Handle duplicates
+                        if base_abbr in user_legend:
+                            counter = 1
+                            while f"{base_abbr}{counter}" in user_legend:
+                                counter += 1
+                            abbreviation = f"{base_abbr}{counter}"
+                        else:
+                            abbreviation = base_abbr
+                    
+                    # Update dictionaries
+                    if abbreviation:
+                        user_dict[transport_id] = abbreviation
+                        user_legend[abbreviation] = full_name
+                        name_to_abbr[full_name] = abbreviation
                 
-                # Update dictionaries
-                if abbreviation:
-                    user_dict[transport_id] = abbreviation
-                    user_legend[abbreviation] = full_name
-                    name_to_abbr[full_name] = abbreviation
+                # Update session state with new entries
+                st.session_state['user_dict'].update(user_dict)
+                st.session_state['user_legend'].update(user_legend)
             
-            # Store in session state
-            st.session_state['user_dict'] = user_dict
-            st.session_state['user_legend'] = user_legend
-            
-            # Save to pickle file
+            # Save to pickle file after processing all files
             workflows_dir = os.path.join(st.session_state['cwd'], 'data', 'workflows')
             pickle_path = os.path.join(workflows_dir, 'user_dict.pickle')
             with open(pickle_path, 'wb') as f:
-                pickle.dump({'user_dict': user_dict, 'user_legend': user_legend}, f)
+                pickle.dump({
+                    'user_dict': st.session_state['user_dict'],
+                    'user_legend': st.session_state['user_legend']
+                }, f)
             
-            st.success(f"Benutzerliste erfolgreich geladen mit {len(user_dict)} Einträgen")
+            st.success(f"Benutzerliste erfolgreich geladen mit {len(st.session_state['user_dict'])} Einträgen")
             
         except Exception as e:
-            st.error(f"Error processing file: {str(e)}")
+            st.error(f"Error processing files: {str(e)}")
             st.exception(e)
-            
+
 def upload_dossier():
     uploaded_file = st.file_uploader("Upload Dossier", type=["xlsx"])
     if uploaded_file is not None:
