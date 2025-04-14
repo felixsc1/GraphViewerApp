@@ -2172,63 +2172,61 @@ def show():
             try:
                 st.subheader("Workflow Diagram")
                 
-                                    
-                diagram = build_workflow_diagram(updated_nodes, updated_groups)
+                # --- Deprecated Graphviz approach ---           
+                # diagram = build_workflow_diagram(updated_nodes, updated_groups)
+                # # Save the DOT representation to a file (for debugging if needed)
+                # diagram.save('bpmn_diagram.dot')
+                # # Render the diagram with view=False to prevent it from opening automatically
+                # svg_path = diagram.render('workflow_diagram', format='svg', cleanup=False, view=False)
+                # # Display the diagram directly in Streamlit
+                # st.graphviz_chart(diagram)
                 
-                # Save the DOT representation to a file (for debugging if needed)
-                diagram.save('bpmn_diagram.dot')
                 
-                # Render the diagram with view=False to prevent it from opening automatically
-                svg_path = diagram.render('workflow_diagram', format='svg', cleanup=False, view=False)
-                
-                # Display the diagram directly in Streamlit
-                st.graphviz_chart(diagram)
-                
-                basic_xml = create_main_flow_bpmn_xml(updated_nodes, edges_table)
 
                 
                 # Create download buttons for the SVG and BPMN XML
-                col1, col2 = st.columns(2)
-                with col1:
-                    try:
-                        with open(svg_path, "rb") as file:
-                            btn = st.download_button(
-                                label="Download as SVG",
-                                data=file,
-                                file_name="workflow_diagram.svg",
-                                mime="image/svg+xml",
-                            )
-                    except Exception as e:
-                        st.warning(f"Could not create download button. Error: {str(e)}")
+                # col1, col2 = st.columns(2)
+                # with col1:
+                #     try:
+                #         with open(svg_path, "rb") as file:
+                #             btn = st.download_button(
+                #                 label="Download as SVG",
+                #                 data=file,
+                #                 file_name="workflow_diagram.svg",
+                #                 mime="image/svg+xml",
+                #             )
+                #     except Exception as e:
+                #         st.warning(f"Could not create download button. Error: {str(e)}")
                 
-                with col2:
-                    if st.button("Generate BPMN XML"):                        
-                        # Create download button for basic XML
-                        st.download_button(
-                            label="Download Basic BPMN XML",
-                            data=basic_xml,
-                            file_name="basic_workflow.bpmn",
-                            mime="application/xml"
-                        )
-                        
-                    process_bpmn_layout(basic_xml)
-                    if st.button("Generate Laid-Out BPMN XML"):
-                        
-                        # Only proceed with annotations if layout completed successfully
-                        if 'bpmn_layout_result' in st.session_state:
-                            # Add special nodes and annotations
-                            final_bpmn_xml = add_special_nodes_and_annotations()
-                            if final_bpmn_xml is not None:
-                                st.success("BPMN diagram with annotations completed successfully!")
-                                # Add download button for the final XML
-                                st.download_button(
-                                    label="Download Complete BPMN XML",
-                                    data=final_bpmn_xml,
-                                    file_name="complete_workflow.bpmn",
-                                    mime="application/xml"
-                                )
-                        else:
-                            st.info("Please wait for the layout processing to complete and then try again.")
+                basic_xml = create_main_flow_bpmn_xml(updated_nodes, edges_table)
+                
+                # if st.button("Generate BPMN XML"):                        
+                #     # Create download button for basic XML
+                #     st.download_button(
+                #         label="Download Basic BPMN XML",
+                #         data=basic_xml,
+                #         file_name="basic_workflow.bpmn",
+                #         mime="application/xml"
+                #     )
+                    
+                process_bpmn_layout(basic_xml)
+                if st.button("Generate Laid-Out BPMN XML"):
+                    
+                    # Only proceed with annotations if layout completed successfully
+                    if 'bpmn_layout_result' in st.session_state:
+                        # Add special nodes and annotations
+                        final_bpmn_xml = add_special_nodes_and_annotations()
+                        if final_bpmn_xml is not None:
+                            st.success("BPMN diagram with annotations completed successfully!")
+                            # Add download button for the final XML
+                            st.download_button(
+                                label="Download Complete BPMN XML",
+                                data=final_bpmn_xml,
+                                file_name="complete_workflow.bpmn",
+                                mime="application/xml"
+                            )
+                    else:
+                        st.info("Please wait for the layout processing to complete and then try again.")
                             
             except Exception as e:
                 st.error(f"Error generating workflow diagram: {str(e)}")
