@@ -131,8 +131,8 @@ def upload_user_list():
                     
                     transport_id = str(transport_id)
                     
-                    # Skip if this TransportID already exists with an abbreviation
-                    if transport_id in user_dict and user_dict[transport_id] in user_legend:
+                    # Skip if this TransportID already exists
+                    if transport_id in user_dict:
                         continue
                     
                     # Get the full name (for legend)
@@ -146,37 +146,43 @@ def upload_user_list():
                     if not full_name:
                         continue
                     
-                    # Check if we already have an abbreviation for this name
-                    if full_name in name_to_abbr:
-                        user_dict[transport_id] = name_to_abbr[full_name]
-                        continue
-                    
-                    # Get or generate the abbreviation
-                    abbreviation = None
-                    if name_abbreviation_col and pd.notna(row.get(name_abbreviation_col)):
-                        abbreviation = str(row[name_abbreviation_col]).strip()
-                    
-                    # Generate abbreviation if not provided or empty
-                    if not abbreviation and use_names:
-                        # First two letters of last name + first letter of first name
-                        last_part = row[nachname_col][:2].upper() if pd.notna(row[nachname_col]) else ''
-                        first_part = row[vorname_col][:1].upper() if pd.notna(row[vorname_col]) else ''
-                        base_abbr = f"{last_part}{first_part}"
+                    # Case 1: We have Vorname/Nachname (need abbreviation)
+                    if use_names and pd.notna(row[vorname_col]) and pd.notna(row[nachname_col]):
+                        # Check if we already have an abbreviation for this name
+                        if full_name in name_to_abbr:
+                            user_dict[transport_id] = name_to_abbr[full_name]
+                            continue
                         
-                        # Handle duplicates
-                        if base_abbr in user_legend:
-                            counter = 1
-                            while f"{base_abbr}{counter}" in user_legend:
-                                counter += 1
-                            abbreviation = f"{base_abbr}{counter}"
-                        else:
-                            abbreviation = base_abbr
+                        # Get or generate the abbreviation
+                        abbreviation = None
+                        if name_abbreviation_col and pd.notna(row.get(name_abbreviation_col)):
+                            abbreviation = str(row[name_abbreviation_col]).strip()
+                        
+                        # Generate abbreviation if not provided or empty
+                        if not abbreviation:
+                            # First two letters of last name + first letter of first name
+                            last_part = row[nachname_col][:2].upper() if pd.notna(row[nachname_col]) else ''
+                            first_part = row[vorname_col][:1].upper() if pd.notna(row[vorname_col]) else ''
+                            base_abbr = f"{last_part}{first_part}".lower()
+                            
+                            # Handle duplicates
+                            if base_abbr in user_legend:
+                                counter = 1
+                                while f"{base_abbr}{counter}" in user_legend:
+                                    counter += 1
+                                abbreviation = f"{base_abbr}{counter}"
+                            else:
+                                abbreviation = base_abbr
+                        
+                        # Update dictionaries
+                        if abbreviation:
+                            user_dict[transport_id] = abbreviation
+                            user_legend[abbreviation] = full_name
+                            name_to_abbr[full_name] = abbreviation
                     
-                    # Update dictionaries
-                    if abbreviation:
-                        user_dict[transport_id] = abbreviation
-                        user_legend[abbreviation] = full_name
-                        name_to_abbr[full_name] = abbreviation
+                    # Case 2: Only Name:de (use directly without abbreviation)
+                    elif use_name_de and pd.notna(row[name_de_col]):
+                        user_dict[transport_id] = full_name
                 
                 # Update session state with new entries
                 st.session_state['user_dict'].update(user_dict)
@@ -2159,6 +2165,7 @@ def show():
             # st.write(updated_groups.to_dict())
             # st.write(edges_table.to_dict())
             with st.expander("Data Details", expanded=False):
+                st.write(st.session_state['user_dict'])
                 # st.write("Aktivitäten")
                 # st.dataframe(activities_table)
                 # st.write("Platzhalter")
