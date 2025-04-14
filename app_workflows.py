@@ -10,7 +10,6 @@ import hashlib
 from collections import defaultdict
 import re
 import json
-from streamlit_javascript import st_javascript
 
 def initialize_state():
     # Create workflows directory if it doesn't exist
@@ -18,36 +17,78 @@ def initialize_state():
     os.makedirs(workflows_dir, exist_ok=True)
 
     # Default user dictionary entry
-    default_user_dict = {"3639e0c9-14a3-4021-9d95-c5ea60d296b6": "FFOG"}
+    default_user_dict = {"3639e0c9-14a3-4021-9d95-c5ea60d296b6": "FFOG",
+                         "43b07445-67a7-4c1b-9f51-f91da288add9": "FFOE",
+                         "bdb15dcd-1c1c-4e7c-8ffa-4654c3c3f9f1": "FFMG",
+                         "ad319f3a-c5f8-4f3c-a737-63eec86ddf12": "PEMG",
+                         "b1ad934c-7efb-4b82-aa20-5bfc555cdad8": "PEOG",
+                         "f931b8d3-0d53-48cf-823f-76585736d041": "SB",
+                         "96a9a6a3-91e3-46f6-8da6-3d85173c2a98": "SGP",
+                         "ca278b77-7de4-42f5-afa9-3d1e802dfa72": "SGÜP",
+                         "fff9f05c-55c8-4778-ae13-e9782f684b86": "ZREG",
+                         "402b1d27-2c02-41a5-bf37-77ba2a74ae1a": "ÜGFOA"
+                         }
 
-    # Load existing dictionary from the pickle file, if possible
+    # Create legend dictionary
+    default_user_legend = {
+        "FFOE": "Federführende Organisationseinheit",
+        "FFMG": "Federführung mit Gruppenbeteiligung",
+        "FFOG": "Federführung ohne Gruppenbeteiligung",
+        "PEMG": "Prozesseigentümer mit Gruppe",
+        "PEOG": "Prozesseigentümer ohne Gruppe",
+        "SB": "Sicherheitsbeauftragter",
+        "SGP": "Stelle in der Gruppe des Prozesseigentümers",
+        "SGÜP": "Stelle in der übergeordneten Gruppe des Prozesseigentümers",
+        "ZREG": "Zuständige Registratur",
+        "ÜGFOA": "Übergeordnete Gruppe der federführenden Organisationseinheit des Aktivitätsobjekts"
+    }
+
+    # Load existing dictionaries from the pickle file, if possible
     pickle_path = os.path.join(workflows_dir, 'user_dict.pickle')
     loaded_dict = {}
+    loaded_legend = {}
     if os.path.exists(pickle_path):
         try:
             with open(pickle_path, 'rb') as f:
-                loaded_dict = pickle.load(f)
+                data = pickle.load(f)
+                loaded_dict = data.get('user_dict', {})
+                loaded_legend = data.get('user_legend', {})
             st.info(f"Loaded existing user dictionary with {len(loaded_dict)} entries")
         except Exception as e:
             st.error(f"Benutzerliste konnte nicht geladen werden: {str(e)}")
 
-    # Always update the dictionary with the default entry
+    # Always update the dictionaries with the default entries
     loaded_dict.update(default_user_dict)
+    loaded_legend.update(default_user_legend)
     st.session_state['user_dict'] = loaded_dict
+    st.session_state['user_legend'] = loaded_legend
+
+    # Save the updated dictionaries
+    with open(pickle_path, 'wb') as f:
+        pickle.dump({'user_dict': loaded_dict, 'user_legend': loaded_legend}, f)
 
 def upload_user_list():
     uploaded_file = st.file_uploader("Upload Benutzerliste", type=["xlsx"])
     
     if uploaded_file is not None:
         try:
+            # Read the file only if it's a new upload (not on refresh)
+            file_hash = hashlib.md5(uploaded_file.getvalue()).hexdigest()
+            if 'last_upload_hash' in st.session_state and st.session_state['last_upload_hash'] == file_hash:
+                st.info("Using previously uploaded file data")
+                return
+            
+            st.session_state['last_upload_hash'] = file_hash
+            
             # Read the second sheet of the Excel file
-            df = pd.read_excel(uploaded_file, sheet_name=1, header=0)  # explicitly set header row
+            df = pd.read_excel(uploaded_file, sheet_name=1, header=0)
             
             # Get the actual column names
             transport_id_col = get_column_name(df.columns, 'TransportID')
             vorname_col = get_column_name(df.columns, 'Vorname')
             nachname_col = get_column_name(df.columns, 'Nachname')
             name_de_col = get_column_name(df.columns, 'Name:de')
+            name_abbreviation_col = get_column_name(df.columns, 'Erweiterte Einstellungen.Zeichen')
             
             # Check if TransportID is found
             if not transport_id_col:
@@ -55,8 +96,6 @@ def upload_user_list():
                 return
             
             # Determine how to create user names
-            # Option 1: Use Vorname + Nachname if both exist
-            # Option 2: Otherwise use Name:de if it exists
             use_names = vorname_col and nachname_col
             use_name_de = name_de_col is not None
             
@@ -64,10 +103,14 @@ def upload_user_list():
                 st.error("Could not find either (Vorname and Nachname) or Name:de columns")
                 return
             
-            # Load existing user_dict from session state or create new one
+            # Load existing dictionaries from session state
             user_dict = st.session_state.get('user_dict', {}).copy()
+            user_legend = st.session_state.get('user_legend', {}).copy()
             
-            # Add new entries to user_dict
+            # Create reverse lookup for name combinations to abbreviations
+            name_to_abbr = {v: k for k, v in user_legend.items()}
+            
+            # Add new entries to user_dict and user_legend
             for _, row in df.iterrows():
                 transport_id = row[transport_id_col]
                 
@@ -75,28 +118,64 @@ def upload_user_list():
                 if pd.isna(transport_id):
                     continue
                 
-                # Convert TransportID to string
                 transport_id = str(transport_id)
                 
-                if use_names:
-                    # First try Vorname + Nachname
-                    if pd.notna(row[vorname_col]) and pd.notna(row[nachname_col]):
-                        user_dict[transport_id] = f"{row[vorname_col]} {row[nachname_col]}"
-                    # If either is missing but Name:de exists, use that instead
-                    elif use_name_de and pd.notna(row[name_de_col]):
-                        user_dict[transport_id] = row[name_de_col]
-                # If we can't use names, try Name:de
+                # Skip if this TransportID already exists with an abbreviation
+                if transport_id in user_dict and user_dict[transport_id] in user_legend:
+                    continue
+                
+                # Get the full name (for legend)
+                full_name = None
+                if use_names and pd.notna(row[vorname_col]) and pd.notna(row[nachname_col]):
+                    full_name = f"{row[vorname_col]} {row[nachname_col]}"
                 elif use_name_de and pd.notna(row[name_de_col]):
-                    user_dict[transport_id] = row[name_de_col]
+                    full_name = row[name_de_col]
+                
+                # Skip if we can't determine a name
+                if not full_name:
+                    continue
+                
+                # Check if we already have an abbreviation for this name
+                if full_name in name_to_abbr:
+                    user_dict[transport_id] = name_to_abbr[full_name]
+                    continue
+                
+                # Get or generate the abbreviation
+                abbreviation = None
+                if name_abbreviation_col and pd.notna(row.get(name_abbreviation_col)):
+                    abbreviation = str(row[name_abbreviation_col]).strip()
+                
+                # Generate abbreviation if not provided or empty
+                if not abbreviation and use_names:
+                    # First two letters of last name + first letter of first name
+                    last_part = row[nachname_col][:2].upper() if pd.notna(row[nachname_col]) else ''
+                    first_part = row[vorname_col][:1].upper() if pd.notna(row[vorname_col]) else ''
+                    base_abbr = f"{last_part}{first_part}"
+                    
+                    # Handle duplicates
+                    if base_abbr in user_legend:
+                        counter = 1
+                        while f"{base_abbr}{counter}" in user_legend:
+                            counter += 1
+                        abbreviation = f"{base_abbr}{counter}"
+                    else:
+                        abbreviation = base_abbr
+                
+                # Update dictionaries
+                if abbreviation:
+                    user_dict[transport_id] = abbreviation
+                    user_legend[abbreviation] = full_name
+                    name_to_abbr[full_name] = abbreviation
             
             # Store in session state
             st.session_state['user_dict'] = user_dict
+            st.session_state['user_legend'] = user_legend
             
             # Save to pickle file
             workflows_dir = os.path.join(st.session_state['cwd'], 'data', 'workflows')
             pickle_path = os.path.join(workflows_dir, 'user_dict.pickle')
             with open(pickle_path, 'wb') as f:
-                pickle.dump(user_dict, f)
+                pickle.dump({'user_dict': user_dict, 'user_legend': user_legend}, f)
             
             st.success(f"Benutzerliste erfolgreich geladen mit {len(user_dict)} Einträgen")
             
@@ -1947,7 +2026,6 @@ def add_special_nodes_and_annotations():
             # Connect with DataOutputAssociation; use parent_key for lookup
             parent_element = process.find(f".//*[@id='{parent_key}']")
             if parent_element is not None:
-                print(parent_element)
                 association = ET.SubElement(parent_element, "bpmn:dataOutputAssociation", {"id": association_id})
                 ET.SubElement(association, "bpmn:targetRef").text = data_ref_id
 
@@ -2027,8 +2105,24 @@ def show():
     st.subheader("Upload Data")
     upload_user_list()
     if st.button("Reset Benutzerliste"):
+        # Reset session state
         st.session_state['user_dict'] = {}
-        st.info("User list has been reset.")
+        st.session_state['user_legend'] = {}
+        
+        # Delete the pickle file if it exists
+        workflows_dir = os.path.join(st.session_state['cwd'], 'data', 'workflows')
+        pickle_path = os.path.join(workflows_dir, 'user_dict.pickle')
+        try:
+            if os.path.exists(pickle_path):
+                os.remove(pickle_path)
+                st.success("User list and pickle file successfully reset")
+            else:
+                st.info("No pickle file found to delete")
+        except Exception as e:
+            st.error(f"Error deleting pickle file: {str(e)}")
+        else:
+            st.info("User list has been reset")
+    
     xls = upload_dossier()
 
     
@@ -2051,10 +2145,10 @@ def show():
             # st.write(updated_groups.to_dict())
             # st.write(edges_table.to_dict())
             with st.expander("Data Details", expanded=False):
-                st.write("Aktivitäten")
-                st.dataframe(activities_table)
-                st.write("Platzhalter")
-                st.dataframe(groups_table)
+                # st.write("Aktivitäten")
+                # st.dataframe(activities_table)
+                # st.write("Platzhalter")
+                # st.dataframe(groups_table)
                 st.write("Nodes")
                 st.dataframe(updated_nodes.reset_index())
                 st.write("Groups")
