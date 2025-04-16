@@ -1723,17 +1723,26 @@ def create_main_flow_bpmn_xml(node_df, edges_df):
         node_type = get_safe_value_bpmn(node_data, "node_type", "")
         name = get_safe_value_bpmn(node_data, "name", "")
         label = get_safe_value_bpmn(node_data, "label", "")
+        empfanger = get_safe_value_bpmn(node_data, "Empfänger", "")
 
         if is_node_type(node_type, "activity"):
             task_type = get_safe_value_bpmn(node_data, "type", "")
+            # Format the name to include Empfänger if it exists
+            formatted_name = f"({empfanger})\n{name}" if empfanger else name
+            # Truncate if longer than 50 chars, preserving word boundaries
+            if len(formatted_name) > 50:
+                truncated = formatted_name[:50]
+                last_space = truncated.rfind(' ')
+                formatted_name = formatted_name[:last_space] + '...' if last_space > 0 else formatted_name[:47] + '...'
+            
             if task_type == "manual":
-                element = ET.SubElement(process, "bpmn:userTask", {"id": cleaned_id, "name": name})
+                element = ET.SubElement(process, "bpmn:userTask", {"id": cleaned_id, "name": formatted_name})
             elif task_type == "script":
-                element = ET.SubElement(process, "bpmn:scriptTask", {"id": cleaned_id, "name": name})
+                element = ET.SubElement(process, "bpmn:scriptTask", {"id": cleaned_id, "name": formatted_name})
             elif task_type == "system":
-                element = ET.SubElement(process, "bpmn:serviceTask", {"id": cleaned_id, "name": name})
+                element = ET.SubElement(process, "bpmn:serviceTask", {"id": cleaned_id, "name": formatted_name})
             else:
-                element = ET.SubElement(process, "bpmn:task", {"id": cleaned_id, "name": name})
+                element = ET.SubElement(process, "bpmn:task", {"id": cleaned_id, "name": formatted_name})
         elif is_node_type(node_type, "decision"):
             element = ET.SubElement(process, "bpmn:businessRuleTask", {"id": cleaned_id, "name": label.split("\n")[0] or name})
         elif is_node_type(node_type, "gateway"):
