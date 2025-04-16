@@ -208,6 +208,7 @@ def upload_dossier():
     uploaded_file = st.file_uploader("Upload Dossier", type=["xlsx"])
     if uploaded_file is not None:
         xls = pd.ExcelFile(uploaded_file)
+        st.session_state['dossier_filename'] = uploaded_file.name.split('.')[0]
         return xls
             
 # --- Helper Functions ---
@@ -2128,10 +2129,13 @@ def add_special_nodes_and_annotations():
     
     
 def bpmn_modeler_component(bpmn_xml):
-    """Render BPMN diagram using bpmn-js with embedded resources"""
+    """Render BPMN diagram using bpmn-js with embedded resources and a download button."""
     # Paths
     BASE_DIR = st.session_state['cwd']
     STATIC_DIR = os.path.join(BASE_DIR, "assets")
+    
+    # Get the filename from session state
+    filename = st.session_state.get('dossier_filename', 'diagram') + '.bpmn'
     
     # Read CSS and JS files as base64
     try:
@@ -2170,7 +2174,7 @@ def bpmn_modeler_component(bpmn_xml):
             replacement = f"url('{data_uri}')"
             bpmn_font_css = re.sub(pattern, replacement, bpmn_font_css)
         
-        # HTML template with embedded resources
+        # HTML template with embedded resources and download button
         html_template = f"""
         <!DOCTYPE html>
         <html>
@@ -2187,11 +2191,23 @@ def bpmn_modeler_component(bpmn_xml):
         </style>
         <style>
             #canvas {{ 
-                height: 100%; 
+                height: calc(100% - 40px); 
                 width: 100%; 
                 position: absolute; 
                 left: 0;
-                top: 0;
+                top: 40px;
+            }}
+            #download-btn {{
+                position: absolute;
+                top: 5px;
+                left: 5px;
+                z-index: 1000;
+                padding: 8px 16px;
+                background-color: #1E88E5;
+                color: white;
+                border: none;
+                border-radius: 4px;
+                cursor: pointer;
             }}
             html, body {{ 
                 height: 100%; 
@@ -2202,13 +2218,16 @@ def bpmn_modeler_component(bpmn_xml):
         </style>
         </head>
         <body>
+        <button id="download-btn">Download BPMN</button>
         <div id="canvas"></div>
         <script>
             {base64.b64decode(base64.b64encode(open(os.path.join(STATIC_DIR, 'bpmn-modeler.development.js'), 'rb').read())).decode('utf-8')}
         </script>
         <script>
             var diagramXML = `{bpmn_xml}`;
+            var filename = `{filename}`;
             var modeler = new BpmnJS({{ container: '#canvas' }});
+            
             async function openDiagram(xml) {{
                 try {{
                     await modeler.importXML(xml);
@@ -2217,6 +2236,25 @@ def bpmn_modeler_component(bpmn_xml):
                     console.error('Error importing XML:', err);
                 }}
             }}
+            
+            async function saveDiagram() {{
+                try {{
+                    const {{ xml }} = await modeler.saveXML({{ format: true }});
+                    console.log('Saved XML:', xml);
+                    // Trigger a download (client-side)
+                    const blob = new Blob([xml], {{ type: 'text/xml' }});
+                    const url = URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.href = url;
+                    a.download = filename;
+                    a.click();
+                    URL.revokeObjectURL(url);
+                }} catch (err) {{
+                    console.error('Error saving XML:', err);
+                }}
+            }}
+            
+            document.getElementById('download-btn').addEventListener('click', saveDiagram);
             openDiagram(diagramXML);
         </script>
         </body>
