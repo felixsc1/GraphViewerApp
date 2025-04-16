@@ -10,6 +10,7 @@ import hashlib
 from collections import defaultdict
 import re
 import json
+import base64
 
 def initialize_state():
     # Create workflows directory if it doesn't exist
@@ -1855,7 +1856,7 @@ def process_bpmn_layout(basic_xml):
         st.session_state['bpmn_layout_result'] = None
 
     # Load the JavaScript library
-    js_path = os.path.join(os.getcwd(), "js/bpmn-auto-layout.js")  # Adjust path as needed
+    js_path = os.path.join(os.getcwd(), "assets/bpmn-auto-layout.js")  # Adjust path as needed
     if not os.path.exists(js_path):
         st.error(f"Cannot find bpmn-auto-layout.js at {js_path}")
         return
@@ -2123,6 +2124,111 @@ def add_special_nodes_and_annotations():
     except Exception as e:
         st.error(f"Error adding annotations to BPMN: {str(e)}")
         return None
+    
+    
+    
+def bpmn_modeler_component(bpmn_xml):
+    """Render BPMN diagram using bpmn-js with embedded resources"""
+    # Paths
+    BASE_DIR = st.session_state['cwd']
+    STATIC_DIR = os.path.join(BASE_DIR, "assets")
+    
+    # Read CSS and JS files as base64
+    try:
+        # Read CSS files
+        with open(os.path.join(STATIC_DIR, 'bpmn-js.css'), 'rb') as f:
+            bpmn_js_css = f.read().decode('utf-8')
+        
+        with open(os.path.join(STATIC_DIR, 'diagram-js.css'), 'rb') as f:
+            diagram_js_css = f.read().decode('utf-8')
+        
+        # Read font files and encode them as base64
+        font_files = {
+            'eot': 'application/vnd.ms-fontobject',
+            'woff2': 'font/woff2',
+            'woff': 'font/woff',
+            'ttf': 'font/ttf',
+            'svg': 'image/svg+xml'
+        }
+        
+        font_data = {}
+        for ext, mime_type in font_files.items():
+            font_path = os.path.join(STATIC_DIR, f'bpmn-font/font/bpmn.{ext}')
+            if os.path.exists(font_path):
+                with open(font_path, 'rb') as f:
+                    font_base64 = base64.b64encode(f.read()).decode('utf-8')
+                    font_data[ext] = f"data:{mime_type};base64,{font_base64}"
+        
+        # Read original font CSS
+        with open(os.path.join(STATIC_DIR, 'bpmn-font/css/bpmn.css'), 'rb') as f:
+            bpmn_font_css = f.read().decode('utf-8')
+        
+        # Replace font URLs with data URIs in the CSS
+        for ext, data_uri in font_data.items():
+            # Match patterns like: url('../font/bpmn.eot?21877404') or url('../font/bpmn.eot?21877404#iefix')
+            pattern = rf"url\(['\"](\.\.\/font\/bpmn\.{ext}(\?[^'\")]+)?)(#[^'\")]+)?['\"]\)"
+            replacement = f"url('{data_uri}')"
+            bpmn_font_css = re.sub(pattern, replacement, bpmn_font_css)
+        
+        # HTML template with embedded resources
+        html_template = f"""
+        <!DOCTYPE html>
+        <html>
+        <head>
+        <meta charset="UTF-8" />
+        <style>
+            {bpmn_js_css}
+        </style>
+        <style>
+            {diagram_js_css}
+        </style>
+        <style>
+            {bpmn_font_css}
+        </style>
+        <style>
+            #canvas {{ 
+                height: 100%; 
+                width: 100%; 
+                position: absolute; 
+                left: 0;
+                top: 0;
+            }}
+            html, body {{ 
+                height: 100%; 
+                width: 100%; 
+                margin: 0;
+                padding: 0;
+            }}
+        </style>
+        </head>
+        <body>
+        <div id="canvas"></div>
+        <script>
+            {base64.b64decode(base64.b64encode(open(os.path.join(STATIC_DIR, 'bpmn-modeler.development.js'), 'rb').read())).decode('utf-8')}
+        </script>
+        <script>
+            var diagramXML = `{bpmn_xml}`;
+            var modeler = new BpmnJS({{ container: '#canvas' }});
+            async function openDiagram(xml) {{
+                try {{
+                    await modeler.importXML(xml);
+                    modeler.get('canvas').zoom('fit-viewport');
+                }} catch (err) {{
+                    console.error('Error importing XML:', err);
+                }}
+            }}
+            openDiagram(diagramXML);
+        </script>
+        </body>
+        </html>
+        """
+        
+        # Render in Streamlit
+        st.components.v1.html(html_template, height=700, scrolling=True)
+    
+    except Exception as e:
+        st.error(f"Error loading BPMN viewer: {str(e)}")
+        st.info("Make sure all required files exist in the assets directory: bpmn-js.css, diagram-js.css, bpmn-font/css/bpmn.css, and bpmn-modeler.development.js")
 
 
 
@@ -2241,9 +2347,10 @@ def show():
                                 file_name="complete_workflow.bpmn",
                                 mime="application/xml"
                             )
+                            # Run bpmn_modeler_component and pass final_bpmn_xml as argument
+                            bpmn_modeler_component(final_bpmn_xml)
                     else:
                         st.info("Please wait for the layout processing to complete and then try again.")
-                            
             except Exception as e:
                 st.error(f"Error generating workflow diagram: {str(e)}")
                 st.exception(e)
