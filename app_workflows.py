@@ -2108,11 +2108,13 @@ def add_special_nodes_and_annotations():
                 "id": f"{annotation_id}_di",
                 "bpmnElement": annotation_id
             })
+            # Calculate height based on annotation_text length
+            height = 50 + (len(annotation_text) // 100) * 50
             ET.SubElement(annotation_shape, "dc:Bounds", {
                 "x": str(annotation_x),
                 "y": str(annotation_y),
                 "width": "300",
-                "height": "50"
+                "height": str(height)
             })
 
             # Move to the next position (300 width + 50 space)
@@ -2354,7 +2356,7 @@ def show():
             # st.write(updated_groups.to_dict())
             # st.write(edges_table.to_dict())
             with st.expander("Data Details", expanded=False):
-                st.write(st.session_state['user_dict'])
+                # st.write(st.session_state['user_dict'])
                 # st.write("Aktivitäten")
                 # st.dataframe(activities_table)
                 # st.write("Platzhalter")
@@ -2423,6 +2425,9 @@ def show():
                         #     )
                         # Run bpmn_modeler_component and pass final_bpmn_xml as argument
                         bpmn_modeler_component(final_bpmn_xml)
+                        with st.expander("Show Abbreviations:", expanded=False):
+                            legend_df = pd.DataFrame.from_dict(st.session_state['user_legend'], orient='index', columns=['Description'])
+                            st.dataframe(legend_df)
                     else:
                         st.info("Please wait for the layout processing to complete and then try again.")
             except Exception as e:
