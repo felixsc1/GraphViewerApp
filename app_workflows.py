@@ -2087,12 +2087,12 @@ def add_special_nodes_and_annotations():
                 "bpmnElement": association_id
             })
             ET.SubElement(edge, "di:waypoint", {
-                "x": str(parent_pos['x'] + parent_pos['width'] / 2),  # Bottom center of parent
-                "y": str(parent_pos['y'] + parent_pos['height'])
+                "x": str(data_ref_x + 18),  # Start at top center of DataObjectReference
+                "y": str(data_ref_y)
             })
             ET.SubElement(edge, "di:waypoint", {
-                "x": str(data_ref_x + 18),  # Top center of DataObjectReference
-                "y": str(data_ref_y)
+                "x": str(parent_pos['x'] + parent_pos['width'] / 2),  # End at bottom center of parent
+                "y": str(parent_pos['y'] + parent_pos['height'])
             })
 
             # Store annotation info
