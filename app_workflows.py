@@ -2129,13 +2129,15 @@ def add_special_nodes_and_annotations():
     
     
 def bpmn_modeler_component(bpmn_xml):
-    """Render BPMN diagram using bpmn-js with embedded resources and a download button."""
+    """Render BPMN diagram using bpmn-js with embedded resources and download buttons for BPMN and SVG."""
     # Paths
     BASE_DIR = st.session_state['cwd']
     STATIC_DIR = os.path.join(BASE_DIR, "assets")
     
     # Get the filename from session state
-    filename = st.session_state.get('dossier_filename', 'diagram') + '.bpmn'
+    base_filename = st.session_state.get('dossier_filename', 'diagram')
+    bpmn_filename = f"{base_filename}.bpmn"
+    svg_filename = f"{base_filename}.svg"
     
     # Read CSS and JS files as base64
     try:
@@ -2174,7 +2176,7 @@ def bpmn_modeler_component(bpmn_xml):
             replacement = f"url('{data_uri}')"
             bpmn_font_css = re.sub(pattern, replacement, bpmn_font_css)
         
-        # HTML template with embedded resources and download button
+        # HTML template with embedded resources and download buttons
         html_template = f"""
         <!DOCTYPE html>
         <html>
@@ -2197,10 +2199,9 @@ def bpmn_modeler_component(bpmn_xml):
                 left: 0;
                 top: 40px;
             }}
-            #download-btn {{
+            .download-btn {{
                 position: absolute;
                 top: 5px;
-                left: 5px;
                 z-index: 1000;
                 padding: 8px 16px;
                 background-color: #1E88E5;
@@ -2208,6 +2209,12 @@ def bpmn_modeler_component(bpmn_xml):
                 border: none;
                 border-radius: 4px;
                 cursor: pointer;
+            }}
+            #download-bpmn {{
+                left: 5px;
+            }}
+            #download-svg {{
+                left: 150px;
             }}
             html, body {{ 
                 height: 100%; 
@@ -2218,14 +2225,16 @@ def bpmn_modeler_component(bpmn_xml):
         </style>
         </head>
         <body>
-        <button id="download-btn">Download BPMN</button>
+        <button id="download-bpmn" class="download-btn">Download BPMN</button>
+        <button id="download-svg" class="download-btn">Download SVG</button>
         <div id="canvas"></div>
         <script>
             {base64.b64decode(base64.b64encode(open(os.path.join(STATIC_DIR, 'bpmn-modeler.development.js'), 'rb').read())).decode('utf-8')}
         </script>
         <script>
             var diagramXML = `{bpmn_xml}`;
-            var filename = `{filename}`;
+            var bpmnFilename = `{bpmn_filename}`;
+            var svgFilename = `{svg_filename}`;
             var modeler = new BpmnJS({{ container: '#canvas' }});
             
             async function openDiagram(xml) {{
@@ -2237,24 +2246,51 @@ def bpmn_modeler_component(bpmn_xml):
                 }}
             }}
             
-            async function saveDiagram() {{
+            async function saveBPMN() {{
                 try {{
                     const {{ xml }} = await modeler.saveXML({{ format: true }});
-                    console.log('Saved XML:', xml);
+                    console.log('Saved BPMN XML:', xml);
                     // Trigger a download (client-side)
                     const blob = new Blob([xml], {{ type: 'text/xml' }});
                     const url = URL.createObjectURL(blob);
                     const a = document.createElement('a');
                     a.href = url;
-                    a.download = filename;
+                    a.download = bpmnFilename;
                     a.click();
                     URL.revokeObjectURL(url);
                 }} catch (err) {{
-                    console.error('Error saving XML:', err);
+                    console.error('Error saving BPMN XML:', err);
                 }}
             }}
             
-            document.getElementById('download-btn').addEventListener('click', saveDiagram);
+            async function saveSVG() {{
+                try {{
+                    const svg = document.querySelector('#canvas svg');
+                    if (!svg) {{
+                        console.error('No SVG element found');
+                        return;
+                    }}
+                    const serializer = new XMLSerializer();
+                    const svgStr = serializer.serializeToString(svg);
+                    // Add XML declaration and doctype
+                    const svgWithHeader = `<?xml version="1.0" standalone="no"?>
+<!DOCTYPE svg PUBLIC "-//W3C//DTD SVG 1.1//EN" "http://www.w3.org/Graphics/SVG/1.1/DTD/svg11.dtd">
+${{svgStr}}`;
+                    // Trigger a download (client-side)
+                    const blob = new Blob([svgWithHeader], {{ type: 'image/svg+xml' }});
+                    const url = URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.href = url;
+                    a.download = svgFilename;
+                    a.click();
+                    URL.revokeObjectURL(url);
+                }} catch (err) {{
+                    console.error('Error saving SVG:', err);
+                }}
+            }}
+            
+            document.getElementById('download-bpmn').addEventListener('click', saveBPMN);
+            document.getElementById('download-svg').addEventListener('click', saveSVG);
             openDiagram(diagramXML);
         </script>
         </body>
@@ -2376,17 +2412,17 @@ def show():
                     if 'bpmn_layout_result' in st.session_state:
                         # Add special nodes and annotations
                         final_bpmn_xml = add_special_nodes_and_annotations()
-                        if final_bpmn_xml is not None:
-                            st.success("BPMN diagram with annotations completed successfully!")
-                            # Add download button for the final XML
-                            st.download_button(
-                                label="Download Complete BPMN XML",
-                                data=final_bpmn_xml,
-                                file_name="complete_workflow.bpmn",
-                                mime="application/xml"
-                            )
-                            # Run bpmn_modeler_component and pass final_bpmn_xml as argument
-                            bpmn_modeler_component(final_bpmn_xml)
+                        # if final_bpmn_xml is not None:
+                        #     st.success("BPMN diagram with annotations completed successfully!")
+                        #     # Add download button for the final XML
+                        #     st.download_button(
+                        #         label="Download Complete BPMN XML",
+                        #         data=final_bpmn_xml,
+                        #         file_name="complete_workflow.bpmn",
+                        #         mime="application/xml"
+                        #     )
+                        # Run bpmn_modeler_component and pass final_bpmn_xml as argument
+                        bpmn_modeler_component(final_bpmn_xml)
                     else:
                         st.info("Please wait for the layout processing to complete and then try again.")
             except Exception as e:
