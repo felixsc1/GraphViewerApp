@@ -1032,6 +1032,7 @@ def build_edges_table(updated_nodes, updated_groups):
             return first_node, last_node
 
         elif get_safe_value_bpmn(group, 'type') == 'parallel':
+            erledigungsmodus = get_safe_value_bpmn(group, 'Erledigungsmodus')
             decision = split = join = None
             for c_type, c_id, seq in children:
                 if c_type == 'node':
@@ -1042,29 +1043,37 @@ def build_edges_table(updated_nodes, updated_groups):
                     elif 'gateway_join' in c_id and 'skip' not in c_id:
                         join = c_id
 
-            if not (decision and split and join):
-                print(f"Warning: Parallel group {group_id} missing decision/split/join.")
-                return None, None
+            # Check required nodes based on Erledigungsmodus
+            if erledigungsmodus == 'AllBranches':
+                if not (split and join):
+                    print(f"Warning: Parallel group {group_id} missing split/join for AllBranches.")
+                    return None, None
+            else:
+                if not (decision and split and join):
+                    print(f"Warning: Parallel group {group_id} missing decision/split/join.")
+                    return None, None
 
-            # Connect decision to split
-            if (decision, split) not in edge_set:
+            # Set the first node for connection
+            first_node = decision if decision else split
+
+            # Connect decision to split if decision exists
+            if decision and (decision, split) not in edge_set:
                 edges.append((decision, split))
                 edge_set.add((decision, split))
 
-            # Extract labels from decision node for parallel branches
+            # Extract labels from decision node if present (for AnyBranch/OnlyOneBranch)
             decision_labels = []
-            if decision in updated_nodes.index:
+            if decision and decision in updated_nodes.index:
                 decision_label = get_safe_value_bpmn(updated_nodes.loc[decision], 'label', '')
                 if decision_label and '\n' in decision_label:
-                    # First line is the decision label, subsequent lines are edge labels
                     decision_labels = decision_label.split('\n')[1:]
 
-            # Identify branches (between split and join)
+            # Identify branches between split and join
             split_seq = next(seq for _, c_id, seq in children if c_id == split)
             join_seq = next(seq for _, c_id, seq in children if c_id == join)
             branches = [c for c in children if split_seq < c[2] < join_seq]
 
-            # Track branch index for label assignment
+            # Connect branches
             branch_index = 0
             for b_type, b_id, _ in branches:
                 if b_type == 'node':
@@ -1074,7 +1083,6 @@ def build_edges_table(updated_nodes, updated_groups):
                     if (split, b_id) not in edge_set:
                         edges.append((split, b_id))
                         edge_set.add((split, b_id))
-                        # Assign label if available
                         if branch_index < len(decision_labels):
                             edge_labels[(split, b_id)] = decision_labels[branch_index]
                             branch_index += 1
@@ -1086,7 +1094,6 @@ def build_edges_table(updated_nodes, updated_groups):
                     if b_first and (split, b_first) not in edge_set:
                         edges.append((split, b_first))
                         edge_set.add((split, b_first))
-                        # Assign label if available
                         if branch_index < len(decision_labels):
                             edge_labels[(split, b_first)] = decision_labels[branch_index]
                             branch_index += 1
@@ -1094,7 +1101,7 @@ def build_edges_table(updated_nodes, updated_groups):
                         edges.append((b_last, join))
                         edge_set.add((b_last, join))
 
-            return decision, join
+            return first_node, join
 
         else:
             print(f"Unknown group type: {get_safe_value_bpmn(group, 'type')}")
