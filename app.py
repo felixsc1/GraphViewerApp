@@ -77,7 +77,7 @@ elif selection == "Analysis":
     app_analysis.show()
 
 elif selection == "Prozess-Workflows":
-    st.title("📥Prozess-Workflows")
+    st.title("🔀 Prozess-Workflows")
     app_workflows.show()
 
 elif selection == "Treeviewer":

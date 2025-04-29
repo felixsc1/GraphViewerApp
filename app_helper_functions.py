@@ -505,7 +505,7 @@ def upload_python_files():
     if uploaded_files:
         for uploaded_file in uploaded_files:
             # Define the path where the file should be saved
-            file_path = os.path.join(os.getcwd(), uploaded_file.name)
+            file_path = os.path.join(st.session_state["cwd"], uploaded_file.name)
 
             # Write the file to the specified location
             with open(file_path, "wb") as f:

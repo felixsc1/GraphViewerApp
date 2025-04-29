@@ -56,7 +56,6 @@ def initialize_state():
                 data = pickle.load(f)
                 loaded_dict = data.get("user_dict", {})
                 loaded_legend = data.get("user_legend", {})
-            st.info(f"Loaded existing user dictionary with {len(loaded_dict)} entries")
         except Exception as e:
             st.error(f"Benutzerliste konnte nicht geladen werden: {str(e)}")
 
@@ -73,7 +72,7 @@ def initialize_state():
 
 def upload_user_list():
     uploaded_files = st.file_uploader(
-        "Upload Benutzerliste", type=["xlsx"], accept_multiple_files=True
+        "Upload exported list for Benutzer / Gruppen / Stellen", type=["xlsx"], accept_multiple_files=True
     )
 
     if uploaded_files:
@@ -230,17 +229,13 @@ def upload_user_list():
                     f,
                 )
 
-            st.success(
-                f"Benutzerliste erfolgreich geladen mit {len(st.session_state['user_dict'])} Einträgen"
-            )
-
         except Exception as e:
             st.error(f"Error processing files: {str(e)}")
             st.exception(e)
 
 
 def upload_dossier():
-    uploaded_file = st.file_uploader("Upload Dossier", type=["xlsx"])
+    uploaded_file = st.file_uploader("Excel File with Process Export", type=["xlsx"])
     if uploaded_file is not None:
         xls = pd.ExcelFile(uploaded_file)
         st.session_state["dossier_filename"] = uploaded_file.name.split(".")[0]
@@ -2280,7 +2275,7 @@ def process_bpmn_layout(basic_xml):
 
     # Load the JavaScript library
     js_path = os.path.join(
-        os.getcwd(), "assets/bpmn-auto-layout.js"
+        st.session_state["cwd"], "assets/bpmn-auto-layout.js"
     )  # Adjust path as needed
     if not os.path.exists(js_path):
         st.error(f"Cannot find bpmn-auto-layout.js at {js_path}")
@@ -2790,28 +2785,33 @@ def bpmn_modeler_component(bpmn_xml):
 
 def show():
     initialize_state()
+    
+    with st.expander("User Management", expanded=False):
+        st.success(
+                f"Currently {len(st.session_state['user_dict'])} user entries stored."
+            )
+        st.subheader("Upload Data")
+        upload_user_list()
+        if st.button("Reset Benutzerliste"):
+            # Reset session state
+            st.session_state["user_dict"] = {}
+            st.session_state["user_legend"] = {}
 
-    st.subheader("Upload Data")
-    upload_user_list()
-    if st.button("Reset Benutzerliste"):
-        # Reset session state
-        st.session_state["user_dict"] = {}
-        st.session_state["user_legend"] = {}
-
-        # Delete the pickle file if it exists
-        workflows_dir = os.path.join(st.session_state["cwd"], "data", "workflows")
-        pickle_path = os.path.join(workflows_dir, "user_dict.pickle")
-        try:
-            if os.path.exists(pickle_path):
-                os.remove(pickle_path)
-                st.success("User list and pickle file successfully reset")
+            # Delete the pickle file if it exists
+            workflows_dir = os.path.join(st.session_state["cwd"], "data", "workflows")
+            pickle_path = os.path.join(workflows_dir, "user_dict.pickle")
+            try:
+                if os.path.exists(pickle_path):
+                    os.remove(pickle_path)
+                    st.success("User list and pickle file successfully reset")
+                else:
+                    st.info("No pickle file found to delete")
+            except Exception as e:
+                st.error(f"Error deleting pickle file: {str(e)}")
             else:
-                st.info("No pickle file found to delete")
-        except Exception as e:
-            st.error(f"Error deleting pickle file: {str(e)}")
-        else:
-            st.info("User list has been reset")
+                st.info("User list has been reset")
 
+    st. subheader("Upload Prozess Export")
     xls = upload_dossier()
 
     if xls is not None:
