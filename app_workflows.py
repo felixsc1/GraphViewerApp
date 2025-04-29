@@ -828,9 +828,9 @@ def generate_additional_nodes(activities_table, groups_table):
 
     # Process groups with Erledigungsmodus
     eligible_groups = groups_table[
-        (groups_table["Erledigungsmodus"] == "AnyBranch")
-        | (groups_table["Erledigungsmodus"] == "OnlyOneBranch")
-        | (groups_table["Erledigungsmodus"] == "AllBranches")
+        (groups_table["Erledigungsmodus"] == "AnyBranch")  # Mind. 1 Zweig
+        | (groups_table["Erledigungsmodus"] == "OnlyOneBranch")  # Genau 1 Zweig
+        | (groups_table["Erledigungsmodus"] == "AllBranches")  # Alle Zweige
     ]
 
     for group_id in eligible_groups.index:
@@ -911,11 +911,11 @@ def generate_additional_nodes(activities_table, groups_table):
 
             # Set gateway labels based on the erledigungsmodus
             if erledigungsmodus == "AnyBranch":
-                gateway_split_label = "X"  # Gateway split symbol for AnyBranch
+                gateway_split_label = "+"  # Gateway split symbol for AnyBranch
                 gateway_join_label = "X"  # Gateway join symbol for AnyBranch
             else:  # OnlyOneBranch
-                gateway_split_label = ""  # Empty diamond for OnlyOneBranch
-                gateway_join_label = ""  # Empty diamond for OnlyOneBranch
+                gateway_split_label = "X"  # Empty diamond for OnlyOneBranch
+                gateway_join_label = "X"  # Empty diamond for OnlyOneBranch
 
             # Prepare node data for DataFrame
             node_ids = []
@@ -2135,7 +2135,7 @@ def create_main_flow_bpmn_xml(node_df, edges_df):
             gateway_type = (
                 "bpmn:exclusiveGateway"
                 if gateway_label == "X"
-                else "bpmn:eventBasedGateway"
+                else "bpmn:parallelGateway"
             )
             element = ET.SubElement(process, gateway_type, {"id": cleaned_id})
         elif is_node_type(node_type, "helper"):
