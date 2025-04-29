@@ -109,6 +109,7 @@ def upload_user_list():
                 name_abbreviation_col = get_column_name(
                     df.columns, "Erweiterte Einstellungen.Zeichen"
                 )
+                kurzbezeichnung_col = get_column_name(df.columns, "Kurzbezeichnung:de")
 
                 # Check if TransportID is found
                 if not transport_id_col:
@@ -119,11 +120,12 @@ def upload_user_list():
 
                 # Determine how to create user names
                 use_names = vorname_col and nachname_col
+                use_kurzbezeichnung = kurzbezeichnung_col is not None
                 use_name_de = name_de_col is not None
 
-                if not (use_names or use_name_de):
+                if not (use_names or use_kurzbezeichnung or use_name_de):
                     st.error(
-                        f"Could not find either (Vorname and Nachname) or Name:de columns in {uploaded_file.name}"
+                        f"Could not find either (Vorname and Nachname), Kurzbezeichnung:de, or Name:de columns in {uploaded_file.name}"
                     )
                     continue
 
@@ -156,6 +158,8 @@ def upload_user_list():
                         and pd.notna(row[nachname_col])
                     ):
                         full_name = f"{row[vorname_col]} {row[nachname_col]}"
+                    elif use_kurzbezeichnung and pd.notna(row[kurzbezeichnung_col]):
+                        full_name = row[kurzbezeichnung_col]
                     elif use_name_de and pd.notna(row[name_de_col]):
                         full_name = row[name_de_col]
 
@@ -211,7 +215,11 @@ def upload_user_list():
                             user_legend[abbreviation] = full_name
                             name_to_abbr[full_name] = abbreviation
 
-                    # Case 2: Only Name:de (use directly without abbreviation)
+                    # Case 2: Use Kurzbezeichnung:de if available
+                    elif use_kurzbezeichnung and pd.notna(row[kurzbezeichnung_col]):
+                        user_dict[transport_id] = full_name
+
+                    # Case 3: Fallback to Name:de (use directly without abbreviation)
                     elif use_name_de and pd.notna(row[name_de_col]):
                         user_dict[transport_id] = full_name
 
