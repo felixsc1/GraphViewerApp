@@ -72,7 +72,9 @@ def initialize_state():
 
 def upload_user_list():
     uploaded_files = st.file_uploader(
-        "Upload exported list for Benutzer / Gruppen / Stellen", type=["xlsx"], accept_multiple_files=True
+        "Upload exported list for Benutzer / Gruppen / Stellen",
+        type=["xlsx"],
+        accept_multiple_files=True,
     )
 
     if uploaded_files:
@@ -1059,18 +1061,19 @@ def generate_additional_nodes(activities_table, groups_table):
         # Generate node IDs
         rule_node_id = generate_node_id("repeat_rule", {"group_id": group_id})
         decision_node_id = generate_node_id("repeat_decision", {"group_id": group_id})
-        gateway_node_id = generate_node_id("repeat_gateway", {"group_id": group_id})
+        gateway_split_node_id = generate_node_id(
+            "repeat_gateway_split", {"group_id": group_id}
+        )
+        gateway_join_node_id = generate_node_id(
+            "repeat_gateway_join", {"group_id": group_id}
+        )
 
-        # As a target for the repeat, we'll use an invisible helper node at the beginning
+        # As a target for the repeat, we'll use a gateway node at the beginning
         # This will allow us to connect back to the start of the group
-        helper_node_id = generate_node_id("repeat_helper", {"group_id": group_id})
-
-        # Place nodes in sequence
-        # Helper node comes first, before any children
-        helper_seq = min_seq - 1
-        # Decision and gateway come at the end
+        gateway_join_seq = min_seq - 1
+        # Decision and gateway split come at the end
         decision_seq = max_seq + 1  # Decision comes second-to-last
-        gateway_seq = max_seq + 2  # Gateway comes last
+        gateway_split_seq = max_seq + 2  # Gateway split comes last
         rule_seq = -1  # Rule not in main sequence (it's connected to the decision)
 
         # Get repeat condition labels
@@ -1083,26 +1086,31 @@ def generate_additional_nodes(activities_table, groups_table):
                 "node_id": [
                     rule_node_id,
                     decision_node_id,
-                    gateway_node_id,
-                    helper_node_id,
+                    gateway_split_node_id,
+                    gateway_join_node_id,
                 ],
-                "node_type": ["rule", "decision", "gateway", "helper"],
+                "node_type": ["rule", "decision", "gateway", "gateway"],
                 "parent": [decision_node_id, group_id, group_id, group_id],
-                "SequenceNumber": [rule_seq, decision_seq, gateway_seq, helper_seq],
+                "SequenceNumber": [
+                    rule_seq,
+                    decision_seq,
+                    gateway_split_seq,
+                    gateway_join_seq,
+                ],
                 "label": [
                     repeat_condition if pd.notna(repeat_condition) else "",
                     "Wiederholen, falls\n"
                     + (repeat_name if pd.notna(repeat_name) else ""),
-                    "X",  # X symbol for gateway
-                    "",  # Empty label for helper node
+                    "X",  # X symbol for gateway split
+                    "X",  # X symbol for gateway join
                 ],
             }
         ).set_index("node_id")
 
-        # Store the helper node ID to refer back to in add_group function
+        # Store the gateway node IDs to refer back to in add_group function
         updated_groups.at[group_id, "repeat_connections"] = {
-            "gateway": gateway_node_id,
-            "helper": helper_node_id,
+            "gateway_split": gateway_split_node_id,
+            "gateway_join": gateway_join_node_id,
         }
 
         # Append new nodes to the updated table
@@ -1319,44 +1327,41 @@ def build_edges_table(updated_nodes, updated_groups):
 
     def handle_repeat(group, children):
         """Handle repeat constructs within a group."""
-        decision = gateway = helper = activity = None
+        decision = gateway_split = gateway_join = activity = None
         for c_type, c_id, _ in children:
             if c_type == "node":
                 if "repeat_decision" in c_id:
                     decision = c_id
-                elif "repeat_gateway" in c_id:
-                    gateway = c_id
-                elif "repeat_helper" in c_id:
-                    helper = c_id
+                elif "repeat_gateway_split" in c_id:
+                    gateway_split = c_id
+                elif "repeat_gateway_join" in c_id:
+                    gateway_join = c_id
                 elif (
                     get_safe_value_bpmn(updated_nodes.loc[c_id], "node_type")
                     == "activity"
                 ):
                     activity = c_id
 
-        if decision and gateway and helper and activity:
-            if (helper, activity) not in edge_set:
-                edges.append((helper, activity))
-                edge_set.add((helper, activity))
+        if decision and gateway_split and gateway_join and activity:
+            if (gateway_join, activity) not in edge_set:
+                edges.append((gateway_join, activity))
+                edge_set.add((gateway_join, activity))
             if (activity, decision) not in edge_set:
                 edges.append((activity, decision))
-                edge_set.add((activity, decision))
-            if (decision, gateway) not in edge_set:
-                edges.append((decision, gateway))
-                edge_set.add((decision, gateway))
-            if (gateway, helper) not in edge_set:
-                edges.append((gateway, helper))
-                edge_set.add((gateway, helper))
+            if (decision, gateway_split) not in edge_set:
+                edges.append((decision, gateway_split))
+            if (gateway_split, gateway_join) not in edge_set:
+                edges.append((gateway_split, gateway_join))
 
-                # Extract repeat condition label from decision node
-                if decision in updated_nodes.index:
-                    decision_label = get_safe_value_bpmn(
-                        updated_nodes.loc[decision], "label", ""
-                    )
-                    if decision_label and "\n" in decision_label:
-                        # Second line is the edge label for the repeat path
-                        repeat_label = decision_label.split("\n")[1]
-                        edge_labels[(gateway, helper)] = repeat_label
+            # Extract repeat condition label from decision node
+            if decision in updated_nodes.index:
+                decision_label = get_safe_value_bpmn(
+                    updated_nodes.loc[decision], "label", ""
+                )
+                if decision_label and "\n" in decision_label:
+                    # Second line is the edge label for the repeat path
+                    repeat_label = decision_label.split("\n")[1]
+                    edge_labels[(gateway_split, gateway_join)] = repeat_label
 
     # Process top-level group
     top_group_id = updated_groups[updated_groups["parent"].isna()].index[0]
@@ -1541,10 +1546,6 @@ def add_node(dot, node_id, node, edge_set, updated_nodes):
         if is_node_type(node_type, "gateway"):
             attrs["fontsize"] = "16"
             attrs["shape"] = "diamond"
-        elif is_node_type(node_type, "helper"):
-            attrs["width"] = "0.1"
-            attrs["height"] = "0.1"
-            attrs["shape"] = "point"
         elif is_node_type(node_type, "activity"):
             attrs["shape"] = "box"
             attrs["style"] = "rounded"
@@ -2785,11 +2786,11 @@ def bpmn_modeler_component(bpmn_xml):
 
 def show():
     initialize_state()
-    
+
     with st.expander("User Management", expanded=False):
         st.success(
-                f"Currently {len(st.session_state['user_dict'])} user entries stored."
-            )
+            f"Currently {len(st.session_state['user_dict'])} user entries stored."
+        )
         st.subheader("Upload Data")
         upload_user_list()
         if st.button("Reset Benutzerliste"):
@@ -2811,7 +2812,7 @@ def show():
             else:
                 st.info("User list has been reset")
 
-    st. subheader("Upload Prozess Export")
+    st.subheader("Upload Prozess Export")
     xls = upload_dossier()
 
     if xls is not None:
