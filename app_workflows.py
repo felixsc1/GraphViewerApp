@@ -2390,6 +2390,251 @@ def process_bpmn_layout(basic_xml):
             st.error(f"❌ Error processing uploaded file: {str(e)}")
 
 
+def split_diagram_for_page_fit(
+    laid_out_xml, node_df, edges_df, namespaces, process, plane
+):
+    """
+    Splits the BPMN diagram into multiple lines if it exceeds the width of an A4 page in letter orientation.
+    Adds continuation indicators at split points.
+
+    Args:
+        laid_out_xml (str): The current BPMN XML layout.
+        node_df (DataFrame): DataFrame containing node information.
+        edges_df (DataFrame): DataFrame containing edge information.
+        namespaces (dict): Dictionary of BPMN namespaces.
+        process (Element): BPMN process element.
+        plane (Element): BPMN plane element for diagram layout.
+
+    Returns:
+        tuple: Updated XML string and a boolean indicating if splitting occurred.
+    """
+    # Assume A4 width in points (595 pt at 72 DPI), convert to approximate BPMN units
+    A4_WIDTH = 800  # Adjusted based on typical BPMN rendering
+    SPACING_Y = 150  # Vertical spacing between diagram lines
+
+    # Get all shapes and their positions
+    shapes = plane.findall(".//bpmndi:BPMNShape", namespaces)
+    if not shapes:
+        return laid_out_xml, False
+
+    positions = {}
+    for shape in shapes:
+        bpmn_element = shape.get("bpmnElement")
+        bounds = shape.find("dc:Bounds", namespaces)
+        if bounds is not None:
+            x = float(bounds.get("x"))
+            y = float(bounds.get("y"))
+            width = float(bounds.get("width"))
+            height = float(bounds.get("height"))
+            positions[bpmn_element] = {"x": x, "y": y, "width": width, "height": height}
+
+    # Determine diagram width
+    max_x = (
+        max(pos["x"] + pos["width"] for pos in positions.values()) if positions else 0
+    )
+    if max_x <= A4_WIDTH:
+        return laid_out_xml, False
+
+    # Find split points (after join gateways, avoiding open parallel loops)
+    split_points = []
+    current_x = 0
+    node_ids = node_df.index.tolist()
+    for idx, node in node_df.iterrows():
+        node_id = node.name  # Use the index as the node ID
+        # Transform DataFrame ID to match XML ID format
+        xml_node_id = "id_" + node_id.replace("gateway_join_", "gatewayjoin")
+        if xml_node_id in positions:
+            node_x = positions[xml_node_id]["x"]
+            if node_x - current_x > A4_WIDTH:
+                # Check if this is a join gateway or suitable split point
+                if isinstance(node_id, str) and node_id.startswith("gateway_join"):
+                    split_points.append((xml_node_id, node_x))
+                    current_x = node_x
+                else:
+                    # Look for the last join gateway before this point
+                    for prev_node in (
+                        node_df.iloc[: node_ids.index(node_id)].iloc[::-1].itertuples()
+                    ):
+                        prev_node_id = prev_node.Index  # Use the index as the node ID
+                        xml_prev_node_id = "id_" + prev_node_id.replace(
+                            "gateway_join", "gatewayjoin"
+                        )
+                        if (
+                            isinstance(prev_node_id, str)
+                            and prev_node_id.startswith("gateway_join")
+                            and xml_prev_node_id in positions
+                        ):
+                            split_points.append(
+                                (xml_prev_node_id, positions[xml_prev_node_id]["x"])
+                            )
+                            current_x = positions[xml_prev_node_id]["x"]
+                            break
+
+    if not split_points:
+        return laid_out_xml, False
+
+    # Process splits and shift diagram parts
+    split_node_ids = [sp[0] for sp in split_points]
+    line_starts = []
+    current_line_y_offset = 0
+    current_line_start_x = (
+        min(pos["x"] for pos in positions.values()) if positions else 0
+    )
+    line_index = 0
+
+    for split_idx, (split_node_id, split_x) in enumerate(split_points):
+        if split_idx == 0:
+            line_starts.append(current_line_start_x)
+
+        # Determine the lowest y-coordinate in the current line
+        line_nodes = [
+            nid
+            for nid, pos in positions.items()
+            if pos["x"] <= split_x and pos["x"] >= current_line_start_x
+        ]
+        if line_nodes:
+            max_y_in_line = max(
+                positions[nid]["y"] + positions[nid]["height"] for nid in line_nodes
+            )
+            current_line_y_offset = max_y_in_line + SPACING_Y
+        else:
+            current_line_y_offset += SPACING_Y
+
+        # Add continuation indicator at the end of the current line
+        catch_event_id = f"ContinuationCatch_{split_idx}"
+        ET.SubElement(
+            process,
+            "bpmn:intermediateCatchEvent",
+            {"id": catch_event_id, "name": "Continues..."},
+        )
+        catch_event_shape = ET.SubElement(
+            plane,
+            "bpmndi:BPMNShape",
+            {"id": f"{catch_event_id}_di", "bpmnElement": catch_event_id},
+        )
+        catch_event_x = split_x + 50
+        catch_event_y = (
+            positions[split_node_id]["y"]
+            + (positions[split_node_id]["height"] - 36) / 2
+        )  # Center vertically with split node
+        ET.SubElement(
+            catch_event_shape,
+            "dc:Bounds",
+            {
+                "x": str(catch_event_x),
+                "y": str(catch_event_y),
+                "width": "36",
+                "height": "36",
+            },
+        )
+
+        # Connect to the split node
+        flow_id = f"Flow_Continuation_{split_idx}"
+        flow = ET.SubElement(
+            process,
+            "bpmn:sequenceFlow",
+            {"id": flow_id, "sourceRef": split_node_id, "targetRef": catch_event_id},
+        )
+        flow_edge = ET.SubElement(
+            plane, "bpmndi:BPMNEdge", {"id": f"{flow_id}_di", "bpmnElement": flow_id}
+        )
+        ET.SubElement(
+            flow_edge,
+            "di:waypoint",
+            {
+                "x": str(split_x + positions[split_node_id]["width"]),
+                "y": str(catch_event_y + 18),
+            },
+        )
+        ET.SubElement(
+            flow_edge,
+            "di:waypoint",
+            {"x": str(catch_event_x), "y": str(catch_event_y + 18)},
+        )
+
+        # Start of next line with continuation indicator
+        next_catch_event_id = f"ContinuationStart_{split_idx+1}"
+        ET.SubElement(
+            process,
+            "bpmn:intermediateCatchEvent",
+            {"id": next_catch_event_id, "name": "Continued..."},
+        )
+        next_catch_event_shape = ET.SubElement(
+            plane,
+            "bpmndi:BPMNShape",
+            {"id": f"{next_catch_event_id}_di", "bpmnElement": next_catch_event_id},
+        )
+        next_line_start_x = current_line_start_x  # Reset to initial x
+        next_catch_event_x = next_line_start_x - 50
+        next_catch_event_y = (
+            current_line_y_offset + 50
+        )  # Arbitrary y position, will be adjusted with other nodes
+        ET.SubElement(
+            next_catch_event_shape,
+            "dc:Bounds",
+            {
+                "x": str(next_catch_event_x),
+                "y": str(next_catch_event_y),
+                "width": "36",
+                "height": "36",
+            },
+        )
+
+        line_starts.append(next_line_start_x)
+        current_line_start_x = next_line_start_x
+        line_index += 1
+
+    # Now shift all elements after each split point to their new line positions
+    root = ET.fromstring(laid_out_xml)  # Parse the XML once and keep the root
+    process = root.find(".//bpmn:process", namespaces)
+    plane = root.find(".//bpmndi:BPMNPlane", namespaces)
+    shapes = plane.findall(".//bpmndi:BPMNShape", namespaces)
+
+    for line_idx, split_x in enumerate([sp[1] for sp in split_points] + [float("inf")]):
+        if line_idx == 0:
+            continue
+        prev_split_x = split_points[line_idx - 1][1] if line_idx > 0 else float("-inf")
+        line_y_offset = current_line_y_offset * line_idx  # Approximate, will be refined
+        line_start_x = line_starts[line_idx]
+
+        # Find elements in this segment
+        for shape in shapes:
+            bpmn_element = shape.get("bpmnElement")
+            if (
+                bpmn_element in positions
+                and prev_split_x < positions[bpmn_element]["x"] <= split_x
+            ):
+                bounds = shape.find("dc:Bounds", namespaces)
+                old_x = float(bounds.get("x"))
+                old_y = float(bounds.get("y"))
+                rel_x = old_x - prev_split_x
+                new_x = line_start_x + rel_x
+                new_y = old_y + line_y_offset
+                bounds.set("x", str(new_x))
+                bounds.set("y", str(new_y))
+                positions[bpmn_element]["x"] = new_x
+                positions[bpmn_element]["y"] = new_y
+
+        # Adjust edges in this segment
+        for edge in plane.findall(".//bpmndi:BPMNEdge", namespaces):
+            bpmn_element = edge.get("bpmnElement")
+            waypoints = edge.findall("di:waypoint", namespaces)
+            if waypoints:
+                first_wp_x = float(waypoints[0].get("x"))
+                if prev_split_x < first_wp_x <= split_x:
+                    for wp in waypoints:
+                        old_x = float(wp.get("x"))
+                        old_y = float(wp.get("y"))
+                        rel_x = old_x - prev_split_x
+                        new_x = line_start_x + rel_x
+                        new_y = old_y + line_y_offset
+                        wp.set("x", str(new_x))
+                        wp.set("y", str(new_y))
+
+    updated_xml = ET.tostring(root, encoding="utf-8").decode("utf-8")
+    return updated_xml, True
+
+
 def add_special_nodes_and_annotations():
     """
     Adds 'rule' and 'substep' nodes as DataObjectReference elements below their parents
@@ -2432,10 +2677,19 @@ def add_special_nodes_and_annotations():
         process = root.find(".//bpmn:process", namespaces)
         plane = root.find(".//bpmndi:BPMNPlane", namespaces)
 
+        # Optional Step: Split diagram if too wide for A4 page
+        laid_out_xml, was_split = split_diagram_for_page_fit(
+            laid_out_xml, node_df, edges_df, namespaces, process, plane
+        )
+        root = ET.fromstring(laid_out_xml)  # Always update root from laid_out_xml
+        process = root.find(".//bpmn:process", namespaces)
+        plane = root.find(".//bpmndi:BPMNPlane", namespaces)
+        # Ensure the updated XML is stored for consistent use
+        st.session_state["bpmn_layout_result"] = laid_out_xml
+
         # Step 1: Identify "rule" and "substep" nodes
         special_nodes = node_df[node_df["node_type"].isin(["rule", "substeps"])]
         if special_nodes.empty:
-            # st.info("No 'rule' or 'substeps' nodes found. Skipping annotation step.")
             return laid_out_xml
 
         # Step 2: Extract parent positions from the laid-out diagram
