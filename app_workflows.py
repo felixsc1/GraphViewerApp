@@ -2435,7 +2435,7 @@ def add_special_nodes_and_annotations():
         # Step 1: Identify "rule" and "substep" nodes
         special_nodes = node_df[node_df["node_type"].isin(["rule", "substeps"])]
         if special_nodes.empty:
-            st.info("No 'rule' or 'substeps' nodes found. Skipping annotation step.")
+            # st.info("No 'rule' or 'substeps' nodes found. Skipping annotation step.")
             return laid_out_xml
 
         # Step 2: Extract parent positions from the laid-out diagram
@@ -2563,6 +2563,19 @@ def add_special_nodes_and_annotations():
         )
         annotation_y = max_y + 150  # 100 pixels below the main diagram
 
+        # Step 5.5: Find user abbreviations in task nodes and create additional legend entries
+        user_legend_entries = []
+        task_nodes = node_df[node_df["node_type"] == "activity"]
+        # print("task_nodes", task_nodes) # DEBUG
+        if not task_nodes.empty and "user_legend" in st.session_state:
+            user_legend_dict = st.session_state["user_legend"]
+            used_abbreviations = set()
+            for index, row in task_nodes.iterrows():
+                label = str(row["Empfänger"])
+                for abbr, full_name in user_legend_dict.items():
+                    if abbr in label and abbr not in used_abbreviations:
+                        user_legend_entries.append((abbr, full_name))
+                        used_abbreviations.add(abbr)
         # Step 6: Add text annotations horizontally
         annotation_x = 50  # Starting x position
         for annotation_text, counter in annotations:
@@ -2580,6 +2593,36 @@ def add_special_nodes_and_annotations():
             )
             # Calculate height based on annotation_text length
             height = 50 + (len(annotation_text) // 100) * 50
+            ET.SubElement(
+                annotation_shape,
+                "dc:Bounds",
+                {
+                    "x": str(annotation_x),
+                    "y": str(annotation_y),
+                    "width": "300",
+                    "height": str(height),
+                },
+            )
+
+            # Move to the next position (300 width + 50 space)
+            annotation_x += 350
+
+        # Step 6.5: Add user legend entries after numbered annotations
+        for abbr, full_name in user_legend_entries:
+            annotation_id = f"TextAnnotation_user_{abbr}"
+            annotation_text = f"({abbr})\n{full_name}"
+            annotation = ET.SubElement(
+                process, "bpmn:textAnnotation", {"id": annotation_id}
+            )
+            ET.SubElement(annotation, "bpmn:text").text = annotation_text
+
+            # Position the annotation
+            annotation_shape = ET.SubElement(
+                plane,
+                "bpmndi:BPMNShape",
+                {"id": f"{annotation_id}_di", "bpmnElement": annotation_id},
+            )
+            height = 50
             ET.SubElement(
                 annotation_shape,
                 "dc:Bounds",
