@@ -2501,22 +2501,102 @@ def split_diagram_for_page_fit(
             current_line_y_offset += SPACING_Y
 
         # Add continuation indicator at the end of the current line
-        catch_event_id = f"ContinuationCatch_{split_idx}"
+        throw_event_id = f"ContinuationThrow_{split_idx}"
+        flow_id = f"Flow_Continuation_{split_idx}"
+
+        # Create throw event with link definition
+        throw_event = ET.SubElement(
+            process,
+            "bpmn:intermediateThrowEvent",
+            {"id": throw_event_id, "name": "Continues..."},
+        )
+
+        # Add outgoing reference to the throw event
+        ET.SubElement(throw_event, "bpmn:incoming").text = flow_id
+
         ET.SubElement(
+            throw_event,
+            "bpmn:linkEventDefinition",
+            {
+                "id": f"LinkEventDefinition_Throw_{split_idx}",
+                "name": f"ContinuationLink_{split_idx}",
+            },
+        )
+
+        throw_event_shape = ET.SubElement(
+            plane,
+            "bpmndi:BPMNShape",
+            {"id": f"{throw_event_id}_di", "bpmnElement": throw_event_id},
+        )
+        throw_event_x = split_x + 50
+        throw_event_y = (
+            positions[split_node_id]["y"]
+            + (positions[split_node_id]["height"] - 36) / 2
+        )  # Center vertically with split node
+        ET.SubElement(
+            throw_event_shape,
+            "dc:Bounds",
+            {
+                "x": str(throw_event_x),
+                "y": str(throw_event_y),
+                "width": "36",
+                "height": "36",
+            },
+        )
+
+        # Connect to the split node
+        # Add outgoing reference to the split node
+        split_node = process.find(f".//*[@id='{split_node_id}']")
+        if split_node is not None:
+            ET.SubElement(split_node, "bpmn:outgoing").text = flow_id
+
+        flow = ET.SubElement(
+            process,
+            "bpmn:sequenceFlow",
+            {"id": flow_id, "sourceRef": split_node_id, "targetRef": throw_event_id},
+        )
+        flow_edge = ET.SubElement(
+            plane, "bpmndi:BPMNEdge", {"id": f"{flow_id}_di", "bpmnElement": flow_id}
+        )
+        ET.SubElement(
+            flow_edge,
+            "di:waypoint",
+            {
+                "x": str(split_x + positions[split_node_id]["width"]),
+                "y": str(throw_event_y + 18),
+            },
+        )
+        ET.SubElement(
+            flow_edge,
+            "di:waypoint",
+            {"x": str(throw_event_x), "y": str(throw_event_y + 18)},
+        )
+
+        # Start of next line with continuation indicator
+        catch_event_id = f"ContinuationCatch_{split_idx+1}"
+        catch_event = ET.SubElement(
             process,
             "bpmn:intermediateCatchEvent",
-            {"id": catch_event_id, "name": "Continues..."},
+            {"id": catch_event_id, "name": "Continued..."},
+        )
+        ET.SubElement(
+            catch_event,
+            "bpmn:linkEventDefinition",
+            {
+                "id": f"LinkEventDefinition_Catch_{split_idx+1}",
+                "name": f"ContinuationLink_{split_idx}",
+            },
         )
         catch_event_shape = ET.SubElement(
             plane,
             "bpmndi:BPMNShape",
             {"id": f"{catch_event_id}_di", "bpmnElement": catch_event_id},
         )
-        catch_event_x = split_x + 50
+        next_line_start_x = current_line_start_x  # Reset to initial x
+        catch_event_x = next_line_start_x - 50
         catch_event_y = (
-            positions[split_node_id]["y"]
-            + (positions[split_node_id]["height"] - 36) / 2
-        )  # Center vertically with split node
+            current_line_y_offset + 50
+        )  # Arbitrary y position, will be adjusted with other nodes
         ET.SubElement(
             catch_event_shape,
             "dc:Bounds",
@@ -2528,57 +2608,59 @@ def split_diagram_for_page_fit(
             },
         )
 
-        # Connect to the split node
-        flow_id = f"Flow_Continuation_{split_idx}"
-        flow = ET.SubElement(
-            process,
-            "bpmn:sequenceFlow",
-            {"id": flow_id, "sourceRef": split_node_id, "targetRef": catch_event_id},
-        )
-        flow_edge = ET.SubElement(
-            plane, "bpmndi:BPMNEdge", {"id": f"{flow_id}_di", "bpmnElement": flow_id}
-        )
-        ET.SubElement(
-            flow_edge,
-            "di:waypoint",
-            {
-                "x": str(split_x + positions[split_node_id]["width"]),
-                "y": str(catch_event_y + 18),
-            },
-        )
-        ET.SubElement(
-            flow_edge,
-            "di:waypoint",
-            {"x": str(catch_event_x), "y": str(catch_event_y + 18)},
-        )
+        # Connect Catch event to the first node of the next line if it exists
+        next_line_nodes = [
+            nid
+            for nid, pos in positions.items()
+            if pos["x"] >= next_line_start_x
+            and (
+                split_idx + 1 >= len(split_points)
+                or pos["x"] <= split_points[split_idx][1]
+            )
+        ]
+        if next_line_nodes:
+            first_node_id = min(next_line_nodes, key=lambda nid: positions[nid]["x"])
+            flow_id_catch = f"Flow_Continuation_Catch_{split_idx+1}"
 
-        # Start of next line with continuation indicator
-        next_catch_event_id = f"ContinuationStart_{split_idx+1}"
-        ET.SubElement(
-            process,
-            "bpmn:intermediateCatchEvent",
-            {"id": next_catch_event_id, "name": "Continued..."},
-        )
-        next_catch_event_shape = ET.SubElement(
-            plane,
-            "bpmndi:BPMNShape",
-            {"id": f"{next_catch_event_id}_di", "bpmnElement": next_catch_event_id},
-        )
-        next_line_start_x = current_line_start_x  # Reset to initial x
-        next_catch_event_x = next_line_start_x - 50
-        next_catch_event_y = (
-            current_line_y_offset + 50
-        )  # Arbitrary y position, will be adjusted with other nodes
-        ET.SubElement(
-            next_catch_event_shape,
-            "dc:Bounds",
-            {
-                "x": str(next_catch_event_x),
-                "y": str(next_catch_event_y),
-                "width": "36",
-                "height": "36",
-            },
-        )
+            # Add outgoing reference to catch event
+            ET.SubElement(catch_event, "bpmn:outgoing").text = flow_id_catch
+
+            flow_catch = ET.SubElement(
+                process,
+                "bpmn:sequenceFlow",
+                {
+                    "id": flow_id_catch,
+                    "sourceRef": catch_event_id,
+                    "targetRef": first_node_id,
+                },
+            )
+
+            # Add incoming reference to the first node of next line
+            first_node = process.find(f".//*[@id='{first_node_id}']")
+            if first_node is not None:
+                ET.SubElement(first_node, "bpmn:incoming").text = flow_id_catch
+
+            flow_edge_catch = ET.SubElement(
+                plane,
+                "bpmndi:BPMNEdge",
+                {"id": f"{flow_id_catch}_di", "bpmnElement": flow_id_catch},
+            )
+            ET.SubElement(
+                flow_edge_catch,
+                "di:waypoint",
+                {"x": str(catch_event_x + 36), "y": str(catch_event_y + 18)},
+            )
+            ET.SubElement(
+                flow_edge_catch,
+                "di:waypoint",
+                {
+                    "x": str(positions[first_node_id]["x"]),
+                    "y": str(
+                        positions[first_node_id]["y"]
+                        + positions[first_node_id]["height"] / 2
+                    ),
+                },
+            )
 
         line_starts.append(next_line_start_x)
         current_line_start_x = next_line_start_x
@@ -2632,10 +2714,11 @@ def split_diagram_for_page_fit(
                         wp.set("y", str(new_y))
 
     updated_xml = ET.tostring(root, encoding="utf-8").decode("utf-8")
+    # print("updated_xml", updated_xml)
     return updated_xml, True
 
 
-def add_special_nodes_and_annotations():
+def add_special_nodes_and_annotations(split_diagrams=False):
     """
     Adds 'rule' and 'substep' nodes as DataObjectReference elements below their parents
     in the BPMN diagram, connects them with DataOutputAssociation edges, and creates
@@ -2678,14 +2761,15 @@ def add_special_nodes_and_annotations():
         plane = root.find(".//bpmndi:BPMNPlane", namespaces)
 
         # Optional Step: Split diagram if too wide for A4 page
-        laid_out_xml, was_split = split_diagram_for_page_fit(
-            laid_out_xml, node_df, edges_df, namespaces, process, plane
-        )
-        root = ET.fromstring(laid_out_xml)  # Always update root from laid_out_xml
-        process = root.find(".//bpmn:process", namespaces)
-        plane = root.find(".//bpmndi:BPMNPlane", namespaces)
-        # Ensure the updated XML is stored for consistent use
-        st.session_state["bpmn_layout_result"] = laid_out_xml
+        if split_diagrams:
+            laid_out_xml, was_split = split_diagram_for_page_fit(
+                laid_out_xml, node_df, edges_df, namespaces, process, plane
+            )
+            root = ET.fromstring(laid_out_xml)  # Always update root from laid_out_xml
+            process = root.find(".//bpmn:process", namespaces)
+            plane = root.find(".//bpmndi:BPMNPlane", namespaces)
+            # Ensure the updated XML is stored for consistent use
+            st.session_state["bpmn_layout_result"] = laid_out_xml
 
         # Step 1: Identify "rule" and "substep" nodes
         special_nodes = node_df[node_df["node_type"].isin(["rule", "substeps"])]
@@ -3189,23 +3273,12 @@ def show():
                 #     )
 
                 process_bpmn_layout(basic_xml)
+                split_diagrams = st.checkbox("Split long diagrams", value=False)
                 if st.button("Generate Laid-Out BPMN XML"):
-
-                    # Only proceed with annotations if layout completed successfully
-                    if "bpmn_layout_result" in st.session_state:
-                        # Add special nodes and annotations
-                        final_bpmn_xml = add_special_nodes_and_annotations()
-                        # if final_bpmn_xml is not None:
-                        #     st.success("BPMN diagram with annotations completed successfully!")
-                        #     # Add download button for the final XML
-                        #     st.download_button(
-                        #         label="Download Complete BPMN XML",
-                        #         data=final_bpmn_xml,
-                        #         file_name="complete_workflow.bpmn",
-                        #         mime="application/xml"
-                        #     )
+                    result = add_special_nodes_and_annotations(split_diagrams)
+                    if result is not None:
                         # Run bpmn_modeler_component and pass final_bpmn_xml as argument
-                        bpmn_modeler_component(final_bpmn_xml)
+                        bpmn_modeler_component(result)
                         with st.expander("Show Abbreviations:", expanded=False):
                             legend_df = pd.DataFrame.from_dict(
                                 st.session_state["user_legend"],
