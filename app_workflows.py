@@ -45,6 +45,8 @@ def initialize_state():
         "ZREG": "Zuständige Registratur",
         "ÜGFOA": "Übergeordnete Gruppe der federführenden Organisationseinheit des Aktivitätsobjekts",
     }
+    
+    default_standard_activities = ["DialogPortal", "Mdg", "Hintergrundaktivität"]
 
     # Load existing dictionaries from the pickle file, if possible
     pickle_path = os.path.join(workflows_dir, "user_dict.pickle")
@@ -56,6 +58,7 @@ def initialize_state():
                 data = pickle.load(f)
                 loaded_dict = data.get("user_dict", {})
                 loaded_legend = data.get("user_legend", {})
+                loaded_standard_activities = data.get("standard_activities", [])
         except Exception as e:
             st.error(f"Benutzerliste konnte nicht geladen werden: {str(e)}")
 
@@ -64,10 +67,11 @@ def initialize_state():
     loaded_legend.update(default_user_legend)
     st.session_state["user_dict"] = loaded_dict
     st.session_state["user_legend"] = loaded_legend
+    st.session_state["standard_activities"] = loaded_standard_activities
 
     # Save the updated dictionaries
     with open(pickle_path, "wb") as f:
-        pickle.dump({"user_dict": loaded_dict, "user_legend": loaded_legend}, f)
+        pickle.dump({"user_dict": loaded_dict, "user_legend": loaded_legend, "standard_activities": default_standard_activities}, f)
 
 
 def upload_user_list():
@@ -387,9 +391,9 @@ def build_activities_table(xls):
     ]
     activity_types = {"Aktivität": "manual", "Befehlsaktivität": "system"}
 
-    # Step 3: Identify DialogPortal sheets
-    dialog_portal_sheets = [
-        sheet for sheet in xls.sheet_names if sheet.startswith("DialogPortal")
+    # Step 3: Identify sheets based on standard_activities
+    standard_activities_sheets = [
+        sheet for sheet in xls.sheet_names if any(sheet.startswith(activity) for activity in st.session_state["standard_activities"])
     ]
 
     # Step 4: Initialize a list to collect DataFrames from each sheet
@@ -398,14 +402,14 @@ def build_activities_table(xls):
     # Step 5: Process each relevant sheet
     for sheet_name in xls.sheet_names:
         # Check if the sheet is relevant
-        if sheet_name in activity_types or sheet_name in dialog_portal_sheets:
+        if sheet_name in activity_types or sheet_name in standard_activities_sheets:
             # Read the sheet data
             df = pd.read_excel(xls, sheet_name=sheet_name)
 
             # Determine the activity type
             activity_type = activity_types.get(
                 sheet_name, "script"
-            )  # "script" for DialogPortal sheets
+            )  # "script" for standard activity sheets
 
             # Map column patterns to actual column names in the dataframe
             column_mapping = {
