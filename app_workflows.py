@@ -45,7 +45,7 @@ def initialize_state():
         "ZREG": "Zuständige Registratur",
         "ÜGFOA": "Übergeordnete Gruppe der federführenden Organisationseinheit des Aktivitätsobjekts",
     }
-    
+
     default_standard_activities = ["DialogPortal", "Mdg", "Hintergrundaktivität"]
 
     # Load existing dictionaries from the pickle file, if possible
@@ -71,7 +71,14 @@ def initialize_state():
 
     # Save the updated dictionaries
     with open(pickle_path, "wb") as f:
-        pickle.dump({"user_dict": loaded_dict, "user_legend": loaded_legend, "standard_activities": default_standard_activities}, f)
+        pickle.dump(
+            {
+                "user_dict": loaded_dict,
+                "user_legend": loaded_legend,
+                "standard_activities": default_standard_activities,
+            },
+            f,
+        )
 
 
 def upload_user_list():
@@ -393,7 +400,12 @@ def build_activities_table(xls):
 
     # Step 3: Identify sheets based on standard_activities
     standard_activities_sheets = [
-        sheet for sheet in xls.sheet_names if any(sheet.startswith(activity) for activity in st.session_state["standard_activities"])
+        sheet
+        for sheet in xls.sheet_names
+        if any(
+            sheet.startswith(activity)
+            for activity in st.session_state["standard_activities"]
+        )
     ]
 
     # Step 4: Initialize a list to collect DataFrames from each sheet
@@ -2841,13 +2853,14 @@ def add_special_nodes_and_annotations(split_diagrams=False):
                 },
             )
 
-            # Connect with DataOutputAssociation; use parent_key for lookup
+            # Connect with DataOutputAssociation for compatibility with BPMN viewers
             parent_element = process.find(f".//*[@id='{parent_key}']")
             if parent_element is not None:
                 association = ET.SubElement(
                     parent_element, "bpmn:dataOutputAssociation", {"id": association_id}
                 )
                 ET.SubElement(association, "bpmn:targetRef").text = data_ref_id
+                ET.SubElement(association, "bpmn:sourceRef").text = parent_key
 
             # Position DataObjectReference 35 pixels below parent (centered horizontally)
             data_ref_x = parent_pos["x"] + (parent_pos["width"] - 36) / 2
@@ -2868,20 +2881,14 @@ def add_special_nodes_and_annotations(split_diagrams=False):
                 },
             )
 
-            # Add DataOutputAssociation edge with waypoints
+            # Add DataOutputAssociation edge with waypoints and style as dotted line
             edge = ET.SubElement(
                 plane,
                 "bpmndi:BPMNEdge",
-                {"id": f"{association_id}_di", "bpmnElement": association_id},
-            )
-            ET.SubElement(
-                edge,
-                "di:waypoint",
                 {
-                    "x": str(
-                        data_ref_x + 18
-                    ),  # Start at top center of DataObjectReference
-                    "y": str(data_ref_y),
+                    "id": f"{association_id}_di",
+                    "bpmnElement": association_id,
+                    "isMarkerVisible": "true",
                 },
             )
             ET.SubElement(
@@ -2890,9 +2897,24 @@ def add_special_nodes_and_annotations(split_diagrams=False):
                 {
                     "x": str(
                         parent_pos["x"] + parent_pos["width"] / 2
-                    ),  # End at bottom center of parent
+                    ),  # Start at bottom center of parent
                     "y": str(parent_pos["y"] + parent_pos["height"]),
                 },
+            )
+            ET.SubElement(
+                edge,
+                "di:waypoint",
+                {
+                    "x": str(
+                        data_ref_x + 18
+                    ),  # End at top center of DataObjectReference
+                    "y": str(data_ref_y),
+                },
+            )
+            # Add style for dotted line, ensuring correct namespace and structure
+            style = ET.SubElement(edge, "bpmndi:style")
+            ET.SubElement(
+                style, "bpmndi:Stroke", {"dashArray": "5,5", "color": "#000000"}
             )
 
             # Store annotation info
