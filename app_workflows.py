@@ -2118,15 +2118,39 @@ def create_main_flow_bpmn_xml(node_df, edges_df):
             task_type = get_safe_value_bpmn(node_data, "type", "")
             # Format the name to include Empfänger if it exists
             formatted_name = f"({empfanger})\n{name}" if empfanger else name
-            # Truncate if longer than 50 chars, preserving word boundaries
-            if len(formatted_name) > 50:
+
+            # Split long labels into multiple lines at word boundaries
+            def split_label(label, max_chars=15):
+                if len(label) <= max_chars:
+                    return label
+                words = label.split(" ")
+                lines = []
+                current_line = ""
+                for word in words:
+                    if len(current_line) + len(word) + 1 <= max_chars:
+                        current_line += word + " "
+                    else:
+                        if current_line:
+                            lines.append(current_line.strip())
+                        current_line = word + " "
+                if current_line:
+                    lines.append(current_line.strip())
+                return "\n".join(lines)
+
+            formatted_name = split_label(formatted_name)
+            # Truncate if longer than 50 chars after splitting, preserving word boundaries
+            if len(formatted_name.replace("\n", " ")) > 50:
                 truncated = formatted_name[:50]
                 last_space = truncated.rfind(" ")
-                formatted_name = (
-                    formatted_name[:last_space] + "..."
-                    if last_space > 0
-                    else formatted_name[:47] + "..."
+                last_newline = truncated.rfind("\n")
+                cut_point = (
+                    max(last_space, last_newline)
+                    if last_space > 0 or last_newline > 0
+                    else 47
                 )
+                formatted_name = truncated[:cut_point] + "..."
+            # Add some spaces at the beginning of the label to prevent overlap
+            formatted_name = "  " + formatted_name
 
             if task_type == "manual":
                 element = ET.SubElement(
@@ -2914,7 +2938,7 @@ def add_special_nodes_and_annotations(split_diagrams=False):
 
             # Position DataObjectReference 35 pixels below parent (centered horizontally)
             data_ref_x = parent_pos["x"] + (parent_pos["width"] - 36) / 2
-            data_ref_y = parent_pos["y"] + parent_pos["height"] + 35
+            data_ref_y = parent_pos["y"] + parent_pos["height"] + 30
             data_ref_shape = ET.SubElement(
                 plane,
                 "bpmndi:BPMNShape",
