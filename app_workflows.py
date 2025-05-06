@@ -876,7 +876,7 @@ def generate_additional_nodes(activities_table, groups_table):
 
         # Handle different Erledigungsmodus types
         if erledigungsmodus == "AllBranches":
-            # For AllBranches, we only need gateway nodes with + symbol
+            # For AllBranches, we only need gateway nodes with + symbol by default
             gateway_split_id = generate_node_id(
                 "gateway_split", {"group_id": group_id, "type": "split"}
             )
@@ -888,16 +888,71 @@ def generate_additional_nodes(activities_table, groups_table):
             gateway_split_seq = min_seq - 1  # Just before first child
             gateway_join_seq = max_seq + 1  # Just after last child
 
-            # Create nodes dataframe for AllBranches (only gateways)
-            new_nodes = pd.DataFrame(
-                {
-                    "node_id": [gateway_split_id, gateway_join_id],
-                    "node_type": ["gateway", "gateway"],
-                    "parent": [group_id, group_id],
-                    "SequenceNumber": [gateway_split_seq, gateway_join_seq],
-                    "label": ["+", "+"],  # Plus symbol for AllBranches
-                }
-            ).set_index("node_id")
+            # Check if there's a valid parallel_condition_expression
+            has_condition_expr = pd.notna(
+                groups_table.loc[group_id, "parallel_condition_expression"]
+            )
+
+            if has_condition_expr:
+                # If condition exists, treat like AnyBranch/OnlyOneBranch with decision node
+                decision_node_id = generate_node_id(
+                    "decision", {"group_id": group_id, "type": erledigungsmodus}
+                )
+                decision_seq = min_seq - 2  # Decision comes before gateway
+
+                # Get condition name for label
+                parallel_condition = groups_table.loc[
+                    group_id, "parallel_condition_name"
+                ]
+                if pd.isna(parallel_condition) or str(parallel_condition) == "None":
+                    decision_label = "Entscheid"
+                else:
+                    decision_label = "Entscheid\n" + str(parallel_condition).replace(
+                        ";", "\n"
+                    )
+
+                # Optionally add rule node if expression exists
+                rule_node_id = generate_node_id(
+                    "rule", {"group_id": group_id, "type": erledigungsmodus}
+                )
+                rule_seq = -1  # Rule not in main sequence
+
+                # Create nodes dataframe for AllBranches with condition (gateways + decision + rule)
+                new_nodes = pd.DataFrame(
+                    {
+                        "node_id": [
+                            decision_node_id,
+                            gateway_split_id,
+                            gateway_join_id,
+                            rule_node_id,
+                        ],
+                        "node_type": ["decision", "gateway", "gateway", "rule"],
+                        "parent": [group_id, group_id, group_id, decision_node_id],
+                        "SequenceNumber": [
+                            decision_seq,
+                            gateway_split_seq,
+                            gateway_join_seq,
+                            rule_seq,
+                        ],
+                        "label": [
+                            decision_label,
+                            "+",
+                            "+",
+                            groups_table.loc[group_id, "parallel_condition_expression"],
+                        ],  # Plus symbol for AllBranches gateways
+                    }
+                ).set_index("node_id")
+            else:
+                # Create nodes dataframe for AllBranches without condition (only gateways)
+                new_nodes = pd.DataFrame(
+                    {
+                        "node_id": [gateway_split_id, gateway_join_id],
+                        "node_type": ["gateway", "gateway"],
+                        "parent": [group_id, group_id],
+                        "SequenceNumber": [gateway_split_seq, gateway_join_seq],
+                        "label": ["+", "+"],  # Plus symbol for AllBranches
+                    }
+                ).set_index("node_id")
 
         else:
             # For AnyBranch and OnlyOneBranch, include decision and rule nodes
@@ -1285,12 +1340,23 @@ def build_edges_table(updated_nodes, updated_groups):
                 if decision_label and "\n" in decision_label:
                     decision_labels = decision_label.split("\n")[1:]
 
+            # Also extract labels from parallel_condition_name column if available
+            parallel_labels = []
+            if "parallel_condition_name" in group and pd.notna(
+                group["parallel_condition_name"]
+            ):
+                parallel_labels = group["parallel_condition_name"].split(";")
+                parallel_labels = [
+                    label.strip() for label in parallel_labels if label.strip()
+                ]
+
             # Identify branches between split and join
             split_seq = next(seq for _, c_id, seq in children if c_id == split)
             join_seq = next(seq for _, c_id, seq in children if c_id == join)
             branches = [c for c in children if split_seq < c[2] < join_seq]
 
             # Connect branches
+            used_labels = set()  # Track used labels to avoid duplicates
             branch_index = 0
             for b_type, b_id, _ in branches:
                 if b_type == "node":
@@ -1302,25 +1368,85 @@ def build_edges_table(updated_nodes, updated_groups):
                     if (split, b_id) not in edge_set:
                         edges.append((split, b_id))
                         edge_set.add((split, b_id))
-                        if branch_index < len(decision_labels):
+                        if (
+                            branch_index < len(parallel_labels)
+                            and parallel_labels[branch_index] not in used_labels
+                        ):
+                            edge_labels[(split, b_id)] = parallel_labels[branch_index]
+                            used_labels.add(parallel_labels[branch_index])
+                            branch_index += 1
+                        elif (
+                            branch_index < len(decision_labels)
+                            and decision_labels[branch_index] not in used_labels
+                        ):
                             edge_labels[(split, b_id)] = decision_labels[branch_index]
+                            used_labels.add(decision_labels[branch_index])
                             branch_index += 1
                     if (b_id, join) not in edge_set:
                         edges.append((b_id, join))
                         edge_set.add((b_id, join))
                 elif b_type == "group":
-                    b_first, b_last = process_group(b_id)
-                    if b_first and (split, b_first) not in edge_set:
-                        edges.append((split, b_first))
-                        edge_set.add((split, b_first))
-                        if branch_index < len(decision_labels):
-                            edge_labels[(split, b_first)] = decision_labels[
-                                branch_index
-                            ]
-                            branch_index += 1
-                    if b_last and (b_last, join) not in edge_set:
-                        edges.append((b_last, join))
-                        edge_set.add((b_last, join))
+                    # Check if the subgroup is empty (no activity nodes)
+                    subgroup_nodes = updated_nodes[updated_nodes["parent"] == b_id]
+                    has_activity = False
+                    for node_id in subgroup_nodes.index:
+                        if (
+                            get_safe_value_bpmn(
+                                subgroup_nodes.loc[node_id], "node_type"
+                            )
+                            == "activity"
+                        ):
+                            has_activity = True
+                            break
+                    if not has_activity:
+                        # Empty subgroup, connect split directly to join
+                        if (split, join) not in edge_set:
+                            edges.append((split, join))
+                            edge_set.add((split, join))
+                            if (
+                                branch_index < len(parallel_labels)
+                                and parallel_labels[branch_index] not in used_labels
+                            ):
+                                edge_labels[(split, join)] = parallel_labels[
+                                    branch_index
+                                ]
+                                used_labels.add(parallel_labels[branch_index])
+                                branch_index += 1
+                            elif (
+                                branch_index < len(decision_labels)
+                                and decision_labels[branch_index] not in used_labels
+                            ):
+                                edge_labels[(split, join)] = decision_labels[
+                                    branch_index
+                                ]
+                                used_labels.add(decision_labels[branch_index])
+                                branch_index += 1
+                    else:
+                        b_first, b_last = process_group(b_id)
+                        if b_first and (split, b_first) not in edge_set:
+                            edges.append((split, b_first))
+                            edge_set.add((split, b_first))
+                            if (
+                                branch_index < len(parallel_labels)
+                                and parallel_labels[branch_index] not in used_labels
+                            ):
+                                edge_labels[(split, b_first)] = parallel_labels[
+                                    branch_index
+                                ]
+                                used_labels.add(parallel_labels[branch_index])
+                                branch_index += 1
+                            elif (
+                                branch_index < len(decision_labels)
+                                and decision_labels[branch_index] not in used_labels
+                            ):
+                                edge_labels[(split, b_first)] = decision_labels[
+                                    branch_index
+                                ]
+                                used_labels.add(decision_labels[branch_index])
+                                branch_index += 1
+                        if b_last and (b_last, join) not in edge_set:
+                            edges.append((b_last, join))
+                            edge_set.add((b_last, join))
 
             return first_node, join
 
