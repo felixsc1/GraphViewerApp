@@ -1184,6 +1184,26 @@ def build_edges_table(updated_nodes, updated_groups):
         # Sort by SequenceNumber
         children.sort(key=lambda x: x[2])
 
+        # Determine if there are subgroups with higher sequence numbers than activities for skip handling
+        activity_seqs = [
+            seq
+            for c_type, child_id, seq in children
+            if c_type == "node"
+            and child_id in updated_nodes.index
+            and get_safe_value_bpmn(updated_nodes.loc[child_id], "node_type")
+            == "activity"
+        ]
+        subgroup_seqs = [seq for c_type, _, seq in children if c_type == "group"]
+        has_subgroup_with_higher_seq = (
+            any(
+                sub_seq > act_seq
+                for sub_seq in subgroup_seqs
+                for act_seq in activity_seqs
+            )
+            if activity_seqs and subgroup_seqs
+            else False
+        )
+
         # Handle both 'sequential' and 'process' types similarly
         if get_safe_value_bpmn(group, "type") in ["sequential", "process"]:
             first_node = None
@@ -1218,7 +1238,7 @@ def build_edges_table(updated_nodes, updated_groups):
                         last_node = subgroup_last
 
             # Handle skip and repeat within sequential/process groups
-            handle_skip(group, children)
+            handle_skip(group, children, has_subgroup_with_higher_seq)
             handle_repeat(group, children)
             return first_node, last_node
 
@@ -1308,10 +1328,17 @@ def build_edges_table(updated_nodes, updated_groups):
             print(f"Unknown group type: {get_safe_value_bpmn(group, 'type')}")
             return None, None
 
-    def handle_skip(group, children):
-        """Handle skip constructs within a group."""
+    def handle_skip(group, children, has_subgroup_with_higher_seq=False):
+        """Handle skip constructs within a group.
+
+        Args:
+            group: The group being processed.
+            children: List of child nodes and groups within the group.
+            has_subgroup_with_higher_seq: Boolean indicating if a subgroup with a higher sequence number than the last activity exists.
+        """
         decision = split = join = activity = None
-        for c_type, c_id, _ in children:
+        activities = []
+        for c_type, c_id, seq in children:
             if c_type == "node":
                 if "skip_decision" in c_id:
                     decision = c_id
@@ -1324,6 +1351,7 @@ def build_edges_table(updated_nodes, updated_groups):
                     == "activity"
                 ):
                     activity = c_id
+                    activities.append((c_id, seq))
 
         if decision and split and join and activity:
             if (decision, split) not in edge_set:
@@ -1332,9 +1360,12 @@ def build_edges_table(updated_nodes, updated_groups):
             if (split, activity) not in edge_set:
                 edges.append((split, activity))
                 edge_set.add((split, activity))
-            if (activity, join) not in edge_set:
-                edges.append((activity, join))
-                edge_set.add((activity, join))
+            # Only connect the last activity to join if there is no subgroup with higher sequence number
+            if not has_subgroup_with_higher_seq and activities:
+                last_activity = activities[-1][0]
+                if (last_activity, join) not in edge_set:
+                    edges.append((last_activity, join))
+                    edge_set.add((last_activity, join))
             if (split, join) not in edge_set:
                 edges.append((split, join))
                 edge_set.add((split, join))
