@@ -194,6 +194,16 @@ def show():
                                     else r["path"]
                                 ),
                                 "Description": r["description"],
+                                "XPath": (
+                                    "/".join(
+                                        [
+                                            "data:" + node
+                                            for node in r["path"].split(" > ")[1:]
+                                        ]
+                                    )
+                                    if len(r["path"].split(" > ")) > 1
+                                    else "data:" + r["path"]
+                                ),
                             }
                             for r in results
                         ]
@@ -201,11 +211,17 @@ def show():
                 else:
                     results_df = pd.DataFrame(
                         [
-                            {"Path": r["path"], "Description": r["description"]}
+                            {
+                                "Path": r["path"],
+                                "Description": r["description"],
+                                "XPath": "/".join(
+                                    ["data:" + node for node in r["path"].split(" > ")]
+                                ),
+                            }
                             for r in results
                         ]
                     )
-                st.dataframe(results_df)
+                st.dataframe(results_df, use_container_width=True)
 
             else:
                 st.write(
