@@ -12,13 +12,15 @@ import logging
 import warnings
 
 # Suppress Streamlit warnings
-logging.getLogger('streamlit').setLevel(logging.CRITICAL) # prevent spam during multiprocessing functions
+logging.getLogger("streamlit").setLevel(
+    logging.CRITICAL
+)  # prevent spam during multiprocessing functions
 # Suppress specific Streamlit warnings
 warnings.filterwarnings("ignore", category=UserWarning, module="streamlit")
 
 # Suppress Streamlit warnings
-logging.getLogger('streamlit.runtime.scriptrunner_utils').setLevel(logging.CRITICAL)
-logging.getLogger('streamlit.runtime.caching.cache_data_api').setLevel(logging.CRITICAL)
+logging.getLogger("streamlit.runtime.scriptrunner_utils").setLevel(logging.CRITICAL)
+logging.getLogger("streamlit.runtime.caching.cache_data_api").setLevel(logging.CRITICAL)
 
 st.set_page_config(page_title="GraphViewer App", page_icon="📊", layout="wide")
 
@@ -28,26 +30,49 @@ st.set_page_config(page_title="GraphViewer App", page_icon="📊", layout="wide"
 #     "Go to", ["Data Processing", "Search RefID", "Graph Viewer"]
 # )
 
-st.sidebar.title("Navigation")
-if 'selection' not in st.session_state:
-    st.session_state['selection'] = "Search RefID"
+if "selection" not in st.session_state:
+    st.session_state["selection"] = "Search RefID"
 
-# Use the session state to determine the current selection
-selection = st.sidebar.radio(
-    "Go to", ["Data Processing", "Search RefID", "Graph Viewer", "Analysis", "Prozess-Workflows", "Path Viewer"],
-    index=["Data Processing", "Search RefID", "Graph Viewer", "Analysis", "Prozess-Workflows", "Path Viewer"].index(st.session_state['selection'])
+# Use buttons instead of radio for navigation with icons
+st.sidebar.title("Navigation")
+
+# Add custom CSS to left-justify button text
+st.sidebar.markdown(
+    """
+<style>
+    div.stButton > button {
+        text-align: left;
+        justify-content: flex-start;
+    }
+</style>
+""",
+    unsafe_allow_html=True,
 )
 
-# Update session state based on sidebar selection
-st.session_state['selection'] = selection
+# Dictionary mapping selections to their titles with icons
+page_options = {
+    "Data Processing": "🗄️ Data Processing",
+    "Search RefID": "🔍 Search ReferenceIDs",
+    "Graph Viewer": "📊 Graph Viewer",
+    "Analysis": "👨‍💻 Analysis",
+    "Prozess-Workflows": "🔀 Prozess-Workflows",
+    "Path Viewer": "🏞 Path Viewer",
+}
 
+# Create a button for each page
+for page_key, page_title in page_options.items():
+    if st.sidebar.button(page_title, use_container_width=True):
+        st.session_state["selection"] = page_key
 
-if 'cwd' not in st.session_state:
+selection = st.session_state["selection"]
+
+if "cwd" not in st.session_state:
     # Get the directory where the current file (app.py) is located
     app_dir = os.path.dirname(os.path.abspath(__file__))
-    st.session_state['cwd'] = app_dir
-if 'file_versions' not in st.session_state or not st.session_state['file_versions']:
+    st.session_state["cwd"] = app_dir
+if "file_versions" not in st.session_state or not st.session_state["file_versions"]:
     _, _, _ = get_data_version()
+
 
 # --- used in sub-pages---
 @st.cache_data
@@ -67,7 +92,7 @@ if selection == "Data Processing":
 elif selection == "Graph Viewer":
     # st.title("Organisationen")
     app_graph.show()
-    
+
 elif selection == "Search RefID":
     st.title("🔍 Search ReferenceIDs")
     app_search.show()
