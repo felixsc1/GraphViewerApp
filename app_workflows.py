@@ -1509,26 +1509,26 @@ def build_edges_table(updated_nodes, updated_groups):
                             has_activity = True
                             break
                     if not has_activity:
-                        # Empty subgroup, connect split directly to join
-                        if (split, join) not in edge_set:
+                        # Empty subgroup, connect split directly to join with unique edge for this branch
+                        # Store the branch ID in the edge tuple for later identification
+                        edge_tuple = (split, join, b_id)
+                        if edge_tuple not in edge_set:
                             edges.append((split, join))
-                            edge_set.add((split, join))
+                            edge_set.add(
+                                edge_tuple
+                            )  # Use a unique tuple to allow multiple edges between split and join
                             if (
                                 branch_index < len(parallel_labels)
                                 and parallel_labels[branch_index] not in used_labels
                             ):
-                                edge_labels[(split, join)] = parallel_labels[
-                                    branch_index
-                                ]
+                                edge_labels[edge_tuple] = parallel_labels[branch_index]
                                 used_labels.add(parallel_labels[branch_index])
                                 branch_index += 1
                             elif (
                                 branch_index < len(decision_labels)
                                 and decision_labels[branch_index] not in used_labels
                             ):
-                                edge_labels[(split, join)] = decision_labels[
-                                    branch_index
-                                ]
+                                edge_labels[edge_tuple] = decision_labels[branch_index]
                                 used_labels.add(decision_labels[branch_index])
                                 branch_index += 1
                     else:
@@ -1690,8 +1690,25 @@ def build_edges_table(updated_nodes, updated_groups):
 
     # Assign labels to edges
     edges_df["label"] = None
+    # Create a map from (source, target) to all matching edge tuples in edge_set
+    edge_tuples_map = defaultdict(list)
+    for edge_tuple in edge_set:
+        if len(edge_tuple) == 3:  # It's a special edge with branch ID
+            source, target, branch_id = edge_tuple
+            edge_tuples_map[(source, target)].append(edge_tuple)
+
+    # Apply labels to edges
     for i, (source, target) in enumerate(zip(edges_df["source"], edges_df["target"])):
-        if (source, target) in edge_labels:
+        # Check if there are any special edges with this source-target pair
+        if (source, target) in edge_tuples_map and edge_tuples_map[(source, target)]:
+            # Get the label from the first matching edge tuple
+            edge_tuple = edge_tuples_map[(source, target)][0]
+            if edge_tuple in edge_labels:
+                edges_df.loc[i, "label"] = edge_labels[edge_tuple]
+                # Remove this tuple to prevent reuse for other edges with same source-target
+                edge_tuples_map[(source, target)].remove(edge_tuple)
+        # Fallback to standard (source, target) key if no special edge or no label found
+        elif pd.isna(edges_df.loc[i, "label"]) and (source, target) in edge_labels:
             edges_df.loc[i, "label"] = edge_labels[(source, target)]
 
     edges_df["style"] = "solid_arrow"
