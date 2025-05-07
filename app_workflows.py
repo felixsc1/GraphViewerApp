@@ -255,6 +255,116 @@ def upload_user_list():
             st.exception(e)
 
 
+def modify_user_entries():
+    """Handles displaying and editing user entries in the User Management section."""
+    st.subheader("Current Entries")
+    if st.session_state["user_dict"] or st.session_state["user_legend"]:
+        # Create a DataFrame for display
+        entries = []
+        for transport_id, abbr in st.session_state["user_dict"].items():
+            full_name = st.session_state["user_legend"].get(abbr, "")
+            entries.append(
+                {
+                    "Transport ID": transport_id,
+                    "Display Name": abbr,
+                    "Full Name": full_name,
+                }
+            )
+        df = pd.DataFrame(entries)
+        st.dataframe(df)
+
+        # Allow editing
+        st.subheader("Edit Entries")
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            selected_id = st.selectbox(
+                "Select ID to Edit",
+                options=list(st.session_state["user_dict"].keys()),
+                key="edit_id",
+            )
+        with col2:
+            new_abbr = st.text_input(
+                "New Display Name",
+                value=st.session_state["user_dict"].get(selected_id, ""),
+                key="edit_abbr",
+            )
+        with col3:
+            new_full_name = st.text_input(
+                "New Full Name (Optional, for Legend)",
+                value=st.session_state["user_legend"].get(
+                    st.session_state["user_dict"].get(selected_id, ""), ""
+                ),
+                key="edit_full_name",
+            )
+
+        if st.button("Save Changes"):
+            # Update session state
+            old_abbr = st.session_state["user_dict"][selected_id]
+            st.session_state["user_dict"][selected_id] = new_abbr
+            if old_abbr in st.session_state["user_legend"]:
+                del st.session_state["user_legend"][old_abbr]
+            if new_full_name:
+                st.session_state["user_legend"][new_abbr] = new_full_name
+
+            # Save to pickle
+            workflows_dir = os.path.join(st.session_state["cwd"], "data", "workflows")
+            pickle_path = os.path.join(workflows_dir, "user_dict.pickle")
+            with open(pickle_path, "wb") as f:
+                pickle.dump(
+                    {
+                        "user_dict": st.session_state["user_dict"],
+                        "user_legend": st.session_state["user_legend"],
+                    },
+                    f,
+                )
+            st.success("Changes saved successfully!")
+
+    # Add new entries
+    st.subheader("Add New Entry")
+    new_id = st.text_input("Transport ID", key="new_id")
+    new_abbr = st.text_input("Display Name", key="new_abbr")
+    new_full_name = st.text_input("Full Name", key="new_full_name")
+    if st.button("Add Entry"):
+        if new_id and new_abbr:
+            st.session_state["user_dict"][new_id] = new_abbr
+            if new_full_name:
+                st.session_state["user_legend"][new_abbr] = new_full_name
+
+            # Save to pickle
+            workflows_dir = os.path.join(st.session_state["cwd"], "data", "workflows")
+            pickle_path = os.path.join(workflows_dir, "user_dict.pickle")
+            with open(pickle_path, "wb") as f:
+                pickle.dump(
+                    {
+                        "user_dict": st.session_state["user_dict"],
+                        "user_legend": st.session_state["user_legend"],
+                    },
+                    f,
+                )
+            st.success("New entry added successfully!")
+        else:
+            st.error("Transport ID and Display Name are required!")
+
+    if st.button("⚠️ Reset Benutzerliste", type="primary"):
+        # Reset session state
+        st.session_state["user_dict"] = {}
+        st.session_state["user_legend"] = {}
+
+        # Delete the pickle file if it exists
+        workflows_dir = os.path.join(st.session_state["cwd"], "data", "workflows")
+        pickle_path = os.path.join(workflows_dir, "user_dict.pickle")
+        try:
+            if os.path.exists(pickle_path):
+                os.remove(pickle_path)
+                st.success("User list and pickle file successfully reset")
+            else:
+                st.info("No pickle file found to delete")
+        except Exception as e:
+            st.error(f"Error deleting pickle file: {str(e)}")
+        else:
+            st.info("User list has been reset")
+
+
 def upload_dossier():
     uploaded_file = st.file_uploader("Excel File with Process Export", type=["xlsx"])
     if uploaded_file is not None:
@@ -3384,24 +3494,7 @@ def show():
         )
         st.subheader("Upload Data")
         upload_user_list()
-        if st.button("Reset Benutzerliste"):
-            # Reset session state
-            st.session_state["user_dict"] = {}
-            st.session_state["user_legend"] = {}
-
-            # Delete the pickle file if it exists
-            workflows_dir = os.path.join(st.session_state["cwd"], "data", "workflows")
-            pickle_path = os.path.join(workflows_dir, "user_dict.pickle")
-            try:
-                if os.path.exists(pickle_path):
-                    os.remove(pickle_path)
-                    st.success("User list and pickle file successfully reset")
-                else:
-                    st.info("No pickle file found to delete")
-            except Exception as e:
-                st.error(f"Error deleting pickle file: {str(e)}")
-            else:
-                st.info("User list has been reset")
+        modify_user_entries()  # All user management logic moved here
 
     st.subheader("Upload Prozess Export")
     xls = upload_dossier()
