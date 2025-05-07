@@ -122,7 +122,7 @@ def get_all_node_names(node, name_set=None):
 # Main application
 def show():
     # Streamlit interface
-    st.title("XML Schema Search Tool")
+    st.subheader("XML Schema Search Tool")
 
     # Load the Excel file
     uploaded_file = st.file_uploader("Upload Excel", type=["xlsx"])
@@ -145,12 +145,19 @@ def show():
             # Perform search
             results = search_tree(root, keyword)
 
-            # Get unique node names from paths in search results
-            relevant_node_names = set()
+            # Get unique node names from paths in search results, ordered by appearance and excluding root node and keyword
+            relevant_node_names = []
+            seen = set()
             for result in results:
                 path_nodes = result["path"].split(" > ")
-                relevant_node_names.update(path_nodes)
-            relevant_node_names = sorted(list(relevant_node_names))
+                for node in path_nodes:
+                    if (
+                        node not in seen
+                        and node != root.name
+                        and str(keyword).lower() not in str(node).lower()
+                    ):
+                        relevant_node_names.append(node)
+                        seen.add(node)
 
             # Multiselect for path filtering, only shown after keyword is entered
             path_filters = st.multiselect(
