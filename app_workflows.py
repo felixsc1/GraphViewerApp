@@ -3591,13 +3591,6 @@ def show():
                     if result is not None:
                         # Run bpmn_modeler_component and pass final_bpmn_xml as argument
                         bpmn_modeler_component(result)
-                        with st.expander("Show Abbreviations:", expanded=False):
-                            legend_df = pd.DataFrame.from_dict(
-                                st.session_state["user_legend"],
-                                orient="index",
-                                columns=["Description"],
-                            )
-                            st.dataframe(legend_df)
                     else:
                         st.info(
                             "Please wait for the layout processing to complete and then try again."
