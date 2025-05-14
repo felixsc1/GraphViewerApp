@@ -55,7 +55,7 @@ page_options = {
     "Search RefID": "🔍 Search ReferenceIDs",
     "Graph Viewer": "📊 Graph Viewer",
     "Analysis": "👨‍💻 Analysis",
-    "Prozess-Workflows": "🔀 Prozess-Workflows",
+    "Prozess Viewer": "🔀 Prozess Viewer",
     "Path Viewer": "🏞 Path Viewer",
 }
 
@@ -101,8 +101,8 @@ elif selection == "Analysis":
     st.title("👨‍💻 Analysis")
     app_analysis.show()
 
-elif selection == "Prozess-Workflows":
-    st.title("🔀 Prozess-Workflows")
+elif selection == "Prozess Viewer":
+    st.title("🔀 Prozess Viewer")
     app_workflows.show()
 
 elif selection == "Path Viewer":
