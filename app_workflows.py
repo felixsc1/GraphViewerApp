@@ -1496,39 +1496,50 @@ def build_edges_table(updated_nodes, updated_groups):
                         edges.append((b_id, join))
                         edge_set.add((b_id, join))
                 elif b_type == "group":
-                    # Check if the subgroup is empty (no activity nodes)
-                    subgroup_nodes = updated_nodes[updated_nodes["parent"] == b_id]
-                    has_activity = False
-                    for node_id in subgroup_nodes.index:
-                        if (
-                            get_safe_value_bpmn(
-                                subgroup_nodes.loc[node_id], "node_type"
-                            )
-                            == "activity"
-                        ):
-                            has_activity = True
-                            break
+                    # Check if the subgroup or any nested group contains activity nodes
+                    def has_activity_in_group(group_id):
+                        subgroup_nodes = updated_nodes[
+                            updated_nodes["parent"] == group_id
+                        ]
+                        for node_id in subgroup_nodes.index:
+                            if (
+                                get_safe_value_bpmn(
+                                    subgroup_nodes.loc[node_id], "node_type"
+                                )
+                                == "activity"
+                            ):
+                                return True
+                        # Check nested groups
+                        nested_groups = updated_groups[
+                            updated_groups["parent"] == group_id
+                        ]
+                        for nested_group_id in nested_groups.index:
+                            if has_activity_in_group(nested_group_id):
+                                return True
+                        return False
+
+                    has_activity = has_activity_in_group(b_id)
                     if not has_activity:
-                        # Empty subgroup, connect split directly to join with unique edge for this branch
-                        # Store the branch ID in the edge tuple for later identification
-                        edge_tuple = (split, join, b_id)
-                        if edge_tuple not in edge_set:
+                        # Empty subgroup, connect split directly to join
+                        if (split, join) not in edge_set:
                             edges.append((split, join))
-                            edge_set.add(
-                                edge_tuple
-                            )  # Use a unique tuple to allow multiple edges between split and join
+                            edge_set.add((split, join))
                             if (
                                 branch_index < len(parallel_labels)
                                 and parallel_labels[branch_index] not in used_labels
                             ):
-                                edge_labels[edge_tuple] = parallel_labels[branch_index]
+                                edge_labels[(split, join)] = parallel_labels[
+                                    branch_index
+                                ]
                                 used_labels.add(parallel_labels[branch_index])
                                 branch_index += 1
                             elif (
                                 branch_index < len(decision_labels)
                                 and decision_labels[branch_index] not in used_labels
                             ):
-                                edge_labels[edge_tuple] = decision_labels[branch_index]
+                                edge_labels[(split, join)] = decision_labels[
+                                    branch_index
+                                ]
                                 used_labels.add(decision_labels[branch_index])
                                 branch_index += 1
                     else:
