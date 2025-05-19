@@ -1850,6 +1850,21 @@ def build_edges_table(updated_nodes, updated_groups):
                     activity = c_id
                     activities.append((c_id, seq))
 
+        if split and join:
+            if (split, join) not in edge_set:
+                edges.append((split, join))
+                edge_set.add((split, join))
+
+                # Extract skip condition label from decision node if available
+                if decision in updated_nodes.index:
+                    decision_label = get_safe_value_bpmn(
+                        updated_nodes.loc[decision], "label", ""
+                    )
+                    if decision_label and "\n" in decision_label:
+                        # Second line is the edge label for the skip path
+                        skip_label = decision_label.split("\n")[1]
+                        edge_labels[(split, join)] = skip_label
+
         if decision and split and join and activity:
             if (decision, split) not in edge_set:
                 edges.append((decision, split))
@@ -1863,19 +1878,6 @@ def build_edges_table(updated_nodes, updated_groups):
                 if (last_activity, join) not in edge_set:
                     edges.append((last_activity, join))
                     edge_set.add((last_activity, join))
-            if (split, join) not in edge_set:
-                edges.append((split, join))
-                edge_set.add((split, join))
-
-                # Extract skip condition label from decision node
-                if decision in updated_nodes.index:
-                    decision_label = get_safe_value_bpmn(
-                        updated_nodes.loc[decision], "label", ""
-                    )
-                    if decision_label and "\n" in decision_label:
-                        # Second line is the edge label for the skip path
-                        skip_label = decision_label.split("\n")[1]
-                        edge_labels[(split, join)] = skip_label
 
     def handle_repeat(group, children):
         """Handle repeat constructs within a group."""
@@ -1894,6 +1896,11 @@ def build_edges_table(updated_nodes, updated_groups):
                 ):
                     activity = c_id
 
+        if gateway_split and gateway_join:
+            if (gateway_split, gateway_join) not in edge_set:
+                edges.append((gateway_split, gateway_join))
+                edge_set.add((gateway_split, gateway_join))
+
         if decision and gateway_split and gateway_join and activity:
             if (gateway_join, activity) not in edge_set:
                 edges.append((gateway_join, activity))
@@ -1902,8 +1909,6 @@ def build_edges_table(updated_nodes, updated_groups):
                 edges.append((activity, decision))
             if (decision, gateway_split) not in edge_set:
                 edges.append((decision, gateway_split))
-            if (gateway_split, gateway_join) not in edge_set:
-                edges.append((gateway_split, gateway_join))
 
             # Extract repeat condition label from decision node
             if decision in updated_nodes.index:
