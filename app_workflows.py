@@ -645,6 +645,7 @@ def build_groups_table(xls):
         "Prozess": "process",
         "Platzhalter für sequentielle Ak": "sequential",
         "Platzhalter für parallele Aktiv": "parallel",
+        "Platzhalter für Aktivitäten nac": "parallel",
     }
 
     # Initialize a list to collect group DataFrames
@@ -653,7 +654,7 @@ def build_groups_table(xls):
     # Process each group sheet
     for sheet_name, group_type in group_sheets.items():
         if sheet_name not in xls.sheet_names:
-            print(f"Warning: Sheet '{sheet_name}' not found in the Excel file.")
+            # print(f"Warning: Sheet '{sheet_name}' not found in the Excel file.")
             continue
 
         df = pd.read_excel(xls, sheet_name=sheet_name)
@@ -857,6 +858,132 @@ def build_groups_table(xls):
                     else:
                         groups_df.at[idx, "parallel_condition_expression"] = None
 
+    # Handle LastUserChoice specific processing
+    for idx, row in groups_df[groups_df["type"] == "parallel"].iterrows():
+        if (
+            row["name"]
+            in df.get(get_column_name(df.columns, "Name:de"), pd.Series([])).values
+            and "Platzhalter für Aktivitäten nac" in xls.sheet_names
+        ):
+            sheet_name = "Platzhalter für Aktivitäten nac"
+            if sheet_name in xls.sheet_names:
+                df = pd.read_excel(xls, sheet_name=sheet_name)
+                auswahlvariable_col = get_column_name(
+                    df.columns, "Name der Auswahlvariable"
+                )
+                name_col = get_column_name(df.columns, "Name:de")
+                if (
+                    auswahlvariable_col
+                    and auswahlvariable_col in df.columns
+                    and name_col
+                    and name_col in df.columns
+                ):
+                    matching_rows = df[df[name_col] == row["name"]]
+                    if (
+                        not matching_rows.empty
+                        and matching_rows.iloc[0][auswahlvariable_col]
+                        == "LastUserChoice"
+                    ):
+                        groups_df.at[idx, "Erledigungsmodus"] = (
+                            f"LastUserChoice\n{matching_rows.iloc[0][name_col]}"
+                        )
+
+    # Handle options for LastUserChoice from Optionsinformation sheet
+    if "Optionsinformation" in xls.sheet_names:
+        options_info = pd.read_excel(xls, "Optionsinformation")
+        user_choice_col = get_column_name(options_info.columns, "UserChoiceActivity")
+        option_name_col = get_column_name(options_info.columns, "Name")
+        if all([user_choice_col, option_name_col]):
+            options_info[user_choice_col] = options_info[user_choice_col].apply(
+                extract_id
+            )
+            for idx, row in groups_df[groups_df["type"] == "parallel"].iterrows():
+                if str(row.get("Erledigungsmodus", "")).startswith("LastUserChoice"):
+                    group_id = row["id"]
+                    matching_options = options_info[
+                        options_info[user_choice_col] == group_id
+                    ]
+                    if not matching_options.empty:
+                        option_names = (
+                            matching_options[option_name_col].dropna().tolist()
+                        )
+                        if option_names:
+                            groups_df.at[idx, "parallel_condition_name"] = ";".join(
+                                map(str, option_names)
+                            )
+
+    # Now handle the expressions for LastUserChoice from Bedingungen für Zweig
+    if (
+        "Bedingungen für Zweig" in xls.sheet_names
+        and "Optionsinformation" in xls.sheet_names
+    ):
+        branch_conditions = pd.read_excel(xls, "Bedingungen für Zweig")
+        options_info = pd.read_excel(xls, "Optionsinformation")
+
+        opt_transport_col = get_column_name(options_info.columns, "TransportID")
+        user_choice_col = get_column_name(options_info.columns, "UserChoiceActivity")
+        bc_transport_col = get_column_name(branch_conditions.columns, "TransportID")
+        bc_name_col = get_column_name(branch_conditions.columns, "Anzeigen als")
+        bc_expr_col = get_column_name(branch_conditions.columns, "Ausdruck")
+
+        if all(
+            [
+                opt_transport_col,
+                user_choice_col,
+                bc_transport_col,
+                bc_name_col,
+                bc_expr_col,
+            ]
+        ):
+            options_info[user_choice_col] = options_info[user_choice_col].apply(
+                extract_id
+            )
+            branch_conditions = branch_conditions.set_index(bc_transport_col)
+            for idx, row in groups_df[groups_df["type"] == "parallel"].iterrows():
+                if str(row.get("Erledigungsmodus", "")).startswith("LastUserChoice"):
+                    group_id = row["id"]
+                    matching_options = options_info[
+                        options_info[user_choice_col] == group_id
+                    ]
+                    if not matching_options.empty:
+                        condition_names = []
+                        condition_expressions = []
+                        for _, opt_row in matching_options.iterrows():
+                            condition_id = opt_row.get(opt_transport_col)
+                            if (
+                                pd.notna(condition_id)
+                                and condition_id in branch_conditions.index
+                            ):
+                                condition_names.append(
+                                    branch_conditions.at[condition_id, bc_name_col]
+                                )
+                                condition_expressions.append(
+                                    branch_conditions.at[condition_id, bc_expr_col]
+                                )
+                            else:
+                                condition_names.append("")
+                                condition_expressions.append("")
+                        non_empty_names = [name for name in condition_names if name]
+                        if non_empty_names:
+                            groups_df.at[idx, "parallel_condition_name"] = ";".join(
+                                map(str, non_empty_names)
+                            )
+                        else:
+                            groups_df.at[idx, "parallel_condition_name"] = None
+
+                        formatted_expressions = []
+                        for i in range(len(condition_names)):
+                            if condition_names[i]:
+                                formatted_expressions.append(
+                                    f"{condition_names[i]}: {condition_expressions[i]}"
+                                )
+                        if formatted_expressions:
+                            groups_df.at[idx, "parallel_condition_expression"] = (
+                                "\n".join(formatted_expressions)
+                            )
+                        else:
+                            groups_df.at[idx, "parallel_condition_expression"] = None
+
     # Clean up temporary columns
     groups_df.drop(
         columns=["Überspringen, falls", "Wiederholen, falls"],
@@ -1014,6 +1141,7 @@ def generate_additional_nodes(activities_table, groups_table):
         (groups_table["Erledigungsmodus"] == "AnyBranch")  # Mind. 1 Zweig
         | (groups_table["Erledigungsmodus"] == "OnlyOneBranch")  # Genau 1 Zweig
         | (groups_table["Erledigungsmodus"] == "AllBranches")  # Alle Zweige
+        | (groups_table["Erledigungsmodus"].str.startswith("LastUserChoice", na=False))
     ]
 
     for group_id in eligible_groups.index:
@@ -1113,6 +1241,79 @@ def generate_additional_nodes(activities_table, groups_table):
                     }
                 ).set_index("node_id")
 
+        elif erledigungsmodus.startswith("LastUserChoice"):
+            # Treat LastUserChoice like OnlyOneBranch with specific decision label
+            decision_node_id = generate_node_id(
+                "decision", {"group_id": group_id, "type": erledigungsmodus}
+            )
+            gateway_split_id = generate_node_id(
+                "gateway_split", {"group_id": group_id, "type": erledigungsmodus}
+            )
+            gateway_join_id = generate_node_id(
+                "gateway_join", {"group_id": group_id, "type": erledigungsmodus}
+            )
+
+            # Check if there's a valid parallel_condition_expression
+            has_condition_expr = pd.notna(
+                groups_table.loc[group_id, "parallel_condition_expression"]
+            )
+
+            # Only create rule node if there's a condition expression
+            if has_condition_expr:
+                rule_node_id = generate_node_id(
+                    "rule", {"group_id": group_id, "type": erledigungsmodus}
+                )
+                rule_seq = -1  # Rule not in main sequence
+
+            # Place nodes in sequence
+            decision_seq = min_seq - 2  # Decision comes before gateway
+            gateway_split_seq = (
+                min_seq - 1
+            )  # Gateway split comes just before the first child
+            gateway_join_seq = (
+                max_seq + 1
+            )  # Gateway join comes just after the last child
+
+            # Set gateway labels for LastUserChoice (like OnlyOneBranch)
+            gateway_split_label = "X"  # Empty diamond for LastUserChoice
+            gateway_join_label = "X"  # Empty diamond for LastUserChoice
+
+            # Prepare node data for DataFrame
+            node_ids = []
+            node_types = []
+            parent_activities = []
+            sequence_numbers = []
+            labels = []
+
+            # Always add decision and gateway nodes
+            node_ids.extend([decision_node_id, gateway_split_id, gateway_join_id])
+            node_types.extend(["decision", "gateway", "gateway"])
+            parent_activities.extend([group_id, group_id, group_id])
+            sequence_numbers.extend([decision_seq, gateway_split_seq, gateway_join_seq])
+            # Set decision label directly from Erledigungsmodus
+            decision_label = groups_table.loc[group_id, "Erledigungsmodus"]
+            labels.extend([decision_label, gateway_split_label, gateway_join_label])
+
+            # Add rule node only if there's a condition expression
+            if has_condition_expr:
+                node_ids.append(rule_node_id)
+                node_types.append("rule")
+                parent_activities.append(decision_node_id)
+                sequence_numbers.append(rule_seq)
+                labels.append(
+                    groups_table.loc[group_id, "parallel_condition_expression"]
+                )
+
+            # Create nodes dataframe for LastUserChoice
+            new_nodes = pd.DataFrame(
+                {
+                    "node_id": node_ids,
+                    "node_type": node_types,
+                    "parent": parent_activities,
+                    "SequenceNumber": sequence_numbers,
+                    "label": labels,
+                }
+            ).set_index("node_id")
         else:
             # For AnyBranch and OnlyOneBranch, include decision and rule nodes
             # Check if there's a valid parallel_condition_expression
