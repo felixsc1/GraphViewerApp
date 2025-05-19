@@ -874,6 +874,55 @@ def build_groups_table(xls):
     return groups_df
 
 
+def check_for_unknown_groups(xls, groups_df, activities_df):
+    """
+    Checks for unknown group types in the Excel file by verifying if parent IDs from activities and groups
+    exist in the groups_df['id']. If not, it searches for the parent ID in all sheets of the Excel file.
+
+    Args:
+        xls: The Excel file object to search through.
+        groups_df (pd.DataFrame): DataFrame containing group information.
+        activities_df (pd.DataFrame): DataFrame containing activity information.
+
+    Returns:
+        None
+    """
+
+    # Get all parent IDs from activities and groups
+    activity_parents = set(activities_df["parent"].dropna())
+    group_parents = set(groups_df["parent"].dropna())
+    all_parents = activity_parents.union(group_parents)
+
+    # Get known group IDs
+    known_group_ids = set(groups_df["id"])
+
+    # Find unknown parent IDs
+    unknown_parents = all_parents - known_group_ids
+
+    if unknown_parents:
+        for parent_id in unknown_parents:
+            found = False
+            for sheet_name in xls.sheet_names:
+                if sheet_name in [
+                    "Prozess",
+                    "Platzhalter für sequentielle Ak",
+                    "Platzhalter für parallele Aktiv",
+                ]:
+                    continue  # Skip sheets we already process
+                df = pd.read_excel(xls, sheet_name=sheet_name)
+                transport_col = get_column_name(df.columns, "TransportID")
+                if transport_col is not None and parent_id in df[transport_col].values:
+                    st.warning(
+                        f'Unbekannter Platzhalter in Sheet: **"{sheet_name}"**. Aktivitäten innerhalb dieses Platzhalters könnten fehlerhaft dargestellt werden.'
+                    )
+                    found = True
+                    break
+            if not found:
+                st.warning(
+                    f"Unbekannter Platzhalter mit ID **{parent_id}** nicht in den Sheets gefunden. Aktivitäten könnten fehlerhaft dargestellt werden."
+                )
+
+
 # --- Generate Updated tables with additional BPMN nodes ---
 
 
@@ -2725,18 +2774,20 @@ def process_bpmn_layout(basic_xml):
             st.error(f"❌ Error processing uploaded file: {str(e)}")
 
 
-def split_diagram_for_page_fit(laid_out_xml, node_df, edges_df, namespaces, process, plane):
+def split_diagram_for_page_fit(
+    laid_out_xml, node_df, edges_df, namespaces, process, plane
+):
     """
     Splits a BPMN diagram into two lines for page fit, ensuring proper arrow connections
     and splitting after parallel conditions are closed.
-    
+
     Args:
         laid_out_xml (str): The input BPMN XML string.
         node_df, edges_df: DataFrames (not used here but kept for compatibility).
         namespaces (dict): XML namespaces.
         process: BPMN process element (passed for convenience).
         plane: BPMNPlane element (passed for convenience).
-    
+
     Returns:
         tuple: (updated XML string, boolean indicating if splitting occurred)
     """
@@ -2744,8 +2795,8 @@ def split_diagram_for_page_fit(laid_out_xml, node_df, edges_df, namespaces, proc
 
     # Constants
     A4_WIDTH_GUIDELINE = 800  # A4 width guideline in pixels (relaxed for first line)
-    SPACING_Y = 350           # Vertical spacing between lines
-    MIN_NODES_PER_LINE = 8    # Minimum nodes per line to consider splitting
+    SPACING_Y = 350  # Vertical spacing between lines
+    MIN_NODES_PER_LINE = 8  # Minimum nodes per line to consider splitting
 
     # Parse XML and find elements
     root = ET.fromstring(laid_out_xml)
@@ -2766,15 +2817,25 @@ def split_diagram_for_page_fit(laid_out_xml, node_df, edges_df, namespaces, proc
             y = float(bounds.get("y"))
             width = float(bounds.get("width"))
             height = float(bounds.get("height"))
-            original_positions[bpmn_element] = {"x": x, "y": y, "width": width, "height": height}
+            original_positions[bpmn_element] = {
+                "x": x,
+                "y": y,
+                "width": width,
+                "height": height,
+            }
             positions[bpmn_element] = {"x": x, "y": y, "width": width, "height": height}
 
     # Build flow dictionary
     sequence_flows = process.findall(".//bpmn:sequenceFlow", namespaces)
-    flow_dict = {flow.get("id"): (flow.get("sourceRef"), flow.get("targetRef")) for flow in sequence_flows}
+    flow_dict = {
+        flow.get("id"): (flow.get("sourceRef"), flow.get("targetRef"))
+        for flow in sequence_flows
+    }
 
     # Sort nodes by x-position, then y-position
-    node_sequence = sorted(positions.keys(), key=lambda nid: (positions[nid]["x"], positions[nid]["y"]))
+    node_sequence = sorted(
+        positions.keys(), key=lambda nid: (positions[nid]["x"], positions[nid]["y"])
+    )
     total_nodes = len(node_sequence)
 
     # Check if splitting is necessary
@@ -2789,10 +2850,14 @@ def split_diagram_for_page_fit(laid_out_xml, node_df, edges_df, namespaces, proc
 
     # Helper functions to identify gateways
     def get_incoming_flows(node_id):
-        return process.findall(f".//bpmn:sequenceFlow[@targetRef='{node_id}']", namespaces)
+        return process.findall(
+            f".//bpmn:sequenceFlow[@targetRef='{node_id}']", namespaces
+        )
 
     def get_outgoing_flows(node_id):
-        return process.findall(f".//bpmn:sequenceFlow[@sourceRef='{node_id}']", namespaces)
+        return process.findall(
+            f".//bpmn:sequenceFlow[@sourceRef='{node_id}']", namespaces
+        )
 
     def is_split_gateway(node_id):
         incoming = get_incoming_flows(node_id)
@@ -2821,11 +2886,13 @@ def split_diagram_for_page_fit(laid_out_xml, node_df, edges_df, namespaces, proc
     else:
         split_idx = total_nodes // 2  # Fallback, though rare with candidates present
 
-    line_nodes = [node_sequence[:split_idx + 1], node_sequence[split_idx + 1:]]
+    line_nodes = [node_sequence[: split_idx + 1], node_sequence[split_idx + 1 :]]
 
     # Calculate shifts for second line
     initial_x = min_x
-    first_line_max_y = max(positions[n]["y"] + positions[n]["height"] for n in line_nodes[0])
+    first_line_max_y = max(
+        positions[n]["y"] + positions[n]["height"] for n in line_nodes[0]
+    )
     current_line_y_offset = first_line_max_y + SPACING_Y
     delta_x = initial_x - positions[line_nodes[0][-1]]["x"]
     delta_y = current_line_y_offset
@@ -2833,7 +2900,9 @@ def split_diagram_for_page_fit(laid_out_xml, node_df, edges_df, namespaces, proc
     # Shift nodes in second line
     for node in line_nodes[1]:
         if node in positions:
-            shape = plane.find(f".//bpmndi:BPMNShape[@bpmnElement='{node}']", namespaces)
+            shape = plane.find(
+                f".//bpmndi:BPMNShape[@bpmnElement='{node}']", namespaces
+            )
             bounds = shape.find("dc:Bounds", namespaces)
             old_x = float(bounds.get("x"))
             old_y = float(bounds.get("y"))
@@ -2847,56 +2916,128 @@ def split_diagram_for_page_fit(laid_out_xml, node_df, edges_df, namespaces, proc
     # Add continuation indicators
     last_node_id = line_nodes[0][-1]
     first_node_id = line_nodes[1][0]
-    
+
     throw_id = "ContinuationThrow"
-    throw_event = ET.SubElement(process, "bpmn:intermediateThrowEvent", {"id": throw_id, "name": "A"})
-    ET.SubElement(throw_event, "bpmn:linkEventDefinition", {"id": "LinkDef_Throw", "name": "Link"})
+    throw_event = ET.SubElement(
+        process, "bpmn:intermediateThrowEvent", {"id": throw_id, "name": "A"}
+    )
+    ET.SubElement(
+        throw_event, "bpmn:linkEventDefinition", {"id": "LinkDef_Throw", "name": "Link"}
+    )
     throw_x = positions[last_node_id]["x"] + positions[last_node_id]["width"] + 50
-    throw_y = positions[last_node_id]["y"] + (positions[last_node_id]["height"] - 36) / 2
-    throw_shape = ET.SubElement(plane, "bpmndi:BPMNShape", {"id": f"{throw_id}_di", "bpmnElement": throw_id})
-    ET.SubElement(throw_shape, "dc:Bounds", {"x": str(throw_x), "y": str(throw_y), "width": "36", "height": "36"})
+    throw_y = (
+        positions[last_node_id]["y"] + (positions[last_node_id]["height"] - 36) / 2
+    )
+    throw_shape = ET.SubElement(
+        plane, "bpmndi:BPMNShape", {"id": f"{throw_id}_di", "bpmnElement": throw_id}
+    )
+    ET.SubElement(
+        throw_shape,
+        "dc:Bounds",
+        {"x": str(throw_x), "y": str(throw_y), "width": "36", "height": "36"},
+    )
 
     catch_id = "ContinuationCatch"
-    catch_event = ET.SubElement(process, "bpmn:intermediateCatchEvent", {"id": catch_id, "name": "A"})
-    ET.SubElement(catch_event, "bpmn:linkEventDefinition", {"id": "LinkDef_Catch", "name": "Link"})
+    catch_event = ET.SubElement(
+        process, "bpmn:intermediateCatchEvent", {"id": catch_id, "name": "A"}
+    )
+    ET.SubElement(
+        catch_event, "bpmn:linkEventDefinition", {"id": "LinkDef_Catch", "name": "Link"}
+    )
     catch_x = positions[first_node_id]["x"] - 50 - 36
-    catch_y = positions[first_node_id]["y"] + (positions[first_node_id]["height"] - 36) / 2
-    catch_shape = ET.SubElement(plane, "bpmndi:BPMNShape", {"id": f"{catch_id}_di", "bpmnElement": catch_id})
-    ET.SubElement(catch_shape, "dc:Bounds", {"x": str(catch_x), "y": str(catch_y), "width": "36", "height": "36"})
+    catch_y = (
+        positions[first_node_id]["y"] + (positions[first_node_id]["height"] - 36) / 2
+    )
+    catch_shape = ET.SubElement(
+        plane, "bpmndi:BPMNShape", {"id": f"{catch_id}_di", "bpmnElement": catch_id}
+    )
+    ET.SubElement(
+        catch_shape,
+        "dc:Bounds",
+        {"x": str(catch_x), "y": str(catch_y), "width": "36", "height": "36"},
+    )
 
     flow_throw_id = "Flow_Throw"
     last_node = process.find(f".//*[@id='{last_node_id}']", namespaces)
     ET.SubElement(last_node, "bpmn:outgoing").text = flow_throw_id
     ET.SubElement(throw_event, "bpmn:incoming").text = flow_throw_id
-    flow_throw = ET.SubElement(process, "bpmn:sequenceFlow", {"id": flow_throw_id, "sourceRef": last_node_id, "targetRef": throw_id})
-    flow_throw_edge = ET.SubElement(plane, "bpmndi:BPMNEdge", {"id": f"{flow_throw_id}_di", "bpmnElement": flow_throw_id})
-    ET.SubElement(flow_throw_edge, "di:waypoint", {"x": str(positions[last_node_id]["x"] + positions[last_node_id]["width"]), "y": str(positions[last_node_id]["y"] + positions[last_node_id]["height"] / 2)})
-    ET.SubElement(flow_throw_edge, "di:waypoint", {"x": str(throw_x), "y": str(throw_y + 18)})
+    flow_throw = ET.SubElement(
+        process,
+        "bpmn:sequenceFlow",
+        {"id": flow_throw_id, "sourceRef": last_node_id, "targetRef": throw_id},
+    )
+    flow_throw_edge = ET.SubElement(
+        plane,
+        "bpmndi:BPMNEdge",
+        {"id": f"{flow_throw_id}_di", "bpmnElement": flow_throw_id},
+    )
+    ET.SubElement(
+        flow_throw_edge,
+        "di:waypoint",
+        {
+            "x": str(positions[last_node_id]["x"] + positions[last_node_id]["width"]),
+            "y": str(
+                positions[last_node_id]["y"] + positions[last_node_id]["height"] / 2
+            ),
+        },
+    )
+    ET.SubElement(
+        flow_throw_edge, "di:waypoint", {"x": str(throw_x), "y": str(throw_y + 18)}
+    )
 
     flow_catch_id = "Flow_Catch"
     ET.SubElement(catch_event, "bpmn:outgoing").text = flow_catch_id
     first_node = process.find(f".//*[@id='{first_node_id}']", namespaces)
     ET.SubElement(first_node, "bpmn:incoming").text = flow_catch_id
-    flow_catch = ET.SubElement(process, "bpmn:sequenceFlow", {"id": flow_catch_id, "sourceRef": catch_id, "targetRef": first_node_id})
-    flow_catch_edge = ET.SubElement(plane, "bpmndi:BPMNEdge", {"id": f"{flow_catch_id}_di", "bpmnElement": flow_catch_id})
-    ET.SubElement(flow_catch_edge, "di:waypoint", {"x": str(catch_x + 36), "y": str(catch_y + 18)})
-    ET.SubElement(flow_catch_edge, "di:waypoint", {"x": str(positions[first_node_id]["x"]), "y": str(positions[first_node_id]["y"] + positions[first_node_id]["height"] / 2)})
+    flow_catch = ET.SubElement(
+        process,
+        "bpmn:sequenceFlow",
+        {"id": flow_catch_id, "sourceRef": catch_id, "targetRef": first_node_id},
+    )
+    flow_catch_edge = ET.SubElement(
+        plane,
+        "bpmndi:BPMNEdge",
+        {"id": f"{flow_catch_id}_di", "bpmnElement": flow_catch_id},
+    )
+    ET.SubElement(
+        flow_catch_edge, "di:waypoint", {"x": str(catch_x + 36), "y": str(catch_y + 18)}
+    )
+    ET.SubElement(
+        flow_catch_edge,
+        "di:waypoint",
+        {
+            "x": str(positions[first_node_id]["x"]),
+            "y": str(
+                positions[first_node_id]["y"] + positions[first_node_id]["height"] / 2
+            ),
+        },
+    )
 
     # Remove crossing edges
     edges_to_remove = []
     for edge in process.findall(".//bpmn:sequenceFlow", namespaces):
         source_ref = edge.get("sourceRef")
         target_ref = edge.get("targetRef")
-        source_line = next((i for i, line in enumerate(line_nodes) if source_ref in line), None)
-        target_line = next((i for i, line in enumerate(line_nodes) if target_ref in line), None)
-        if source_line != target_line and source_line is not None and target_line is not None:
+        source_line = next(
+            (i for i, line in enumerate(line_nodes) if source_ref in line), None
+        )
+        target_line = next(
+            (i for i, line in enumerate(line_nodes) if target_ref in line), None
+        )
+        if (
+            source_line != target_line
+            and source_line is not None
+            and target_line is not None
+        ):
             edges_to_remove.append(edge.get("id"))
 
     for edge_id in edges_to_remove:
         edge_elem = process.find(f".//bpmn:sequenceFlow[@id='{edge_id}']", namespaces)
         if edge_elem is not None:
             process.remove(edge_elem)
-        edge_di_elem = plane.find(f".//bpmndi:BPMNEdge[@bpmnElement='{edge_id}']", namespaces)
+        edge_di_elem = plane.find(
+            f".//bpmndi:BPMNEdge[@bpmnElement='{edge_id}']", namespaces
+        )
         if edge_di_elem is not None:
             plane.remove(edge_di_elem)
 
@@ -3402,6 +3543,7 @@ def show():
     if xls is not None:
         activities_table = build_activities_table(xls)
         groups_table = build_groups_table(xls)
+        check_for_unknown_groups(xls, groups_table, activities_table)
         # Set the correct indices before calling generate_additional_nodes
         activities_index = activities_table.set_index("TransportID").copy()
         groups_index = groups_table.set_index("id").copy()
