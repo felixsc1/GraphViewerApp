@@ -2723,10 +2723,16 @@ def create_main_flow_bpmn_xml(node_df, edges_df):
                     process, "bpmn:task", {"id": cleaned_id, "name": formatted_name}
                 )
         elif is_node_type(node_type, "decision"):
+            # For LastUserChoice decision nodes, use the full label
+            # For all other decision nodes, use only the first line (truncated)
+            if pd.notna(label) and str(label).startswith("LastUserChoice"):
+                decision_name = label
+            else:
+                decision_name = label.split("\n")[0] or name
             element = ET.SubElement(
                 process,
                 "bpmn:businessRuleTask",
-                {"id": cleaned_id, "name": label.split("\n")[0] or name},
+                {"id": cleaned_id, "name": decision_name},
             )
         elif is_node_type(node_type, "gateway"):
             gateway_label = label if pd.notna(label) else ""
