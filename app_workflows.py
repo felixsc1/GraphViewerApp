@@ -1260,6 +1260,12 @@ def generate_additional_nodes(activities_table, groups_table):
                             "+",
                             groups_table.loc[group_id, "parallel_condition_expression"],
                         ],  # Plus symbol for AllBranches gateways
+                        "type": [
+                            None,
+                            None,
+                            None,
+                            None,
+                        ],  # Standard decision, not UserChoice
                     }
                 ).set_index("node_id")
             else:
@@ -1271,6 +1277,7 @@ def generate_additional_nodes(activities_table, groups_table):
                         "parent": [group_id, group_id],
                         "SequenceNumber": [gateway_split_seq, gateway_join_seq],
                         "label": ["+", "+"],  # Plus symbol for AllBranches
+                        "type": [None, None],  # Standard gateways
                     }
                 ).set_index("node_id")
 
@@ -1337,6 +1344,14 @@ def generate_additional_nodes(activities_table, groups_table):
                     groups_table.loc[group_id, "parallel_condition_expression"]
                 )
 
+            # Create types list - mark decision as UserChoice
+            types = []
+            for i, node_type in enumerate(node_types):
+                if node_type == "decision":
+                    types.append("UserChoice")
+                else:
+                    types.append(None)
+
             # Create nodes dataframe for UserChoice
             new_nodes = pd.DataFrame(
                 {
@@ -1345,6 +1360,7 @@ def generate_additional_nodes(activities_table, groups_table):
                     "parent": parent_activities,
                     "SequenceNumber": sequence_numbers,
                     "label": labels,
+                    "type": types,
                 }
             ).set_index("node_id")
         else:
@@ -1420,6 +1436,9 @@ def generate_additional_nodes(activities_table, groups_table):
                     groups_table.loc[group_id, "parallel_condition_expression"]
                 )
 
+            # Create types list - standard decisions for AnyBranch/OnlyOneBranch
+            types = [None] * len(node_ids)  # All are standard, not UserChoice
+
             # Create nodes dataframe for AnyBranch or OnlyOneBranch
             new_nodes = pd.DataFrame(
                 {
@@ -1428,6 +1447,7 @@ def generate_additional_nodes(activities_table, groups_table):
                     "parent": parent_activities,
                     "SequenceNumber": sequence_numbers,
                     "label": labels,
+                    "type": types,
                 }
             ).set_index("node_id")
 
@@ -1501,6 +1521,7 @@ def generate_additional_nodes(activities_table, groups_table):
                     "X",  # X symbol for skip gateway split
                     "X",  # X symbol for skip gateway join
                 ],
+                "type": [None, None, None, None],  # Standard skip decision
             }
         ).set_index("node_id")
 
@@ -1576,6 +1597,7 @@ def generate_additional_nodes(activities_table, groups_table):
                     "X",  # X symbol for gateway split
                     "X",  # X symbol for gateway join
                 ],
+                "type": [None, None, None, None],  # Standard repeat decision
             }
         ).set_index("node_id")
 
@@ -2756,20 +2778,26 @@ def create_main_flow_bpmn_xml(node_df, edges_df):
                     process, "bpmn:task", {"id": cleaned_id, "name": formatted_name}
                 )
         elif is_node_type(node_type, "decision"):
-            # For UserChoice decision nodes, use the full label
-            # For all other decision nodes, use only the first line (truncated)
-            if pd.notna(label) and not any(
-                str(label).startswith(standard_type)
-                for standard_type in ["Entscheid", "Überspringen", "Wiederholen"]
-            ):
-                decision_name = label
+            # Check if this is a UserChoice decision node (by checking the type column)
+            decision_type = get_safe_value_bpmn(node_data, "type", "")
+            if decision_type == "UserChoice":
+                # UserChoice decision nodes - display as manual task with hand symbol
+                decision_name = label if pd.notna(label) else name
+                element = ET.SubElement(
+                    process,
+                    "bpmn:manualTask",
+                    {"id": cleaned_id, "name": decision_name},
+                )
             else:
-                decision_name = label.split("\n")[0] or name
-            element = ET.SubElement(
-                process,
-                "bpmn:businessRuleTask",
-                {"id": cleaned_id, "name": decision_name},
-            )
+                # For other decision nodes, use only the first line (truncated)
+                decision_name = (
+                    label.split("\n")[0] or name if pd.notna(label) else name
+                )
+                element = ET.SubElement(
+                    process,
+                    "bpmn:businessRuleTask",
+                    {"id": cleaned_id, "name": decision_name},
+                )
         elif is_node_type(node_type, "gateway"):
             gateway_label = label if pd.notna(label) else ""
             gateway_type = (
