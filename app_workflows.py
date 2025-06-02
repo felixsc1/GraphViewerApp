@@ -789,100 +789,139 @@ def build_groups_table(xls):
                         matches_found += 1
 
     # Handle parallel group branch conditions
-    if (
-        "Zweiginformation" in xls.sheet_names
-        and "Bedingung für Zweig" in xls.sheet_names
-    ):
-        branch_info = pd.read_excel(xls, "Zweiginformation")
+    # This handles both regular parallel conditions (from Zweiginformation) and UserChoice conditions (from Optionsinformation)
+    def process_branch_conditions(info_sheet_name, activity_col_pattern):
+        """Process branch conditions from either Zweiginformation or Optionsinformation"""
+        if (
+            info_sheet_name not in xls.sheet_names
+            or "Bedingung für Zweig" not in xls.sheet_names
+        ):
+            return
+
+        branch_info = pd.read_excel(xls, info_sheet_name)
         branch_conditions = pd.read_excel(xls, "Bedingung für Zweig")
 
         # Get column names using the pattern matching function
-        parallel_col = get_column_name(branch_info.columns, "ParallelActivity")
+        activity_col = get_column_name(branch_info.columns, activity_col_pattern)
         condition_col = get_column_name(branch_info.columns, "Condition")
 
-        if all([parallel_col, condition_col]):
-            # Clean IDs by applying extract_id to the condition column
-            branch_info[condition_col] = branch_info[condition_col].apply(extract_id)
-            # Also clean the parallel activity column
-            branch_info[parallel_col] = branch_info[parallel_col].apply(extract_id)
+        if not all([activity_col, condition_col]):
+            return
+
+        # Clean IDs by applying extract_id
+        branch_info[condition_col] = branch_info[condition_col].apply(extract_id)
+        branch_info[activity_col] = branch_info[activity_col].apply(extract_id)
 
         bc_transport_col = get_column_name(branch_conditions.columns, "TransportID")
         bc_name_col = get_column_name(branch_conditions.columns, "Anzeigen als")
         bc_expr_col = get_column_name(branch_conditions.columns, "Ausdruck")
 
-        if all(
-            [parallel_col, condition_col, bc_transport_col, bc_name_col, bc_expr_col]
-        ):
-            branch_conditions = branch_conditions.set_index(bc_transport_col)
-            for idx, row in groups_df[groups_df["type"] == "parallel"].iterrows():
-                group_id = row["id"]
-                branches = branch_info[branch_info[parallel_col] == group_id]
-                if not branches.empty:
-                    condition_names = []
-                    condition_expressions = []
-                    for _, branch in branches.iterrows():
-                        condition_id = branch.get(condition_col)
-                        if (
-                            pd.notna(condition_id)
-                            and condition_id in branch_conditions.index
-                        ):
-                            condition_names.append(
-                                branch_conditions.at[condition_id, bc_name_col]
-                            )
-                            condition_expressions.append(
-                                branch_conditions.at[condition_id, bc_expr_col]
-                            )
-                        else:
-                            condition_names.append("")
-                            condition_expressions.append("")
-                    # Filter out empty condition names before joining with semicolons
-                    non_empty_names = [name for name in condition_names if name]
-                    if non_empty_names:
-                        groups_df.at[idx, "parallel_condition_name"] = ";".join(
-                            map(str, non_empty_names)
-                        )
-                    else:
-                        groups_df.at[idx, "parallel_condition_name"] = None
+        if not all([bc_transport_col, bc_name_col, bc_expr_col]):
+            return
 
-                    # Create formatted string with name: expression pairs
-                    formatted_expressions = []
-                    for i in range(len(condition_names)):
-                        if condition_names[i]:  # Only include non-empty names
-                            formatted_expressions.append(
-                                f"{condition_names[i]}: {condition_expressions[i]}"
-                            )
-                    if formatted_expressions:
-                        groups_df.at[idx, "parallel_condition_expression"] = "\n".join(
-                            formatted_expressions
+        branch_conditions = branch_conditions.set_index(bc_transport_col)
+
+        for idx, row in groups_df[groups_df["type"] == "parallel"].iterrows():
+            group_id = row["id"]
+
+            # Skip if this group already has conditions set (to avoid overwriting)
+            if pd.notna(row.get("parallel_condition_name")) and pd.notna(
+                row.get("parallel_condition_expression")
+            ):
+                continue
+
+            branches = branch_info[branch_info[activity_col] == group_id]
+            if not branches.empty:
+                condition_names = []
+                condition_expressions = []
+                for _, branch in branches.iterrows():
+                    condition_id = branch.get(condition_col)
+                    if (
+                        pd.notna(condition_id)
+                        and condition_id in branch_conditions.index
+                    ):
+                        condition_names.append(
+                            branch_conditions.at[condition_id, bc_name_col]
+                        )
+                        condition_expressions.append(
+                            branch_conditions.at[condition_id, bc_expr_col]
                         )
                     else:
-                        groups_df.at[idx, "parallel_condition_expression"] = None
+                        condition_names.append("")
+                        condition_expressions.append("")
+
+                # Filter out empty condition names before joining with semicolons
+                non_empty_names = [name for name in condition_names if name]
+                if non_empty_names:
+                    groups_df.at[idx, "parallel_condition_name"] = ";".join(
+                        map(str, non_empty_names)
+                    )
+                else:
+                    groups_df.at[idx, "parallel_condition_name"] = None
+
+                # Create formatted string with name: expression pairs
+                formatted_expressions = []
+                for i in range(len(condition_names)):
+                    if condition_names[i]:  # Only include non-empty names
+                        formatted_expressions.append(
+                            f"{condition_names[i]}: {condition_expressions[i]}"
+                        )
+                if formatted_expressions:
+                    groups_df.at[idx, "parallel_condition_expression"] = "\n".join(
+                        formatted_expressions
+                    )
+                else:
+                    groups_df.at[idx, "parallel_condition_expression"] = None
+
+    # Process regular parallel conditions from Zweiginformation
+    process_branch_conditions("Zweiginformation", "ParallelActivity")
+
+    # Process UserChoice conditions from Optionsinformation
+    process_branch_conditions("Optionsinformation", "UserChoiceActivity")
 
     # Handle UserChoice specific processing
-    for idx, row in groups_df[groups_df["type"] == "parallel"].iterrows():
-        if (
-            row["name"]
-            in df.get(get_column_name(df.columns, "Name:de"), pd.Series([])).values
-            and "Platzhalter für Aktivitäten nac" in xls.sheet_names
-        ):
-            sheet_name = "Platzhalter für Aktivitäten nac"
-            if sheet_name in xls.sheet_names:
-                df = pd.read_excel(xls, sheet_name=sheet_name)
-                fragetext_col = get_column_name(df.columns, "Fragetext")
-                auswahltitel_col = get_column_name(df.columns, "Auswahltitel")
-                name_col = get_column_name(df.columns, "Name:de")
+    if "Platzhalter für Aktivitäten nac" in xls.sheet_names:
+        userchoice_df = pd.read_excel(xls, "Platzhalter für Aktivitäten nac")
+        fragetext_col = get_column_name(userchoice_df.columns, "Fragetext")
+        auswahltitel_col = get_column_name(userchoice_df.columns, "Auswahltitel")
+        name_col = get_column_name(userchoice_df.columns, "Name:de")
 
-                if name_col and name_col in df.columns:
-                    matching_rows = df[df[name_col] == row["name"]]
+        for idx, row in groups_df[groups_df["type"] == "parallel"].iterrows():
+            # Check if this is a UserChoice case (has parallel_condition_name set and Erledigungsmodus is not standard)
+            erledigungsmodus = str(row.get("Erledigungsmodus", ""))
+            has_conditions = pd.notna(row.get("parallel_condition_name"))
+
+            # Identify UserChoice cases: has conditions and erledigungsmodus is not a standard type
+            is_userchoice = (
+                has_conditions
+                and erledigungsmodus
+                not in ["AnyBranch", "OnlyOneBranch", "AllBranches", ""]
+                and erledigungsmodus != "None"
+            ) or (
+                # Also check if the name exists in the UserChoice sheet
+                name_col
+                and name_col in userchoice_df.columns
+                and row["name"] in userchoice_df[name_col].values
+            )
+
+            if is_userchoice:
+                # Hard code Erledigungsmodus to "Benutzerentscheid" for UserChoice cases
+                groups_df.at[idx, "Erledigungsmodus"] = "Benutzerentscheid"
+
+                # Look up Fragetext/Auswahltitel if available
+                if name_col and name_col in userchoice_df.columns:
+                    matching_rows = userchoice_df[
+                        userchoice_df[name_col] == row["name"]
+                    ]
                     if not matching_rows.empty:
                         # Try Fragetext first, then Auswahltitel if Fragetext is empty
-                        erledigungsmodus_value = ""
+                        question_text = ""
                         if (
                             fragetext_col
                             and pd.notna(matching_rows.iloc[0].get(fragetext_col))
                             and str(matching_rows.iloc[0].get(fragetext_col)).strip()
                         ):
-                            erledigungsmodus_value = str(
+                            question_text = str(
                                 matching_rows.iloc[0][fragetext_col]
                             ).strip()
                         elif (
@@ -890,21 +929,34 @@ def build_groups_table(xls):
                             and pd.notna(matching_rows.iloc[0].get(auswahltitel_col))
                             and str(matching_rows.iloc[0].get(auswahltitel_col)).strip()
                         ):
-                            erledigungsmodus_value = str(
+                            question_text = str(
                                 matching_rows.iloc[0][auswahltitel_col]
                             ).strip()
 
-                        if erledigungsmodus_value:
-                            groups_df.at[idx, "Erledigungsmodus"] = (
-                                erledigungsmodus_value
+                        # Prepend question text to parallel_condition_expression if found
+                        if question_text:
+                            existing_expression = row.get(
+                                "parallel_condition_expression", ""
+                            )
+                            if pd.notna(existing_expression) and existing_expression:
+                                new_expression = (
+                                    f"{question_text}\n{existing_expression}"
+                                )
+                            else:
+                                new_expression = question_text
+                            groups_df.at[idx, "parallel_condition_expression"] = (
+                                new_expression
                             )
 
-    # Handle options for UserChoice from Optionsinformation sheet
+    # Handle options for UserChoice from Optionsinformation sheet (fallback for cases without Condition column)
     if "Optionsinformation" in xls.sheet_names:
         options_info = pd.read_excel(xls, "Optionsinformation")
         user_choice_col = get_column_name(options_info.columns, "UserChoiceActivity")
         option_name_col = get_column_name(options_info.columns, "Name")
-        if all([user_choice_col, option_name_col]):
+        condition_col = get_column_name(options_info.columns, "Condition")
+
+        # Only use this fallback if there's no Condition column (otherwise the unified handler above will take care of it)
+        if all([user_choice_col, option_name_col]) and not condition_col:
             options_info[user_choice_col] = options_info[user_choice_col].apply(
                 extract_id
             )
@@ -916,6 +968,9 @@ def build_groups_table(xls):
                     and erledigungsmodus
                     not in ["AnyBranch", "OnlyOneBranch", "AllBranches"]
                     and erledigungsmodus != "None"
+                    and pd.isna(
+                        row.get("parallel_condition_name")
+                    )  # Only if not already set
                 ):
                     group_id = row["id"]
                     matching_options = options_info[
@@ -929,85 +984,6 @@ def build_groups_table(xls):
                             groups_df.at[idx, "parallel_condition_name"] = ";".join(
                                 map(str, option_names)
                             )
-
-    # Now handle the expressions for UserChoice from Bedingungen für Zweig
-    if (
-        "Bedingungen für Zweig" in xls.sheet_names
-        and "Optionsinformation" in xls.sheet_names
-    ):
-        branch_conditions = pd.read_excel(xls, "Bedingungen für Zweig")
-        options_info = pd.read_excel(xls, "Optionsinformation")
-
-        opt_transport_col = get_column_name(options_info.columns, "TransportID")
-        user_choice_col = get_column_name(options_info.columns, "UserChoiceActivity")
-        bc_transport_col = get_column_name(branch_conditions.columns, "TransportID")
-        bc_name_col = get_column_name(branch_conditions.columns, "Anzeigen als")
-        bc_expr_col = get_column_name(branch_conditions.columns, "Ausdruck")
-
-        if all(
-            [
-                opt_transport_col,
-                user_choice_col,
-                bc_transport_col,
-                bc_name_col,
-                bc_expr_col,
-            ]
-        ):
-            options_info[user_choice_col] = options_info[user_choice_col].apply(
-                extract_id
-            )
-            branch_conditions = branch_conditions.set_index(bc_transport_col)
-            for idx, row in groups_df[groups_df["type"] == "parallel"].iterrows():
-                # Check if Erledigungsmodus has a value and it's not one of the standard types
-                erledigungsmodus = str(row.get("Erledigungsmodus", ""))
-                if (
-                    erledigungsmodus
-                    and erledigungsmodus
-                    not in ["AnyBranch", "OnlyOneBranch", "AllBranches"]
-                    and erledigungsmodus != "None"
-                ):
-                    group_id = row["id"]
-                    matching_options = options_info[
-                        options_info[user_choice_col] == group_id
-                    ]
-                    if not matching_options.empty:
-                        condition_names = []
-                        condition_expressions = []
-                        for _, opt_row in matching_options.iterrows():
-                            condition_id = opt_row.get(opt_transport_col)
-                            if (
-                                pd.notna(condition_id)
-                                and condition_id in branch_conditions.index
-                            ):
-                                condition_names.append(
-                                    branch_conditions.at[condition_id, bc_name_col]
-                                )
-                                condition_expressions.append(
-                                    branch_conditions.at[condition_id, bc_expr_col]
-                                )
-                            else:
-                                condition_names.append("")
-                                condition_expressions.append("")
-                        non_empty_names = [name for name in condition_names if name]
-                        if non_empty_names:
-                            groups_df.at[idx, "parallel_condition_name"] = ";".join(
-                                map(str, non_empty_names)
-                            )
-                        else:
-                            groups_df.at[idx, "parallel_condition_name"] = None
-
-                        formatted_expressions = []
-                        for i in range(len(condition_names)):
-                            if condition_names[i]:
-                                formatted_expressions.append(
-                                    f"{condition_names[i]}: {condition_expressions[i]}"
-                                )
-                        if formatted_expressions:
-                            groups_df.at[idx, "parallel_condition_expression"] = (
-                                "\n".join(formatted_expressions)
-                            )
-                        else:
-                            groups_df.at[idx, "parallel_condition_expression"] = None
 
     # Clean up temporary columns
     groups_df.drop(
