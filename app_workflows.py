@@ -3313,11 +3313,15 @@ def split_diagram_for_page_fit(
     return updated_xml, True
 
 
-def add_special_nodes_and_annotations(split_diagrams=False):
+def add_special_nodes_and_annotations(split_diagrams=False, include_legend=False):
     """
     Adds 'rule' and 'substep' nodes as DataObjectReference elements below their parents
-    in the BPMN diagram, connects them with DataOutputAssociation edges, and creates
-    text annotations with full labels below the diagram.
+    in the BPMN diagram, connects them with DataOutputAssociation edges, and optionally
+    creates text annotations with full labels below the diagram.
+
+    Args:
+        split_diagrams (bool): Whether to split the diagram for page fit
+        include_legend (bool): Whether to include text annotations/legend below the diagram
 
     Returns:
         str: The updated BPMN XML with annotations added, or None if processing fails
@@ -3500,85 +3504,89 @@ def add_special_nodes_and_annotations(split_diagrams=False):
             annotations.append((f"({legend_counter})\n{row['label']}", legend_counter))
             legend_counter += 1
 
-        # Step 5: Determine the bottom of the main diagram
-        max_y = max(
-            [pos["y"] + pos["height"] for pos in parent_positions.values()], default=0
-        )
-        annotation_y = max_y + 150  # 100 pixels below the main diagram
-
-        # Step 5.5: Find user abbreviations in task nodes and create additional legend entries
-        user_legend_entries = []
-        task_nodes = node_df[node_df["node_type"] == "activity"]
-        # print("task_nodes", task_nodes) # DEBUG
-        if not task_nodes.empty and "user_legend" in st.session_state:
-            user_legend_dict = st.session_state["user_legend"]
-            used_abbreviations = set()
-            for index, row in task_nodes.iterrows():
-                label = str(row["Empfänger"])
-                for abbr, full_name in user_legend_dict.items():
-                    if abbr in label and abbr not in used_abbreviations:
-                        user_legend_entries.append((abbr, full_name))
-                        used_abbreviations.add(abbr)
-        # Step 6: Add text annotations horizontally
-        annotation_x = 50  # Starting x position
-        for annotation_text, counter in annotations:
-            annotation_id = f"TextAnnotation_{counter}"
-            annotation = ET.SubElement(
-                process, "bpmn:textAnnotation", {"id": annotation_id}
+        # Step 5: Generate text annotations only if include_legend is True
+        if include_legend:
+            # Step 5.1: Determine the bottom of the main diagram
+            max_y = max(
+                [pos["y"] + pos["height"] for pos in parent_positions.values()],
+                default=0,
             )
-            ET.SubElement(annotation, "bpmn:text").text = annotation_text
+            annotation_y = max_y + 150  # 100 pixels below the main diagram
 
-            # Position the annotation
-            annotation_shape = ET.SubElement(
-                plane,
-                "bpmndi:BPMNShape",
-                {"id": f"{annotation_id}_di", "bpmnElement": annotation_id},
-            )
-            # Calculate height based on annotation_text length
-            height = 50 + (len(annotation_text) // 100) * 50
-            ET.SubElement(
-                annotation_shape,
-                "dc:Bounds",
-                {
-                    "x": str(annotation_x),
-                    "y": str(annotation_y),
-                    "width": "300",
-                    "height": str(height),
-                },
-            )
+            # Step 5.2: Find user abbreviations in task nodes and create additional legend entries
+            user_legend_entries = []
+            task_nodes = node_df[node_df["node_type"] == "activity"]
+            # print("task_nodes", task_nodes) # DEBUG
+            if not task_nodes.empty and "user_legend" in st.session_state:
+                user_legend_dict = st.session_state["user_legend"]
+                used_abbreviations = set()
+                for index, row in task_nodes.iterrows():
+                    label = str(row["Empfänger"])
+                    for abbr, full_name in user_legend_dict.items():
+                        if abbr in label and abbr not in used_abbreviations:
+                            user_legend_entries.append((abbr, full_name))
+                            used_abbreviations.add(abbr)
 
-            # Move to the next position (300 width + 50 space)
-            annotation_x += 350
+            # Step 6: Add text annotations horizontally
+            annotation_x = 50  # Starting x position
+            for annotation_text, counter in annotations:
+                annotation_id = f"TextAnnotation_{counter}"
+                annotation = ET.SubElement(
+                    process, "bpmn:textAnnotation", {"id": annotation_id}
+                )
+                ET.SubElement(annotation, "bpmn:text").text = annotation_text
 
-        # Step 6.5: Add user legend entries after numbered annotations
-        for abbr, full_name in user_legend_entries:
-            annotation_id = f"TextAnnotation_user_{abbr}"
-            annotation_text = f"({abbr})\n{full_name}"
-            annotation = ET.SubElement(
-                process, "bpmn:textAnnotation", {"id": annotation_id}
-            )
-            ET.SubElement(annotation, "bpmn:text").text = annotation_text
+                # Position the annotation
+                annotation_shape = ET.SubElement(
+                    plane,
+                    "bpmndi:BPMNShape",
+                    {"id": f"{annotation_id}_di", "bpmnElement": annotation_id},
+                )
+                # Calculate height based on annotation_text length
+                height = 50 + (len(annotation_text) // 100) * 50
+                ET.SubElement(
+                    annotation_shape,
+                    "dc:Bounds",
+                    {
+                        "x": str(annotation_x),
+                        "y": str(annotation_y),
+                        "width": "300",
+                        "height": str(height),
+                    },
+                )
 
-            # Position the annotation
-            annotation_shape = ET.SubElement(
-                plane,
-                "bpmndi:BPMNShape",
-                {"id": f"{annotation_id}_di", "bpmnElement": annotation_id},
-            )
-            height = 50
-            ET.SubElement(
-                annotation_shape,
-                "dc:Bounds",
-                {
-                    "x": str(annotation_x),
-                    "y": str(annotation_y),
-                    "width": "300",
-                    "height": str(height),
-                },
-            )
+                # Move to the next position (300 width + 50 space)
+                annotation_x += 350
 
-            # Move to the next position (300 width + 50 space)
-            annotation_x += 350
+            # Step 6.5: Add user legend entries after numbered annotations
+            for abbr, full_name in user_legend_entries:
+                annotation_id = f"TextAnnotation_user_{abbr}"
+                annotation_text = f"({abbr})\n{full_name}"
+                annotation = ET.SubElement(
+                    process, "bpmn:textAnnotation", {"id": annotation_id}
+                )
+                ET.SubElement(annotation, "bpmn:text").text = annotation_text
+
+                # Position the annotation
+                annotation_shape = ET.SubElement(
+                    plane,
+                    "bpmndi:BPMNShape",
+                    {"id": f"{annotation_id}_di", "bpmnElement": annotation_id},
+                )
+                height = 50
+                ET.SubElement(
+                    annotation_shape,
+                    "dc:Bounds",
+                    {
+                        "x": str(annotation_x),
+                        "y": str(annotation_y),
+                        "width": "300",
+                        "height": str(height),
+                    },
+                )
+
+                # Move to the next position (300 width + 50 space)
+                annotation_x += 350
 
         # Step 7: Return the updated BPMN XML as a string
         updated_xml = ET.tostring(root, encoding="utf-8").decode("utf-8")
@@ -3934,12 +3942,22 @@ def show():
                 #         mime="application/xml"
                 #     )
 
-                process_bpmn_layout(basic_xml)
-                split_diagrams = st.checkbox("Split long diagrams", value=False)
+                col1, col2, _, _ = st.columns(4)
+                with col1:
+                    split_diagrams = st.checkbox(
+                        "Split long diagrams", value=False, key="split_diagrams"
+                    )
+                with col2:
+                    include_legend = st.checkbox(
+                        "Include legend", value=False, key="include_legend"
+                    )
                 if st.button("Generate Laid-Out BPMN XML"):
-                    result = add_special_nodes_and_annotations(split_diagrams)
+                    split_diagrams = st.session_state.get("split_diagrams", False)
+                    include_legend = st.session_state.get("include_legend", False)
+                    result = add_special_nodes_and_annotations(
+                        split_diagrams, include_legend
+                    )
                     if result is not None:
-                        # Run bpmn_modeler_component and pass final_bpmn_xml as argument
                         bpmn_modeler_component(result)
                     else:
                         st.info(
