@@ -3324,7 +3324,7 @@ def add_special_nodes_and_annotations(split_diagrams=False, include_legend=False
         include_legend (bool): Whether to include text annotations/legend below the diagram
 
     Returns:
-        str: The updated BPMN XML with annotations added, or None if processing fails
+        tuple: (updated BPMN XML string, legend DataFrame) or (None, None) if processing fails
     """
     # Check if the laid-out BPMN XML is available
     if (
@@ -3332,7 +3332,7 @@ def add_special_nodes_and_annotations(split_diagrams=False, include_legend=False
         or st.session_state["bpmn_layout_result"] is None
     ):
         st.error("No BPMN layout result is available. Please process the layout first.")
-        return None
+        return None, None
 
     # Load the laid-out BPMN XML from session state
     laid_out_xml = st.session_state["bpmn_layout_result"]
@@ -3342,7 +3342,7 @@ def add_special_nodes_and_annotations(split_diagrams=False, include_legend=False
         # Access node_df and edges_df from session state (assumed to be set in Step 1)
         if "nodes_df" not in st.session_state:
             st.error("Node data is missing. Please generate the workflow first.")
-            return None
+            return None, None
 
         node_df = st.session_state["nodes_df"]
         edges_df = st.session_state["edges_df"]
@@ -3373,7 +3373,22 @@ def add_special_nodes_and_annotations(split_diagrams=False, include_legend=False
         # Step 1: Identify "rule" and "substep" nodes
         special_nodes = node_df[node_df["node_type"].isin(["rule", "substeps"])]
         if special_nodes.empty:
-            return laid_out_xml
+            # Still need to collect user legend entries and create DataFrame
+            legend_entries = []
+            task_nodes = node_df[node_df["node_type"] == "activity"]
+            if not task_nodes.empty and "user_legend" in st.session_state:
+                user_legend_dict = st.session_state["user_legend"]
+                used_abbreviations = set()
+                for index, row in task_nodes.iterrows():
+                    label = str(row["Empfänger"])
+                    for abbr, full_name in user_legend_dict.items():
+                        if abbr in label and abbr not in used_abbreviations:
+                            used_abbreviations.add(abbr)
+                            legend_entries.append(
+                                {"#": abbr, "Typ": "Abkürzung", "Legende": full_name}
+                            )
+            legend_df = pd.DataFrame(legend_entries).reset_index(drop=True)
+            return laid_out_xml, legend_df
 
         # Step 2: Extract parent positions from the laid-out diagram
         parent_positions = {}
@@ -3407,6 +3422,7 @@ def add_special_nodes_and_annotations(split_diagrams=False, include_legend=False
         # Step 4: Add DataObjectReference nodes and DataOutputAssociation edges
         legend_counter = 1
         annotations = []  # Store annotation data for later placement
+        legend_entries = []  # Store legend entries for DataFrame
         for index, row in special_nodes.iterrows():
             parent_id = row["parent"]
             # Map parent id to the cleaned id used in the BPMN XML
@@ -3501,10 +3517,43 @@ def add_special_nodes_and_annotations(split_diagrams=False, include_legend=False
             )
 
             # Store annotation info
-            annotations.append((f"({legend_counter})\n{row['label']}", legend_counter))
+            annotation_text = f"({legend_counter})\n{row['label']}"
+            annotations.append((annotation_text, legend_counter))
+
+            # Determine legend type based on node_type
+            node_type = row["node_type"]
+            if node_type == "rule":
+                legend_type = "Regel"
+            elif node_type == "substeps":
+                legend_type = "Arbeitsschritte"
+            else:
+                legend_type = "Sonstiges"  # fallback
+
+            # Store legend entry for DataFrame
+            legend_entries.append(
+                {"#": legend_counter, "Typ": legend_type, "Legende": row["label"]}
+            )
+
             legend_counter += 1
 
-        # Step 5: Generate text annotations only if include_legend is True
+        # Step 5: Collect user abbreviations for legend DataFrame (regardless of include_legend)
+        user_legend_entries = []
+        task_nodes = node_df[node_df["node_type"] == "activity"]
+        if not task_nodes.empty and "user_legend" in st.session_state:
+            user_legend_dict = st.session_state["user_legend"]
+            used_abbreviations = set()
+            for index, row in task_nodes.iterrows():
+                label = str(row["Empfänger"])
+                for abbr, full_name in user_legend_dict.items():
+                    if abbr in label and abbr not in used_abbreviations:
+                        user_legend_entries.append((abbr, full_name))
+                        used_abbreviations.add(abbr)
+                        # Store user abbreviation legend entry for DataFrame
+                        legend_entries.append(
+                            {"#": abbr, "Typ": "Abkürzung", "Legende": full_name}
+                        )
+
+        # Step 6: Generate text annotations only if include_legend is True
         if include_legend:
             # Step 5.1: Determine the bottom of the main diagram
             max_y = max(
@@ -3513,19 +3562,7 @@ def add_special_nodes_and_annotations(split_diagrams=False, include_legend=False
             )
             annotation_y = max_y + 150  # 100 pixels below the main diagram
 
-            # Step 5.2: Find user abbreviations in task nodes and create additional legend entries
-            user_legend_entries = []
-            task_nodes = node_df[node_df["node_type"] == "activity"]
-            # print("task_nodes", task_nodes) # DEBUG
-            if not task_nodes.empty and "user_legend" in st.session_state:
-                user_legend_dict = st.session_state["user_legend"]
-                used_abbreviations = set()
-                for index, row in task_nodes.iterrows():
-                    label = str(row["Empfänger"])
-                    for abbr, full_name in user_legend_dict.items():
-                        if abbr in label and abbr not in used_abbreviations:
-                            user_legend_entries.append((abbr, full_name))
-                            used_abbreviations.add(abbr)
+            # Note: user_legend_entries already collected above
 
             # Step 6: Add text annotations horizontally
             annotation_x = 50  # Starting x position
@@ -3588,13 +3625,14 @@ def add_special_nodes_and_annotations(split_diagrams=False, include_legend=False
                 # Move to the next position (300 width + 50 space)
                 annotation_x += 350
 
-        # Step 7: Return the updated BPMN XML as a string
+        # Step 7: Create legend DataFrame and return both XML and DataFrame
+        legend_df = pd.DataFrame(legend_entries).reset_index(drop=True)
         updated_xml = ET.tostring(root, encoding="utf-8").decode("utf-8")
-        return updated_xml
+        return updated_xml, legend_df
 
     except Exception as e:
         st.error(f"Error adding annotations to BPMN: {str(e)}")
-        return None
+        return None, None
 
 
 def bpmn_modeler_component(bpmn_xml):
@@ -3941,6 +3979,8 @@ def show():
                 #         file_name="basic_workflow.bpmn",
                 #         mime="application/xml"
                 #     )
+                
+                process_bpmn_layout(basic_xml)
 
                 col1, col2, _, _ = st.columns(4)
                 with col1:
@@ -3954,11 +3994,18 @@ def show():
                 if st.button("Generate Laid-Out BPMN XML"):
                     split_diagrams = st.session_state.get("split_diagrams", False)
                     include_legend = st.session_state.get("include_legend", False)
-                    result = add_special_nodes_and_annotations(
+                    result_xml, legend_df = add_special_nodes_and_annotations(
                         split_diagrams, include_legend
                     )
-                    if result is not None:
-                        bpmn_modeler_component(result)
+                    if result_xml is not None:
+                        bpmn_modeler_component(result_xml)
+
+                        # Display legend DataFrame if it has entries
+                        if not legend_df.empty:
+                            st.subheader("Legende")
+                            st.dataframe(
+                                legend_df, use_container_width=True, hide_index=True
+                            )
                     else:
                         st.info(
                             "Please wait for the layout processing to complete and then try again."
