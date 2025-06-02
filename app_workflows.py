@@ -858,7 +858,7 @@ def build_groups_table(xls):
                     else:
                         groups_df.at[idx, "parallel_condition_expression"] = None
 
-    # Handle LastUserChoice specific processing
+    # Handle UserChoice specific processing
     for idx, row in groups_df[groups_df["type"] == "parallel"].iterrows():
         if (
             row["name"]
@@ -868,27 +868,38 @@ def build_groups_table(xls):
             sheet_name = "Platzhalter für Aktivitäten nac"
             if sheet_name in xls.sheet_names:
                 df = pd.read_excel(xls, sheet_name=sheet_name)
-                auswahlvariable_col = get_column_name(
-                    df.columns, "Name der Auswahlvariable"
-                )
+                fragetext_col = get_column_name(df.columns, "Fragetext")
+                auswahltitel_col = get_column_name(df.columns, "Auswahltitel")
                 name_col = get_column_name(df.columns, "Name:de")
-                if (
-                    auswahlvariable_col
-                    and auswahlvariable_col in df.columns
-                    and name_col
-                    and name_col in df.columns
-                ):
-                    matching_rows = df[df[name_col] == row["name"]]
-                    if (
-                        not matching_rows.empty
-                        and matching_rows.iloc[0][auswahlvariable_col]
-                        == "LastUserChoice"
-                    ):
-                        groups_df.at[idx, "Erledigungsmodus"] = (
-                            f"LastUserChoice\n{matching_rows.iloc[0][name_col]}"
-                        )
 
-    # Handle options for LastUserChoice from Optionsinformation sheet
+                if name_col and name_col in df.columns:
+                    matching_rows = df[df[name_col] == row["name"]]
+                    if not matching_rows.empty:
+                        # Try Fragetext first, then Auswahltitel if Fragetext is empty
+                        erledigungsmodus_value = ""
+                        if (
+                            fragetext_col
+                            and pd.notna(matching_rows.iloc[0].get(fragetext_col))
+                            and str(matching_rows.iloc[0].get(fragetext_col)).strip()
+                        ):
+                            erledigungsmodus_value = str(
+                                matching_rows.iloc[0][fragetext_col]
+                            ).strip()
+                        elif (
+                            auswahltitel_col
+                            and pd.notna(matching_rows.iloc[0].get(auswahltitel_col))
+                            and str(matching_rows.iloc[0].get(auswahltitel_col)).strip()
+                        ):
+                            erledigungsmodus_value = str(
+                                matching_rows.iloc[0][auswahltitel_col]
+                            ).strip()
+
+                        if erledigungsmodus_value:
+                            groups_df.at[idx, "Erledigungsmodus"] = (
+                                erledigungsmodus_value
+                            )
+
+    # Handle options for UserChoice from Optionsinformation sheet
     if "Optionsinformation" in xls.sheet_names:
         options_info = pd.read_excel(xls, "Optionsinformation")
         user_choice_col = get_column_name(options_info.columns, "UserChoiceActivity")
@@ -898,7 +909,14 @@ def build_groups_table(xls):
                 extract_id
             )
             for idx, row in groups_df[groups_df["type"] == "parallel"].iterrows():
-                if str(row.get("Erledigungsmodus", "")).startswith("LastUserChoice"):
+                # Check if Erledigungsmodus has a value and it's not one of the standard types
+                erledigungsmodus = str(row.get("Erledigungsmodus", ""))
+                if (
+                    erledigungsmodus
+                    and erledigungsmodus
+                    not in ["AnyBranch", "OnlyOneBranch", "AllBranches"]
+                    and erledigungsmodus != "None"
+                ):
                     group_id = row["id"]
                     matching_options = options_info[
                         options_info[user_choice_col] == group_id
@@ -912,7 +930,7 @@ def build_groups_table(xls):
                                 map(str, option_names)
                             )
 
-    # Now handle the expressions for LastUserChoice from Bedingungen für Zweig
+    # Now handle the expressions for UserChoice from Bedingungen für Zweig
     if (
         "Bedingungen für Zweig" in xls.sheet_names
         and "Optionsinformation" in xls.sheet_names
@@ -940,7 +958,14 @@ def build_groups_table(xls):
             )
             branch_conditions = branch_conditions.set_index(bc_transport_col)
             for idx, row in groups_df[groups_df["type"] == "parallel"].iterrows():
-                if str(row.get("Erledigungsmodus", "")).startswith("LastUserChoice"):
+                # Check if Erledigungsmodus has a value and it's not one of the standard types
+                erledigungsmodus = str(row.get("Erledigungsmodus", ""))
+                if (
+                    erledigungsmodus
+                    and erledigungsmodus
+                    not in ["AnyBranch", "OnlyOneBranch", "AllBranches"]
+                    and erledigungsmodus != "None"
+                ):
                     group_id = row["id"]
                     matching_options = options_info[
                         options_info[user_choice_col] == group_id
@@ -1141,7 +1166,15 @@ def generate_additional_nodes(activities_table, groups_table):
         (groups_table["Erledigungsmodus"] == "AnyBranch")  # Mind. 1 Zweig
         | (groups_table["Erledigungsmodus"] == "OnlyOneBranch")  # Genau 1 Zweig
         | (groups_table["Erledigungsmodus"] == "AllBranches")  # Alle Zweige
-        | (groups_table["Erledigungsmodus"].str.startswith("LastUserChoice", na=False))
+        | (
+            groups_table["Erledigungsmodus"].notna()
+            & (groups_table["Erledigungsmodus"] != "")
+            & (
+                ~groups_table["Erledigungsmodus"].isin(
+                    ["AnyBranch", "OnlyOneBranch", "AllBranches"]
+                )
+            )
+        )  # Any other UserChoice
     ]
 
     for group_id in eligible_groups.index:
@@ -1241,8 +1274,8 @@ def generate_additional_nodes(activities_table, groups_table):
                     }
                 ).set_index("node_id")
 
-        elif erledigungsmodus.startswith("LastUserChoice"):
-            # Treat LastUserChoice like OnlyOneBranch with specific decision label
+        elif erledigungsmodus not in ["AnyBranch", "OnlyOneBranch", "AllBranches"]:
+            # Treat UserChoice like OnlyOneBranch with specific decision label
             decision_node_id = generate_node_id(
                 "decision", {"group_id": group_id, "type": erledigungsmodus}
             )
@@ -1274,9 +1307,9 @@ def generate_additional_nodes(activities_table, groups_table):
                 max_seq + 1
             )  # Gateway join comes just after the last child
 
-            # Set gateway labels for LastUserChoice (like OnlyOneBranch)
-            gateway_split_label = "X"  # Empty diamond for LastUserChoice
-            gateway_join_label = "X"  # Empty diamond for LastUserChoice
+            # Set gateway labels for UserChoice (like OnlyOneBranch)
+            gateway_split_label = "X"  # Empty diamond for UserChoice
+            gateway_join_label = "X"  # Empty diamond for UserChoice
 
             # Prepare node data for DataFrame
             node_ids = []
@@ -1304,7 +1337,7 @@ def generate_additional_nodes(activities_table, groups_table):
                     groups_table.loc[group_id, "parallel_condition_expression"]
                 )
 
-            # Create nodes dataframe for LastUserChoice
+            # Create nodes dataframe for UserChoice
             new_nodes = pd.DataFrame(
                 {
                     "node_id": node_ids,
@@ -2723,9 +2756,12 @@ def create_main_flow_bpmn_xml(node_df, edges_df):
                     process, "bpmn:task", {"id": cleaned_id, "name": formatted_name}
                 )
         elif is_node_type(node_type, "decision"):
-            # For LastUserChoice decision nodes, use the full label
+            # For UserChoice decision nodes, use the full label
             # For all other decision nodes, use only the first line (truncated)
-            if pd.notna(label) and str(label).startswith("LastUserChoice"):
+            if pd.notna(label) and not any(
+                str(label).startswith(standard_type)
+                for standard_type in ["Entscheid", "Überspringen", "Wiederholen"]
+            ):
                 decision_name = label
             else:
                 decision_name = label.split("\n")[0] or name
