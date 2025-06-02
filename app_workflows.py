@@ -3679,6 +3679,9 @@ def bpmn_modeler_component(bpmn_xml):
             #download-svg {{
                 left: 150px;
             }}
+            #download-png {{
+                left: 295px;
+            }}
             html, body {{ 
                 height: 100%; 
                 width: 100%; 
@@ -3690,6 +3693,7 @@ def bpmn_modeler_component(bpmn_xml):
         <body>
         <button id="download-bpmn" class="download-btn">Download BPMN</button>
         <button id="download-svg" class="download-btn">Download SVG</button>
+        <button id="download-png" class="download-btn">Download PNG</button>
         <div id="canvas"></div>
         <script>
             {base64.b64decode(base64.b64encode(open(os.path.join(STATIC_DIR, 'bpmn-modeler.development.js'), 'rb').read())).decode('utf-8')}
@@ -3698,6 +3702,7 @@ def bpmn_modeler_component(bpmn_xml):
             var diagramXML = `{bpmn_xml}`;
             var bpmnFilename = `{bpmn_filename}`;
             var svgFilename = `{svg_filename}`;
+            var pngFilename = `{base_filename}.png`;
             var modeler = new BpmnJS({{ container: '#canvas' }});
             
             async function openDiagram(xml) {{
@@ -3749,8 +3754,76 @@ def bpmn_modeler_component(bpmn_xml):
                 }}
             }}
             
+            async function savePNG() {{
+                try {{
+                    const result = await modeler.saveSVG();
+                    const svgContent = result.svg;
+                    
+                    // Scale factor for higher DPI (2x = 144 DPI, 3x = 216 DPI, 4x = 288 DPI)
+                    const scaleFactor = 3;
+                    
+                    // Create a new Image element
+                    const img = new Image();
+                    
+                    // Create a promise to handle the image loading
+                    const imageLoaded = new Promise((resolve, reject) => {{
+                        img.onload = resolve;
+                        img.onerror = reject;
+                    }});
+                    
+                    // Convert SVG to data URL
+                    const svgBlob = new Blob([svgContent], {{ type: 'image/svg+xml;charset=utf-8' }});
+                    const svgUrl = URL.createObjectURL(svgBlob);
+                    img.src = svgUrl;
+                    
+                    // Wait for image to load
+                    await imageLoaded;
+                    
+                    // Create canvas with scaled dimensions for higher resolution
+                    const canvas = document.createElement('canvas');
+                    const ctx = canvas.getContext('2d');
+                    
+                    // Get original dimensions
+                    const originalWidth = img.naturalWidth || img.width;
+                    const originalHeight = img.naturalHeight || img.height;
+                    
+                    // Set canvas size to scaled dimensions for higher DPI
+                    canvas.width = originalWidth * scaleFactor;
+                    canvas.height = originalHeight * scaleFactor;
+                    
+                    // Scale the drawing context to match
+                    ctx.scale(scaleFactor, scaleFactor);
+                    
+                    // Enable image smoothing for better quality
+                    ctx.imageSmoothingEnabled = true;
+                    ctx.imageSmoothingQuality = 'high';
+                    
+                    // Fill with white background
+                    ctx.fillStyle = 'white';
+                    ctx.fillRect(0, 0, originalWidth, originalHeight);
+                    
+                    // Draw the SVG image onto the scaled canvas
+                    ctx.drawImage(img, 0, 0, originalWidth, originalHeight);
+                    
+                    // Convert canvas to PNG blob with high quality
+                    canvas.toBlob((blob) => {{
+                        const url = URL.createObjectURL(blob);
+                        const a = document.createElement('a');
+                        a.href = url;
+                        a.download = pngFilename;
+                        a.click();
+                        URL.revokeObjectURL(url);
+                        URL.revokeObjectURL(svgUrl);
+                    }}, 'image/png', 0.95);
+                    
+                }} catch (err) {{
+                    console.error('Error saving PNG:', err);
+                }}
+            }}
+            
             document.getElementById('download-bpmn').addEventListener('click', saveBPMN);
             document.getElementById('download-svg').addEventListener('click', saveSVG);
+            document.getElementById('download-png').addEventListener('click', savePNG);
             openDiagram(diagramXML);
         </script>
         <script>
