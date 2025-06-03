@@ -879,12 +879,32 @@ def build_groups_table(xls):
     # Process UserChoice conditions from Optionsinformation
     process_branch_conditions("Optionsinformation", "UserChoiceActivity")
 
+    # Define standard erledigungsmodus values to avoid duplication
+    STANDARD_ERLEDIGUNG_TYPES = ["AnyBranch", "OnlyOneBranch", "AllBranches"]
+
     # Handle UserChoice specific processing
     if "Platzhalter für Aktivitäten nac" in xls.sheet_names:
         userchoice_df = pd.read_excel(xls, "Platzhalter für Aktivitäten nac")
         fragetext_col = get_column_name(userchoice_df.columns, "Fragetext")
         auswahltitel_col = get_column_name(userchoice_df.columns, "Auswahltitel")
         name_col = get_column_name(userchoice_df.columns, "Name:de")
+
+        def get_question_text(matching_row):
+            """Helper function to get question text from Fragetext or Auswahltitel"""
+            # Try Fragetext first, then Auswahltitel if Fragetext is empty
+            if (
+                fragetext_col
+                and pd.notna(matching_row.get(fragetext_col))
+                and str(matching_row.get(fragetext_col)).strip()
+            ):
+                return str(matching_row[fragetext_col]).strip()
+            elif (
+                auswahltitel_col
+                and pd.notna(matching_row.get(auswahltitel_col))
+                and str(matching_row.get(auswahltitel_col)).strip()
+            ):
+                return str(matching_row[auswahltitel_col]).strip()
+            return ""
 
         for idx, row in groups_df[groups_df["type"] == "parallel"].iterrows():
             # Check if this is a UserChoice case (has parallel_condition_name set and Erledigungsmodus is not standard)
@@ -894,8 +914,7 @@ def build_groups_table(xls):
             # Identify UserChoice cases: has conditions and erledigungsmodus is not a standard type
             is_userchoice = (
                 has_conditions
-                and erledigungsmodus
-                not in ["AnyBranch", "OnlyOneBranch", "AllBranches"]
+                and erledigungsmodus not in STANDARD_ERLEDIGUNG_TYPES
                 # Note: Removed check for "None" - groups with None Erledigungsmodus but conditions should be UserChoice
             ) or (
                 # Also check if the name exists in the UserChoice sheet
@@ -914,24 +933,7 @@ def build_groups_table(xls):
                         userchoice_df[name_col] == row["name"]
                     ]
                     if not matching_rows.empty:
-                        # Try Fragetext first, then Auswahltitel if Fragetext is empty
-                        question_text = ""
-                        if (
-                            fragetext_col
-                            and pd.notna(matching_rows.iloc[0].get(fragetext_col))
-                            and str(matching_rows.iloc[0].get(fragetext_col)).strip()
-                        ):
-                            question_text = str(
-                                matching_rows.iloc[0][fragetext_col]
-                            ).strip()
-                        elif (
-                            auswahltitel_col
-                            and pd.notna(matching_rows.iloc[0].get(auswahltitel_col))
-                            and str(matching_rows.iloc[0].get(auswahltitel_col)).strip()
-                        ):
-                            question_text = str(
-                                matching_rows.iloc[0][auswahltitel_col]
-                            ).strip()
+                        question_text = get_question_text(matching_rows.iloc[0])
 
                         # Prepend question text to parallel_condition_expression if found
                         if question_text:
@@ -965,8 +967,7 @@ def build_groups_table(xls):
                 erledigungsmodus = str(row.get("Erledigungsmodus", ""))
                 if (
                     erledigungsmodus
-                    and erledigungsmodus
-                    not in ["AnyBranch", "OnlyOneBranch", "AllBranches"]
+                    and erledigungsmodus not in STANDARD_ERLEDIGUNG_TYPES
                     and erledigungsmodus != "None"
                     and pd.isna(
                         row.get("parallel_condition_name")
@@ -1077,6 +1078,9 @@ def generate_additional_nodes(activities_table, groups_table):
     - updated_nodes_table: pd.DataFrame with all nodes (activities + additional nodes)
     - updated_groups_table: pd.DataFrame with updated SequenceNumbers
     """
+    # Define standard erledigungsmodus values to avoid duplication
+    STANDARD_ERLEDIGUNG_TYPES = ["AnyBranch", "OnlyOneBranch", "AllBranches"]
+
     # Create a copy of activities_table to build the updated nodes table
     updated_nodes = activities_table.copy()
     updated_nodes["node_type"] = "activity"  # Mark original activities
@@ -1139,17 +1143,13 @@ def generate_additional_nodes(activities_table, groups_table):
 
     # Process groups with Erledigungsmodus
     eligible_groups = groups_table[
-        (groups_table["Erledigungsmodus"] == "AnyBranch")  # Mind. 1 Zweig
-        | (groups_table["Erledigungsmodus"] == "OnlyOneBranch")  # Genau 1 Zweig
-        | (groups_table["Erledigungsmodus"] == "AllBranches")  # Alle Zweige
+        (
+            groups_table["Erledigungsmodus"].isin(STANDARD_ERLEDIGUNG_TYPES)
+        )  # Standard types
         | (
             groups_table["Erledigungsmodus"].notna()
             & (groups_table["Erledigungsmodus"] != "")
-            & (
-                ~groups_table["Erledigungsmodus"].isin(
-                    ["AnyBranch", "OnlyOneBranch", "AllBranches"]
-                )
-            )
+            & (~groups_table["Erledigungsmodus"].isin(STANDARD_ERLEDIGUNG_TYPES))
         )  # Any other UserChoice
         | (
             (groups_table["type"] == "parallel")
@@ -1271,7 +1271,7 @@ def generate_additional_nodes(activities_table, groups_table):
                     }
                 ).set_index("node_id")
 
-        elif erledigungsmodus not in ["AnyBranch", "OnlyOneBranch", "AllBranches"]:
+        elif erledigungsmodus not in STANDARD_ERLEDIGUNG_TYPES:
             # Treat UserChoice like OnlyOneBranch with specific decision label
             decision_node_id = generate_node_id(
                 "decision", {"group_id": group_id, "type": erledigungsmodus}
