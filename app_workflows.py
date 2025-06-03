@@ -3385,7 +3385,11 @@ def add_special_nodes_and_annotations(split_diagrams=False, include_legend=False
                         if abbr in label and abbr not in used_abbreviations:
                             used_abbreviations.add(abbr)
                             legend_entries.append(
-                                {"#": abbr, "Typ": "Abkürzung", "Legende": full_name}
+                                {
+                                    "#": str(abbr),
+                                    "Typ": "Abkürzung",
+                                    "Legende": full_name,
+                                }
                             )
             legend_df = pd.DataFrame(legend_entries).reset_index(drop=True)
             return laid_out_xml, legend_df
@@ -3531,7 +3535,7 @@ def add_special_nodes_and_annotations(split_diagrams=False, include_legend=False
 
             # Store legend entry for DataFrame
             legend_entries.append(
-                {"#": legend_counter, "Typ": legend_type, "Legende": row["label"]}
+                {"#": str(legend_counter), "Typ": legend_type, "Legende": row["label"]}
             )
 
             legend_counter += 1
@@ -3550,7 +3554,7 @@ def add_special_nodes_and_annotations(split_diagrams=False, include_legend=False
                         used_abbreviations.add(abbr)
                         # Store user abbreviation legend entry for DataFrame
                         legend_entries.append(
-                            {"#": abbr, "Typ": "Abkürzung", "Legende": full_name}
+                            {"#": str(abbr), "Typ": "Abkürzung", "Legende": full_name}
                         )
 
         # Step 6: Generate text annotations only if include_legend is True
@@ -3979,7 +3983,7 @@ def show():
                 #         file_name="basic_workflow.bpmn",
                 #         mime="application/xml"
                 #     )
-                
+
                 process_bpmn_layout(basic_xml)
 
                 col1, col2, _, _ = st.columns(4)
