@@ -25,19 +25,31 @@ To install an updated version of the app, repeat steps 3 and 4.
 A browser window should pop up, or visit `http://localhost:8501/`
 
 
+## Launching with PowerShell Script
 
+`run.ps1` is a PowerShell script that will launch the app automatically, re-start if it crashes and redirect errors to `app_log.txt`. The PowerShell window must remain opened. 
+
+Alternatively, `Setup_TaskScheduler.ps1` can be used to create a Windows Task Scheduler task that will launch the app automatically with every Windows startup. This has to be executed only once. 
 
 ## Usage
 
-Allows uploading the raw output of Expertensuche queries (.xlsx files) to viszualize and explore relationships in the database.
 
-The app is split into 3 parts, accessible from the left menu bar:
+The app is split into different pages, accessible from the left menu bar:
 
-1. Data Processing: 
+- Graph Viewer Related:
+
+Allows uploading the raw output of Expertensuche queries (.xlsx files) to visualize and explore relationships in the database.
+
+1. **Data Processing**
+   
    Files can be dragged&dropped in the upload field. Click the "Check Data" button to show which files are still missing.
    Click then "Run Processing" button to run basic data cleanup and combine all queries into a network representation of edges and nodes. Result is stored for future use.
-2. Search RefID
-3. Graph Viewer
+2. **Search RefID**
+3. **Graph Viewer**
+4. **Analysis**
    
- [to be continued...]
+- Other Utilities:
+5. **Prozess Viewer** (for BPMN Diagrams)
+6. **Path Viewer** (for XML Schema Searches)
 
+Refer to the individual documentations (Confluence) for more details about each page.
