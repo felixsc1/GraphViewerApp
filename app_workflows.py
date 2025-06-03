@@ -895,8 +895,8 @@ def build_groups_table(xls):
             is_userchoice = (
                 has_conditions
                 and erledigungsmodus
-                not in ["AnyBranch", "OnlyOneBranch", "AllBranches", ""]
-                and erledigungsmodus != "None"
+                not in ["AnyBranch", "OnlyOneBranch", "AllBranches"]
+                # Note: Removed check for "None" - groups with None Erledigungsmodus but conditions should be UserChoice
             ) or (
                 # Also check if the name exists in the UserChoice sheet
                 name_col
@@ -1151,11 +1151,25 @@ def generate_additional_nodes(activities_table, groups_table):
                 )
             )
         )  # Any other UserChoice
+        | (
+            (groups_table["type"] == "parallel")
+            & (
+                groups_table["Erledigungsmodus"].isna()
+                | (groups_table["Erledigungsmodus"] == "")
+            )
+        )  # Parallel groups without explicit Erledigungsmodus
     ]
 
     for group_id in eligible_groups.index:
         # Get the erledigungsmodus for this group
         erledigungsmodus = groups_table.loc[group_id, "Erledigungsmodus"]
+
+        # Handle parallel groups without explicit Erledigungsmodus - default to AllBranches
+        if pd.isna(erledigungsmodus) or erledigungsmodus == "":
+            if groups_table.loc[group_id, "type"] == "parallel":
+                erledigungsmodus = "AllBranches"
+            else:
+                continue  # Skip non-parallel groups without Erledigungsmodus
 
         # Identify child activities and subgroups of this group
         child_activities = activities_table[activities_table["parent"] == group_id]
@@ -1853,7 +1867,8 @@ def build_edges_table(updated_nodes, updated_groups):
             return first_node, join
 
         else:
-            print(f"Unknown group type: {get_safe_value_bpmn(group, 'type')}")
+            group_type = get_safe_value_bpmn(group, "type")
+            print(f"Unknown group type: {group_type}")
             return None, None
 
     def handle_skip(group, children, has_subgroup_with_higher_seq=False):
