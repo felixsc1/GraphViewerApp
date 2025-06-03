@@ -928,27 +928,46 @@ def build_groups_table(xls):
                 groups_df.at[idx, "Erledigungsmodus"] = "Benutzerentscheid"
 
                 # Look up Fragetext/Auswahltitel if available
-                if name_col and name_col in userchoice_df.columns:
+                # First try to match by TransportID (more reliable than name)
+                transport_id_col = get_column_name(userchoice_df.columns, "TransportID")
+                matching_rows = pd.DataFrame()  # Initialize empty
+
+                if transport_id_col and transport_id_col in userchoice_df.columns:
+                    # Match by group ID (which corresponds to TransportID)
+                    matching_rows = userchoice_df[
+                        userchoice_df[transport_id_col] == row["id"]
+                    ]
+
+                # Fallback to name matching if TransportID matching didn't work and name is available
+                if (
+                    matching_rows.empty
+                    and name_col
+                    and name_col in userchoice_df.columns
+                    and pd.notna(row["name"])
+                ):
                     matching_rows = userchoice_df[
                         userchoice_df[name_col] == row["name"]
                     ]
-                    if not matching_rows.empty:
-                        question_text = get_question_text(matching_rows.iloc[0])
 
-                        # Prepend question text to parallel_condition_expression if found
-                        if question_text:
-                            existing_expression = row.get(
-                                "parallel_condition_expression", ""
-                            )
-                            if pd.notna(existing_expression) and existing_expression:
-                                new_expression = (
-                                    f"{question_text}\n{existing_expression}"
-                                )
-                            else:
-                                new_expression = question_text
-                            groups_df.at[idx, "parallel_condition_expression"] = (
-                                new_expression
-                            )
+                if not matching_rows.empty:
+                    question_text = get_question_text(matching_rows.iloc[0])
+
+                    # Prepend question text to parallel_condition_expression if found
+                    if question_text:
+                        existing_expression = row.get(
+                            "parallel_condition_expression", ""
+                        )
+                        if pd.notna(existing_expression) and existing_expression:
+                            new_expression = f"{question_text}\n{existing_expression}"
+                        else:
+                            new_expression = question_text
+                        groups_df.at[idx, "parallel_condition_expression"] = (
+                            new_expression
+                        )
+                else:
+                    print(
+                        f"DEBUG: No matching rows found for group ID '{row['id']}' or name '{row['name']}')"
+                    )
 
     # Handle options for UserChoice from Optionsinformation sheet (fallback for cases without Condition column)
     if "Optionsinformation" in xls.sheet_names:
