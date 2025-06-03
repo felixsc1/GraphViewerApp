@@ -1524,7 +1524,8 @@ def generate_additional_nodes(activities_table, groups_table):
                     gateway_join_seq,
                 ],
                 "label": [
-                    skip_condition if pd.notna(skip_condition) else "",
+                    (skip_name + "\n" if pd.notna(skip_name) else "")
+                    + (skip_condition if pd.notna(skip_condition) else ""),
                     "Überspringen, falls\n"
                     + (skip_name if pd.notna(skip_name) else ""),
                     "X",  # X symbol for skip gateway split
@@ -1600,7 +1601,8 @@ def generate_additional_nodes(activities_table, groups_table):
                     gateway_join_seq,
                 ],
                 "label": [
-                    repeat_condition if pd.notna(repeat_condition) else "",
+                    (repeat_name + "\n" if pd.notna(repeat_name) else "")
+                    + (repeat_condition if pd.notna(repeat_condition) else ""),
                     "Wiederholen, falls\n"
                     + (repeat_name if pd.notna(repeat_name) else ""),
                     "X",  # X symbol for gateway split
