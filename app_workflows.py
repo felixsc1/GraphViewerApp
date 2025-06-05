@@ -3948,111 +3948,150 @@ def show():
         upload_user_list()
         modify_user_entries()  # All user management logic moved here
 
-    st.subheader("Upload Prozess Export")
-    xls = upload_dossier()
+    tab1, tab2 = st.tabs(["Upload XLSX", "Upload BPMN"])
 
-    if xls is not None:
-        activities_table = build_activities_table(xls)
-        groups_table = build_groups_table(xls)
-        check_for_unknown_groups(xls, groups_table, activities_table)
-        # Set the correct indices before calling generate_additional_nodes
-        activities_index = activities_table.set_index("TransportID").copy()
-        groups_index = groups_table.set_index("id").copy()
+    with tab1:
+        st.subheader("Upload Prozess Export")
+        xls = upload_dossier()
 
-        # Now call the function with properly indexed dataframes
-        try:
-            updated_nodes, updated_groups = generate_additional_nodes(
-                activities_index, groups_index
-            )
-            st.session_state["nodes_df"] = updated_nodes
-            edges_table = build_edges_table(updated_nodes, updated_groups)
-            st.session_state["edges_df"] = edges_table
-            # Debugging
-            # st.write(updated_nodes.to_dict())
-            # st.write(updated_groups.to_dict())
-            # st.write(edges_table.to_dict())
-            with st.expander("Data Details", expanded=False):
-                # st.write(st.session_state['user_dict'])
-                # st.write("Aktivitäten")
-                # st.dataframe(activities_table)
-                # st.write("Platzhalter")
-                # st.dataframe(groups_table)
-                st.write("Nodes")
-                st.dataframe(updated_nodes.reset_index())
-                st.write("Groups")
-                st.dataframe(updated_groups.reset_index())
-                st.write("Edges")
-                st.dataframe(edges_table)
+        if xls is not None:
+            activities_table = build_activities_table(xls)
+            groups_table = build_groups_table(xls)
+            check_for_unknown_groups(xls, groups_table, activities_table)
+            # Set the correct indices before calling generate_additional_nodes
+            activities_index = activities_table.set_index("TransportID").copy()
+            groups_index = groups_table.set_index("id").copy()
+
+            # Now call the function with properly indexed dataframes
             try:
-                st.subheader("Workflow Diagram")
+                updated_nodes, updated_groups = generate_additional_nodes(
+                    activities_index, groups_index
+                )
+                st.session_state["nodes_df"] = updated_nodes
+                edges_table = build_edges_table(updated_nodes, updated_groups)
+                st.session_state["edges_df"] = edges_table
+                # Debugging
+                # st.write(updated_nodes.to_dict())
+                # st.write(updated_groups.to_dict())
+                # st.write(edges_table.to_dict())
+                with st.expander("Data Details", expanded=False):
+                    # st.write(st.session_state['user_dict'])
+                    # st.write("Aktivitäten")
+                    # st.dataframe(activities_table)
+                    # st.write("Platzhalter")
+                    # st.dataframe(groups_table)
+                    st.write("Nodes")
+                    st.dataframe(updated_nodes.reset_index())
+                    st.write("Groups")
+                    st.dataframe(updated_groups.reset_index())
+                    st.write("Edges")
+                    st.dataframe(edges_table)
+                try:
+                    st.subheader("Workflow Diagram")
 
-                # --- Deprecated Graphviz approach ---
-                # diagram = build_workflow_diagram(updated_nodes, updated_groups)
-                # # Save the DOT representation to a file (for debugging if needed)
-                # diagram.save('bpmn_diagram.dot')
-                # # Render the diagram with view=False to prevent it from opening automatically
-                # svg_path = diagram.render('workflow_diagram', format='svg', cleanup=False, view=False)
-                # # Display the diagram directly in Streamlit
-                # st.graphviz_chart(diagram)
+                    # --- Deprecated Graphviz approach ---
+                    # diagram = build_workflow_diagram(updated_nodes, updated_groups)
+                    # # Save the DOT representation to a file (for debugging if needed)
+                    # diagram.save('bpmn_diagram.dot')
+                    # # Render the diagram with view=False to prevent it from opening automatically
+                    # svg_path = diagram.render('workflow_diagram', format='svg', cleanup=False, view=False)
+                    # # Display the diagram directly in Streamlit
+                    # st.graphviz_chart(diagram)
 
-                # Create download buttons for the SVG and BPMN XML
-                # col1, col2 = st.columns(2)
-                # with col1:
-                #     try:
-                #         with open(svg_path, "rb") as file:
-                #             btn = st.download_button(
-                #                 label="Download as SVG",
-                #                 data=file,
-                #                 file_name="workflow_diagram.svg",
-                #                 mime="image/svg+xml",
-                #             )
-                #     except Exception as e:
-                #         st.warning(f"Could not create download button. Error: {str(e)}")
+                    # Create download buttons for the SVG and BPMN XML
+                    # col1, col2 = st.columns(2)
+                    # with col1:
+                    #     try:
+                    #         with open(svg_path, "rb") as file:
+                    #             btn = st.download_button(
+                    #                 label="Download as SVG",
+                    #                 data=file,
+                    #                 file_name="workflow_diagram.svg",
+                    #                 mime="image/svg+xml",
+                    #             )
+                    #     except Exception as e:
+                    #         st.warning(f"Could not create download button. Error: {str(e)}")
 
-                basic_xml = create_main_flow_bpmn_xml(updated_nodes, edges_table)
+                    basic_xml = create_main_flow_bpmn_xml(updated_nodes, edges_table)
 
-                # if st.button("Generate BPMN XML"):
-                #     # Create download button for basic XML
-                #     st.download_button(
-                #         label="Download Basic BPMN XML",
-                #         data=basic_xml,
-                #         file_name="basic_workflow.bpmn",
-                #         mime="application/xml"
-                #     )
+                    # if st.button("Generate BPMN XML"):
+                    #     # Create download button for basic XML
+                    #     st.download_button(
+                    #         label="Download Basic BPMN XML",
+                    #         data=basic_xml,
+                    #         file_name="basic_workflow.bpmn",
+                    #         mime="application/xml"
+                    #     )
 
-                process_bpmn_layout(basic_xml)
+                    process_bpmn_layout(basic_xml)
 
-                col1, col2, _, _ = st.columns(4)
-                with col1:
-                    split_diagrams = st.checkbox(
-                        "Split long diagrams", value=False, key="split_diagrams"
-                    )
-                with col2:
-                    include_legend = st.checkbox(
-                        "Include legend", value=False, key="include_legend"
-                    )
-                if st.button("Generate Laid-Out BPMN XML"):
-                    split_diagrams = st.session_state.get("split_diagrams", False)
-                    include_legend = st.session_state.get("include_legend", False)
-                    result_xml, legend_df = add_special_nodes_and_annotations(
-                        split_diagrams, include_legend
-                    )
-                    if result_xml is not None:
-                        bpmn_modeler_component(result_xml)
-
-                        # Display legend DataFrame if it has entries
-                        if not legend_df.empty:
-                            st.subheader("Legende")
-                            st.dataframe(
-                                legend_df, use_container_width=True, hide_index=True
-                            )
-                    else:
-                        st.info(
-                            "Please wait for the layout processing to complete and then try again."
+                    col1, col2, _, _ = st.columns(4)
+                    with col1:
+                        split_diagrams = st.checkbox(
+                            "Split long diagrams", value=False, key="split_diagrams"
                         )
+                    with col2:
+                        include_legend = st.checkbox(
+                            "Include legend", value=False, key="include_legend"
+                        )
+                    if st.button("Generate Laid-Out BPMN XML"):
+                        split_diagrams = st.session_state.get("split_diagrams", False)
+                        include_legend = st.session_state.get("include_legend", False)
+                        result_xml, legend_df = add_special_nodes_and_annotations(
+                            split_diagrams, include_legend
+                        )
+                        if result_xml is not None:
+                            bpmn_modeler_component(result_xml)
+
+                            # Display legend DataFrame if it has entries
+                            if not legend_df.empty:
+                                st.subheader("Legende")
+                                st.dataframe(
+                                    legend_df, use_container_width=True, hide_index=True
+                                )
+                        else:
+                            st.info(
+                                "Please wait for the layout processing to complete and then try again."
+                            )
+                except Exception as e:
+                    st.error(f"Error generating workflow diagram: {str(e)}")
+                    st.exception(e)
             except Exception as e:
-                st.error(f"Error generating workflow diagram: {str(e)}")
+                st.error(f"Error in generate_additional_nodes: {str(e)}")
                 st.exception(e)
-        except Exception as e:
-            st.error(f"Error in generate_additional_nodes: {str(e)}")
-            st.exception(e)
+
+    with tab2:
+        st.subheader("Upload BPMN File")
+        uploaded_bpmn = st.file_uploader(
+            "Choose a BPMN file",
+            type=["bpmn", "xml"],
+            help="Upload a BPMN file that was previously downloaded from this application",
+        )
+
+        if uploaded_bpmn is not None:
+            try:
+                # Read the BPMN file content as string
+                bpmn_content = uploaded_bpmn.read().decode("utf-8")
+
+                # Validate that it's a BPMN file by checking for BPMN namespace
+                if "http://www.omg.org/spec/BPMN/20100524/MODEL" in bpmn_content:
+                    st.success(
+                        f"✅ Successfully loaded BPMN file: {uploaded_bpmn.name}"
+                    )
+
+                    # Display the BPMN diagram using the modeler component
+                    bpmn_modeler_component(bpmn_content)
+                else:
+                    st.error(
+                        "❌ The uploaded file doesn't appear to be a valid BPMN file."
+                    )
+                    st.info("Please upload a BPMN file with the correct XML structure.")
+
+            except UnicodeDecodeError:
+                st.error(
+                    "❌ Could not read the file. Please ensure it's a valid text-based BPMN file."
+                )
+            except Exception as e:
+                st.error(f"❌ Error processing the uploaded BPMN file: {str(e)}")
+        else:
+            st.info("👆 Upload a BPMN file to view and edit it in the diagram viewer.")
