@@ -13,7 +13,7 @@ import json
 import base64
 
 # Global debug variable
-DEBUG_OUTPUT_DATAFRAMES = True
+DEBUG_OUTPUT_DATAFRAMES = False
 
 
 def initialize_state():
@@ -647,6 +647,7 @@ def build_groups_table(xls):
     group_sheets = {
         "Prozess": "process",
         "Platzhalter für sequentielle Ak": "sequential",
+        "Platzhalteraktivität für Prozes": "sequential",
         "Platzhalter für parallele Aktiv": "parallel",
         "Platzhalter für Aktivitäten nac": "parallel",
     }
