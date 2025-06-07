@@ -1904,8 +1904,9 @@ def build_edges_table(updated_nodes, updated_groups):
             children: List of child nodes and groups within the group.
             has_subgroup_with_higher_seq: Boolean indicating if a subgroup with a higher sequence number than the last activity exists.
         """
-        decision = split = join = activity = None
-        activities = []
+        decision = split = join = None
+
+        # Find skip-related nodes
         for c_type, c_id, seq in children:
             if c_type == "node":
                 if "skip_decision" in c_id:
@@ -1914,12 +1915,6 @@ def build_edges_table(updated_nodes, updated_groups):
                     split = c_id
                 elif "skip_gateway_join" in c_id:
                     join = c_id
-                elif (
-                    get_safe_value_bpmn(updated_nodes.loc[c_id], "node_type")
-                    == "activity"
-                ):
-                    activity = c_id
-                    activities.append((c_id, seq))
 
         if split and join:
             if (split, join) not in edge_set:
@@ -1936,23 +1931,19 @@ def build_edges_table(updated_nodes, updated_groups):
                         skip_label = decision_label.split("\n")[1]
                         edge_labels[(split, join)] = skip_label
 
-        if decision and split and join and activity:
+        # For skip conditions, only create the essential control flow connections
+        # Don't interfere with the main sequential flow - that should be handled
+        # in the main process_group logic
+        if decision and split:
             if (decision, split) not in edge_set:
                 edges.append((decision, split))
                 edge_set.add((decision, split))
-            if (split, activity) not in edge_set:
-                edges.append((split, activity))
-                edge_set.add((split, activity))
-            # Only connect the last activity to join if there is no subgroup with higher sequence number
-            if not has_subgroup_with_higher_seq and activities:
-                last_activity = activities[-1][0]
-                if (last_activity, join) not in edge_set:
-                    edges.append((last_activity, join))
-                    edge_set.add((last_activity, join))
 
     def handle_repeat(group, children):
         """Handle repeat constructs within a group."""
-        decision = gateway_split = gateway_join = activity = None
+        decision = gateway_split = gateway_join = None
+
+        # Find repeat-related nodes
         for c_type, c_id, _ in children:
             if c_type == "node":
                 if "repeat_decision" in c_id:
@@ -1961,25 +1952,20 @@ def build_edges_table(updated_nodes, updated_groups):
                     gateway_split = c_id
                 elif "repeat_gateway_join" in c_id:
                     gateway_join = c_id
-                elif (
-                    get_safe_value_bpmn(updated_nodes.loc[c_id], "node_type")
-                    == "activity"
-                ):
-                    activity = c_id
 
         if gateway_split and gateway_join:
             if (gateway_split, gateway_join) not in edge_set:
                 edges.append((gateway_split, gateway_join))
                 edge_set.add((gateway_split, gateway_join))
 
-        if decision and gateway_split and gateway_join and activity:
-            if (gateway_join, activity) not in edge_set:
-                edges.append((gateway_join, activity))
-                edge_set.add((gateway_join, activity))
-            if (activity, decision) not in edge_set:
-                edges.append((activity, decision))
+        # For repeat conditions, only create the essential control flow connections
+        # Don't interfere with the main sequential flow - that should be handled
+        # in the main process_group logic
+        if decision and gateway_split and gateway_join:
+            # Only connect decision to gateway_split - this provides the repeat loop back
             if (decision, gateway_split) not in edge_set:
                 edges.append((decision, gateway_split))
+                edge_set.add((decision, gateway_split))
 
             # Extract repeat condition label from decision node
             if decision in updated_nodes.index:
