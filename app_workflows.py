@@ -12,6 +12,9 @@ import re
 import json
 import base64
 
+# Global debug variable
+DEBUG_OUTPUT_DATAFRAMES = True
+
 
 def initialize_state():
     # Create workflows directory if it doesn't exist
@@ -3970,6 +3973,41 @@ def show():
                 st.session_state["nodes_df"] = updated_nodes
                 edges_table = build_edges_table(updated_nodes, updated_groups)
                 st.session_state["edges_df"] = edges_table
+
+                # Debug output to file if enabled
+                if DEBUG_OUTPUT_DATAFRAMES:
+                    try:
+                        debug_output = {
+                            "updated_nodes": updated_nodes.to_dict(),
+                            "updated_groups": updated_groups.to_dict(),
+                            "edges_df": edges_table.to_dict(),
+                        }
+
+                        debug_file_path = os.path.join(
+                            st.session_state["cwd"], "debug_dataframes.txt"
+                        )
+                        with open(debug_file_path, "w", encoding="utf-8") as f:
+                            f.write("DEBUG OUTPUT: DATAFRAMES\n")
+                            f.write("=" * 50 + "\n\n")
+
+                            f.write("UPDATED_NODES:\n")
+                            f.write("-" * 20 + "\n")
+                            f.write(str(debug_output["updated_nodes"]))
+                            f.write("\n\n")
+
+                            f.write("UPDATED_GROUPS:\n")
+                            f.write("-" * 20 + "\n")
+                            f.write(str(debug_output["updated_groups"]))
+                            f.write("\n\n")
+
+                            f.write("EDGES_DF:\n")
+                            f.write("-" * 20 + "\n")
+                            f.write(str(debug_output["edges_df"]))
+                            f.write("\n")
+
+                        st.info(f"Debug dataframes written to: {debug_file_path}")
+                    except Exception as e:
+                        st.warning(f"Failed to write debug output: {str(e)}")
                 # Debugging
                 # st.write(updated_nodes.to_dict())
                 # st.write(updated_groups.to_dict())
