@@ -2759,12 +2759,12 @@ def create_main_flow_bpmn_xml(node_df, edges_df):
     connected_nodes.discard("start")
     connected_nodes.discard("end")
 
-    # Filter main flow nodes (exclude "rule" and "substeps")
+    # Filter main flow nodes (exclude "rule", "substeps", and "befehl")
     flow_nodes = [
         n
         for n in connected_nodes
         if get_safe_value_bpmn(node_df.loc[n], "node_type", "")
-        not in ["rule", "substeps"]
+        not in ["rule", "substeps", "befehl"]
     ]
 
     # Create ID mapping for flow nodes and start/end
@@ -3299,6 +3299,27 @@ def split_diagram_for_page_fit(laid_out_xml, namespaces):
             positions[node]["x"] = new_x
             positions[node]["y"] = new_y
 
+    # Also shift any DataObjectReference elements and other special nodes that might be attached to moved parents
+    all_shapes = plane.findall(".//bpmndi:BPMNShape", namespaces)
+    for shape in all_shapes:
+        bpmn_element = shape.get("bpmnElement")
+        # Skip if this is already a main flow node that was processed above
+        if bpmn_element in positions:
+            continue
+
+        bounds = shape.find("dc:Bounds", namespaces)
+        if bounds is not None:
+            old_x = float(bounds.get("x"))
+            old_y = float(bounds.get("y"))
+
+            # Check if this shape should be moved based on its position relative to the split
+            # If it's positioned after the split point horizontally, move it
+            if old_x > positions[line_nodes[0][-1]]["x"]:
+                new_x = old_x + delta_x
+                new_y = old_y + delta_y
+                bounds.set("x", str(new_x))
+                bounds.set("y", str(new_y))
+
     # Identify crossing edges that need link events
     crossing_edges = []
     for edge in process.findall(".//bpmn:sequenceFlow", namespaces):
@@ -3623,6 +3644,27 @@ def split_diagram_for_page_fit(laid_out_xml, namespaces):
                     new_y = old_y + delta_y
                     wp.set("x", str(new_x))
                     wp.set("y", str(new_y))
+        else:
+            # Handle other types of edges (like DataOutputAssociation for special nodes)
+            waypoints = edge.findall("di:waypoint", namespaces)
+            if waypoints:
+                # Check if any waypoint is positioned after the split point
+                should_move = False
+                for wp in waypoints:
+                    old_x = float(wp.get("x"))
+                    if old_x > positions[line_nodes[0][-1]]["x"]:
+                        should_move = True
+                        break
+
+                # If edge crosses or is positioned after the split, move all waypoints
+                if should_move:
+                    for wp in waypoints:
+                        old_x = float(wp.get("x"))
+                        old_y = float(wp.get("y"))
+                        new_x = old_x + delta_x
+                        new_y = old_y + delta_y
+                        wp.set("x", str(new_x))
+                        wp.set("y", str(new_y))
 
     # Serialize and return updated XML
     updated_xml = ET.tostring(root, encoding="utf-8").decode("utf-8")
