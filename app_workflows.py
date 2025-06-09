@@ -3141,19 +3141,14 @@ def process_bpmn_layout(basic_xml):
             st.error(f"❌ Error processing uploaded file: {str(e)}")
 
 
-def split_diagram_for_page_fit(
-    laid_out_xml, node_df, edges_df, namespaces, process, plane
-):
+def split_diagram_for_page_fit(laid_out_xml, namespaces):
     """
     Splits a BPMN diagram into two lines for page fit, ensuring proper arrow connections
     and splitting after parallel conditions are closed.
 
     Args:
         laid_out_xml (str): The input BPMN XML string.
-        node_df, edges_df: DataFrames (not used here but kept for compatibility).
         namespaces (dict): XML namespaces.
-        process: BPMN process element (passed for convenience).
-        plane: BPMNPlane element (passed for convenience).
 
     Returns:
         tuple: (updated XML string, boolean indicating if splitting occurred)
@@ -3480,7 +3475,7 @@ def add_special_nodes_and_annotations(
         # Optional Step: Split diagram if too wide for A4 page
         if split_diagrams:
             laid_out_xml, was_split = split_diagram_for_page_fit(
-                laid_out_xml, node_df, edges_df, namespaces, process, plane
+                laid_out_xml, namespaces
             )
             root = ET.fromstring(laid_out_xml)  # Always update root from laid_out_xml
             process = root.find(".//bpmn:process", namespaces)
