@@ -578,6 +578,31 @@ def build_activities_table(xls):
             else:
                 temp_df["Empfänger"] = None
 
+            # Add "befehl" for Befehlsaktivität; set to None for others
+            if sheet_name == "Befehlsaktivität":
+                befehl_col = get_column_name(df.columns, "Befehl")
+                parameter_col = get_column_name(df.columns, "Parameter")
+
+                if befehl_col is not None and parameter_col is not None:
+                    # Format as "Befehl-value:\nParameter-value"
+                    temp_df["befehl"] = df.apply(
+                        lambda row: (
+                            f"{row[befehl_col]}:\n{row[parameter_col]}"
+                            if pd.notna(row[befehl_col])
+                            and pd.notna(row[parameter_col])
+                            else (
+                                str(row[befehl_col])
+                                if pd.notna(row[befehl_col])
+                                else None
+                            )
+                        ),
+                        axis=1,
+                    )
+                else:
+                    temp_df["befehl"] = None
+            else:
+                temp_df["befehl"] = None
+
             # Append to the list
             activities_list.append(temp_df)
 
@@ -1092,6 +1117,8 @@ def generate_additional_nodes(activities_table, groups_table):
          to the beginning of the group
     4. Activities with substeps:
        - Adds a substep node with the list of substeps as a label
+    5. Activities with befehl:
+       - Adds a befehl node with the command parameters as a label
 
     Parameters:
     - activities_table: pd.DataFrame with activities (indexed by TransportID)
@@ -1163,6 +1190,37 @@ def generate_additional_nodes(activities_table, groups_table):
     if substep_nodes_list:
         substep_nodes_df = pd.DataFrame(substep_nodes_list)
         updated_nodes = pd.concat([updated_nodes, substep_nodes_df])
+
+    # Track befehl nodes with a counter to ensure uniqueness
+    befehl_nodes_list = []
+
+    for activity_id, activity in activities_table.iterrows():
+        if pd.notna(activity.get("befehl")):
+            # Use properties for unique IDs
+            befehl_node_id = generate_node_id("befehl", {"activity_id": activity_id})
+
+            # Create a befehl node
+            befehl_node = pd.Series(
+                {
+                    "node_type": "befehl",
+                    "parent": activity_id,
+                    "SequenceNumber": -1,  # Not in main sequence
+                    "label": activity["befehl"],
+                    # Copy other relevant columns with None values
+                    "Empfänger": None,
+                    "name": None,
+                    "TransportID": None,
+                    "type": None,
+                },
+                name=befehl_node_id,
+            )
+
+            befehl_nodes_list.append(befehl_node)
+
+    # Add all befehl nodes to the updated_nodes table
+    if befehl_nodes_list:
+        befehl_nodes_df = pd.DataFrame(befehl_nodes_list)
+        updated_nodes = pd.concat([updated_nodes, befehl_nodes_df])
 
     # Process groups with Erledigungsmodus
     eligible_groups = groups_table[
@@ -1701,7 +1759,7 @@ def build_edges_table(updated_nodes, updated_groups):
                         updated_nodes.loc[child_id], "node_type"
                     )
                     # Skip special nodes in main flow
-                    if node_type in ["substeps", "rule"]:
+                    if node_type in ["substeps", "rule", "befehl"]:
                         continue
                     if local_prev and (local_prev, child_id) not in edge_set:
                         edges.append((local_prev, child_id))
@@ -1793,7 +1851,7 @@ def build_edges_table(updated_nodes, updated_groups):
                     node_type = get_safe_value_bpmn(
                         updated_nodes.loc[b_id], "node_type"
                     )
-                    if node_type in ["substeps", "rule"]:
+                    if node_type in ["substeps", "rule", "befehl"]:
                         continue
                     if (split, b_id) not in edge_set:
                         edges.append((split, b_id))
@@ -2001,6 +2059,13 @@ def build_edges_table(updated_nodes, updated_groups):
             edges.append((parent_id, node_id))
             edge_set.add((parent_id, node_id))
         elif (
+            node_type == "befehl"
+            and pd.notna(parent_id)
+            and (parent_id, node_id) not in edge_set
+        ):
+            edges.append((parent_id, node_id))
+            edge_set.add((parent_id, node_id))
+        elif (
             node_type == "rule"
             and pd.notna(parent_id)
             and (node_id, parent_id) not in edge_set
@@ -2112,6 +2177,30 @@ def add_node(dot, node_id, node, edge_set, updated_nodes):
         return False
 
     elif is_node_type(node_type, "substeps"):
+        dot.node(
+            node_id,
+            label=label,
+            shape="none",
+            style="",
+            fontsize="14",
+            align="left",
+            group=get_safe_value_bpmn(node, "parent", ""),
+        )
+        parent_activity = get_safe_value_bpmn(node, "parent", "")
+        if parent_activity and (parent_activity, node_id) not in edge_set:
+            dot.edge(
+                parent_activity,
+                node_id,
+                style="dotted",
+                dir="none",
+                color="black",
+                weight="3.0",
+                len="0.8",
+            )
+            edge_set.add((parent_activity, node_id))
+        return False
+
+    elif is_node_type(node_type, "befehl"):
         dot.node(
             node_id,
             label=label,
@@ -3339,15 +3428,18 @@ def split_diagram_for_page_fit(
     return updated_xml, True
 
 
-def add_special_nodes_and_annotations(split_diagrams=False, include_legend=False):
+def add_special_nodes_and_annotations(
+    split_diagrams=False, include_legend=False, include_befehl=False
+):
     """
-    Adds 'rule' and 'substep' nodes as DataObjectReference elements below their parents
+    Adds 'rule', 'substep', and optionally 'befehl' nodes as DataObjectReference elements below their parents
     in the BPMN diagram, connects them with DataOutputAssociation edges, and optionally
     creates text annotations with full labels below the diagram.
 
     Args:
         split_diagrams (bool): Whether to split the diagram for page fit
         include_legend (bool): Whether to include text annotations/legend below the diagram
+        include_befehl (bool): Whether to include befehl (parameter) nodes
 
     Returns:
         tuple: (updated BPMN XML string, legend DataFrame) or (None, None) if processing fails
@@ -3396,8 +3488,11 @@ def add_special_nodes_and_annotations(split_diagrams=False, include_legend=False
             # Ensure the updated XML is stored for consistent use
             st.session_state["bpmn_layout_result"] = laid_out_xml
 
-        # Step 1: Identify "rule" and "substep" nodes
-        special_nodes = node_df[node_df["node_type"].isin(["rule", "substeps"])]
+        # Step 1: Identify "rule", "substep", and optionally "befehl" nodes
+        node_types_to_include = ["rule", "substeps"]
+        if include_befehl:
+            node_types_to_include.append("befehl")
+        special_nodes = node_df[node_df["node_type"].isin(node_types_to_include)]
         if special_nodes.empty:
             # Still need to collect user legend entries and create DataFrame
             legend_entries = []
@@ -3556,6 +3651,8 @@ def add_special_nodes_and_annotations(split_diagrams=False, include_legend=False
                 legend_type = "Regel"
             elif node_type == "substeps":
                 legend_type = "Arbeitsschritte"
+            elif node_type == "befehl":
+                legend_type = "Befehl"
             else:
                 legend_type = "Sonstiges"  # fallback
 
@@ -4014,43 +4111,11 @@ def show():
                 try:
                     st.subheader("Workflow Diagram")
 
-                    # --- Deprecated Graphviz approach ---
-                    # diagram = build_workflow_diagram(updated_nodes, updated_groups)
-                    # # Save the DOT representation to a file (for debugging if needed)
-                    # diagram.save('bpmn_diagram.dot')
-                    # # Render the diagram with view=False to prevent it from opening automatically
-                    # svg_path = diagram.render('workflow_diagram', format='svg', cleanup=False, view=False)
-                    # # Display the diagram directly in Streamlit
-                    # st.graphviz_chart(diagram)
-
-                    # Create download buttons for the SVG and BPMN XML
-                    # col1, col2 = st.columns(2)
-                    # with col1:
-                    #     try:
-                    #         with open(svg_path, "rb") as file:
-                    #             btn = st.download_button(
-                    #                 label="Download as SVG",
-                    #                 data=file,
-                    #                 file_name="workflow_diagram.svg",
-                    #                 mime="image/svg+xml",
-                    #             )
-                    #     except Exception as e:
-                    #         st.warning(f"Could not create download button. Error: {str(e)}")
-
                     basic_xml = create_main_flow_bpmn_xml(updated_nodes, edges_table)
-
-                    # if st.button("Generate BPMN XML"):
-                    #     # Create download button for basic XML
-                    #     st.download_button(
-                    #         label="Download Basic BPMN XML",
-                    #         data=basic_xml,
-                    #         file_name="basic_workflow.bpmn",
-                    #         mime="application/xml"
-                    #     )
 
                     process_bpmn_layout(basic_xml)
 
-                    col1, col2, _, _ = st.columns(4)
+                    col1, col2, col3, _ = st.columns(4)
                     with col1:
                         split_diagrams = st.checkbox(
                             "Split long diagrams", value=False, key="split_diagrams"
@@ -4059,11 +4124,18 @@ def show():
                         include_legend = st.checkbox(
                             "Include legend", value=False, key="include_legend"
                         )
+                    with col3:
+                        include_befehl = st.checkbox(
+                            "Show Parameters in Service activities",
+                            value=False,
+                            key="include_befehl",
+                        )
                     if st.button("Generate Laid-Out BPMN XML"):
                         split_diagrams = st.session_state.get("split_diagrams", False)
                         include_legend = st.session_state.get("include_legend", False)
+                        include_befehl = st.session_state.get("include_befehl", False)
                         result_xml, legend_df = add_special_nodes_and_annotations(
-                            split_diagrams, include_legend
+                            split_diagrams, include_legend, include_befehl
                         )
                         if result_xml is not None:
                             bpmn_modeler_component(result_xml)
