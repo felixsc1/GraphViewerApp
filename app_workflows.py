@@ -3545,9 +3545,54 @@ def split_diagram_for_page_fit(laid_out_xml, namespaces):
                 source_ref
             )
 
-            # Use vertical positioning more conservatively - only for single events with gateways
+            # Use vertical positioning only when horizontal space is blocked
+            # Check if this is the first event originating from this specific source
+            first_event_from_this_source = True
+            for j in range(i):
+                if crossing_edges[j]["source_ref"] == source_ref:
+                    first_event_from_this_source = False
+                    break
+
+            # Simple logic: use vertical positioning only if nodes exist both before AND after the gateway
+            horizontal_space_blocked = False
+            if source_is_gateway and first_event_from_this_source:
+                source_x = positions[source_ref]["x"]
+                source_right = (
+                    positions[source_ref]["x"] + positions[source_ref]["width"]
+                )
+                source_y = positions[source_ref]["y"]
+                source_height = positions[source_ref]["height"]
+
+                # Check if there are nodes immediately to the left and right of the gateway
+                node_on_left = False
+                node_on_right = False
+
+                for node_id, node_pos in positions.items():
+                    if node_id == source_ref:
+                        continue
+                    node_x = node_pos["x"]
+                    node_right = node_pos["x"] + node_pos["width"]
+                    node_y = node_pos["y"]
+                    node_height = node_pos["height"]
+
+                                         # Check vertical overlap (same row)
+                    if (
+                         node_y < source_y + source_height
+                         and node_y + node_height > source_y
+                     ):
+                                                  # Check if node is to the left
+                         if node_right <= source_x:
+                             node_on_left = True
+                         # Check if node is to the right
+                         if node_x >= source_right:
+                             node_on_right = True
+
+                horizontal_space_blocked = node_on_left and node_on_right
+
             use_vertical_positioning = (
-                source_is_gateway and len(crossing_edges) == 1 and i == 0
+                source_is_gateway
+                and first_event_from_this_source
+                and horizontal_space_blocked
             )
 
             if use_vertical_positioning:
@@ -3558,7 +3603,10 @@ def split_diagram_for_page_fit(laid_out_xml, namespaces):
                 source_bottom_y = (
                     positions[source_ref]["y"] + positions[source_ref]["height"]
                 )
-                throw_x = source_center_x - 18  # Center the 36px event below the node
+                # Perfectly center the 36px event below the node
+                throw_x = round(
+                    source_center_x - 18
+                )  # Center alignment with rounding for pixel precision
                 throw_y = source_bottom_y + 25  # Closer positioning (reduced from 50)
             else:
                 # Default horizontal positioning for most cases
@@ -3602,9 +3650,54 @@ def split_diagram_for_page_fit(laid_out_xml, namespaces):
                 target_ref
             )
 
-            # Use vertical positioning more conservatively - only for single events with gateways
+            # Use vertical positioning only when horizontal space is blocked
+            # Check if this is the first event targeting this specific target
+            first_event_to_this_target = True
+            for j in range(i):
+                if crossing_edges[j]["target_ref"] == target_ref:
+                    first_event_to_this_target = False
+                    break
+
+            # Simple logic: use vertical positioning only if nodes exist both before AND after the gateway
+            horizontal_space_blocked_target = False
+            if target_is_gateway and first_event_to_this_target:
+                target_x = positions[target_ref]["x"]
+                target_right = (
+                    positions[target_ref]["x"] + positions[target_ref]["width"]
+                )
+                target_y = positions[target_ref]["y"]
+                target_height = positions[target_ref]["height"]
+
+                # Check if there are nodes immediately to the left and right of the gateway
+                node_on_left = False
+                node_on_right = False
+
+                for node_id, node_pos in positions.items():
+                    if node_id == target_ref:
+                        continue
+                    node_x = node_pos["x"]
+                    node_right = node_pos["x"] + node_pos["width"]
+                    node_y = node_pos["y"]
+                    node_height = node_pos["height"]
+
+                    # Check vertical overlap (same row)
+                    if (
+                        node_y < target_y + target_height
+                        and node_y + node_height > target_y
+                    ):
+                        # Check if node is to the left
+                        if node_right <= target_x:
+                            node_on_left = True
+                        # Check if node is to the right
+                        if node_x >= target_right:
+                            node_on_right = True
+
+                horizontal_space_blocked_target = node_on_left and node_on_right
+
             use_vertical_positioning_catch = (
-                target_is_gateway and len(crossing_edges) == 1 and i == 0
+                target_is_gateway
+                and first_event_to_this_target
+                and horizontal_space_blocked_target
             )
 
             if use_vertical_positioning_catch:
@@ -3615,7 +3708,10 @@ def split_diagram_for_page_fit(laid_out_xml, namespaces):
                 target_bottom_y = (
                     positions[target_ref]["y"] + positions[target_ref]["height"]
                 )
-                catch_x = target_center_x - 18  # Center the 36px event below the node
+                # Perfectly center the 36px event below the node
+                catch_x = round(
+                    target_center_x - 18
+                )  # Center alignment with rounding for pixel precision
                 catch_y = target_bottom_y + 25  # Closer positioning (reduced from 50)
             else:
                 # Default horizontal positioning for most cases
