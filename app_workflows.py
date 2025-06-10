@@ -3540,12 +3540,39 @@ def split_diagram_for_page_fit(laid_out_xml, namespaces):
                 {"id": f"LinkDef_Throw_{label}", "name": f"Link_{label}"},
             )
 
-            throw_x = positions[source_ref]["x"] + positions[source_ref]["width"] + 50
-            throw_y = (
-                positions[source_ref]["y"] + (positions[source_ref]["height"] - 36) / 2
-            ) + (
-                i * 50
-            )  # Stack vertically to avoid overlap
+            # Position throw event - prefer horizontal positioning, only use vertical when beneficial
+            source_is_gateway = is_split_gateway(source_ref) or is_join_gateway(
+                source_ref
+            )
+
+            # Use vertical positioning more conservatively - only for single events with gateways
+            use_vertical_positioning = (
+                source_is_gateway and len(crossing_edges) == 1 and i == 0
+            )
+
+            if use_vertical_positioning:
+                # Position below the source node (only for single gateway events)
+                source_center_x = (
+                    positions[source_ref]["x"] + positions[source_ref]["width"] / 2
+                )
+                source_bottom_y = (
+                    positions[source_ref]["y"] + positions[source_ref]["height"]
+                )
+                throw_x = source_center_x - 18  # Center the 36px event below the node
+                throw_y = source_bottom_y + 25  # Closer positioning (reduced from 50)
+            else:
+                # Default horizontal positioning for most cases
+                throw_x = (
+                    positions[source_ref]["x"] + positions[source_ref]["width"] + 50
+                )
+                throw_y = (
+                    positions[source_ref]["y"]
+                    + (positions[source_ref]["height"] - 36) / 2
+                )
+                # Stack multiple events vertically while maintaining horizontal alignment
+                if i > 0:
+                    throw_y += i * 60  # Increased spacing for better clarity
+
             throw_shape = ET.SubElement(
                 plane,
                 "bpmndi:BPMNShape",
@@ -3570,12 +3597,37 @@ def split_diagram_for_page_fit(laid_out_xml, namespaces):
                 {"id": f"LinkDef_Catch_{label}", "name": f"Link_{label}"},
             )
 
-            catch_x = positions[target_ref]["x"] - 50 - 36
-            catch_y = (
-                positions[target_ref]["y"] + (positions[target_ref]["height"] - 36) / 2
-            ) + (
-                i * 50
-            )  # Stack vertically to avoid overlap
+            # Position catch event - prefer horizontal positioning, only use vertical when beneficial
+            target_is_gateway = is_split_gateway(target_ref) or is_join_gateway(
+                target_ref
+            )
+
+            # Use vertical positioning more conservatively - only for single events with gateways
+            use_vertical_positioning_catch = (
+                target_is_gateway and len(crossing_edges) == 1 and i == 0
+            )
+
+            if use_vertical_positioning_catch:
+                # Position below the target node (only for single gateway events)
+                target_center_x = (
+                    positions[target_ref]["x"] + positions[target_ref]["width"] / 2
+                )
+                target_bottom_y = (
+                    positions[target_ref]["y"] + positions[target_ref]["height"]
+                )
+                catch_x = target_center_x - 18  # Center the 36px event below the node
+                catch_y = target_bottom_y + 25  # Closer positioning (reduced from 50)
+            else:
+                # Default horizontal positioning for most cases
+                catch_x = positions[target_ref]["x"] - 50 - 36
+                catch_y = (
+                    positions[target_ref]["y"]
+                    + (positions[target_ref]["height"] - 36) / 2
+                )
+                # Stack multiple events vertically while maintaining horizontal alignment
+                if i > 0:
+                    catch_y += i * 60  # Increased spacing for better clarity
+
             catch_shape = ET.SubElement(
                 plane,
                 "bpmndi:BPMNShape",
@@ -3611,23 +3663,67 @@ def split_diagram_for_page_fit(laid_out_xml, namespaces):
                 "bpmndi:BPMNEdge",
                 {"id": f"{flow_throw_id}_di", "bpmnElement": flow_throw_id},
             )
-            ET.SubElement(
-                flow_throw_edge,
-                "di:waypoint",
-                {
-                    "x": str(
-                        positions[source_ref]["x"] + positions[source_ref]["width"]
-                    ),
-                    "y": str(
-                        positions[source_ref]["y"] + positions[source_ref]["height"] / 2
-                    ),
-                },
-            )
-            ET.SubElement(
-                flow_throw_edge,
-                "di:waypoint",
-                {"x": str(throw_x), "y": str(throw_y + 18)},
-            )
+            # Create clean connection from source to throw event
+            if use_vertical_positioning:
+                # Vertical connection when event is positioned below
+                source_exit_x = (
+                    positions[source_ref]["x"] + positions[source_ref]["width"] / 2
+                )
+                source_exit_y = (
+                    positions[source_ref]["y"] + positions[source_ref]["height"]
+                )
+                throw_entry_x = throw_x + 18  # Center of the 36px wide event
+                throw_entry_y = (
+                    throw_y  # Top edge of the event (entry point from above)
+                )
+
+                ET.SubElement(
+                    flow_throw_edge,
+                    "di:waypoint",
+                    {"x": str(source_exit_x), "y": str(source_exit_y)},
+                )
+                ET.SubElement(
+                    flow_throw_edge,
+                    "di:waypoint",
+                    {"x": str(throw_entry_x), "y": str(throw_entry_y)},
+                )
+            else:
+                # Horizontal connection when event is positioned beside
+                source_exit_x = (
+                    positions[source_ref]["x"] + positions[source_ref]["width"]
+                )
+                source_exit_y = (
+                    positions[source_ref]["y"] + positions[source_ref]["height"] / 2
+                )
+                throw_entry_x = (
+                    throw_x  # Left edge of the 36px wide event (entry point)
+                )
+                throw_entry_y = throw_y + 18  # Vertical center of the 36px high event
+
+                ET.SubElement(
+                    flow_throw_edge,
+                    "di:waypoint",
+                    {"x": str(source_exit_x), "y": str(source_exit_y)},
+                )
+                # Add intermediate waypoint for clean horizontal then vertical routing if needed
+                if (
+                    abs(source_exit_y - throw_entry_y) > 5
+                ):  # Only add if there's significant vertical offset
+                    ET.SubElement(
+                        flow_throw_edge,
+                        "di:waypoint",
+                        {"x": str(source_exit_x + 25), "y": str(source_exit_y)},
+                    )
+                    ET.SubElement(
+                        flow_throw_edge,
+                        "di:waypoint",
+                        {"x": str(source_exit_x + 25), "y": str(throw_entry_y)},
+                    )
+                ET.SubElement(
+                    flow_throw_edge,
+                    "di:waypoint",
+                    {"x": str(throw_entry_x), "y": str(throw_entry_y)},
+                )
 
             # Connect catch event to target
             flow_catch_id = f"Flow_Catch_{label}"
@@ -3653,21 +3749,64 @@ def split_diagram_for_page_fit(laid_out_xml, namespaces):
                 "bpmndi:BPMNEdge",
                 {"id": f"{flow_catch_id}_di", "bpmnElement": flow_catch_id},
             )
-            ET.SubElement(
-                flow_catch_edge,
-                "di:waypoint",
-                {"x": str(catch_x + 36), "y": str(catch_y + 18)},
-            )
-            ET.SubElement(
-                flow_catch_edge,
-                "di:waypoint",
-                {
-                    "x": str(positions[target_ref]["x"]),
-                    "y": str(
-                        positions[target_ref]["y"] + positions[target_ref]["height"] / 2
-                    ),
-                },
-            )
+            # Create clean connection from catch event to target
+            if use_vertical_positioning_catch:
+                # Vertical connection when event is positioned below - CORRECTED
+                # For catch events positioned below their target, the arrow should go UP
+                catch_exit_x = catch_x + 18  # Center of the 36px wide event
+                catch_exit_y = catch_y  # Top edge of the event (exit point upward)
+                target_entry_x = (
+                    positions[target_ref]["x"] + positions[target_ref]["width"] / 2
+                )
+                target_entry_y = (
+                    positions[target_ref]["y"] + positions[target_ref]["height"]
+                )  # Bottom edge of target (entry from below)
+
+                ET.SubElement(
+                    flow_catch_edge,
+                    "di:waypoint",
+                    {"x": str(catch_exit_x), "y": str(catch_exit_y)},
+                )
+                ET.SubElement(
+                    flow_catch_edge,
+                    "di:waypoint",
+                    {"x": str(target_entry_x), "y": str(target_entry_y)},
+                )
+            else:
+                # Horizontal connection when event is positioned beside
+                catch_exit_x = (
+                    catch_x + 36
+                )  # Right edge of the 36px wide event (exit point)
+                catch_exit_y = catch_y + 18  # Vertical center of the 36px high event
+                target_entry_x = positions[target_ref]["x"]
+                target_entry_y = (
+                    positions[target_ref]["y"] + positions[target_ref]["height"] / 2
+                )
+
+                ET.SubElement(
+                    flow_catch_edge,
+                    "di:waypoint",
+                    {"x": str(catch_exit_x), "y": str(catch_exit_y)},
+                )
+                # Add intermediate waypoint for clean horizontal then vertical routing if needed
+                if (
+                    abs(catch_exit_y - target_entry_y) > 5
+                ):  # Only add if there's significant vertical offset
+                    ET.SubElement(
+                        flow_catch_edge,
+                        "di:waypoint",
+                        {"x": str(catch_exit_x + 25), "y": str(catch_exit_y)},
+                    )
+                    ET.SubElement(
+                        flow_catch_edge,
+                        "di:waypoint",
+                        {"x": str(catch_exit_x + 25), "y": str(target_entry_y)},
+                    )
+                ET.SubElement(
+                    flow_catch_edge,
+                    "di:waypoint",
+                    {"x": str(target_entry_x), "y": str(target_entry_y)},
+                )
 
     # Remove original crossing edges
     edges_to_remove = [edge_info["edge_id"] for edge_info in crossing_edges]
