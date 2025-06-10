@@ -2965,17 +2965,21 @@ def create_main_flow_bpmn_xml(node_df, edges_df):
             node_df.loc[node_id, "node_type"], "helper"
         ):
             width, height = 36, 36
+            spacing = 80  # Smaller spacing for start/end/helper nodes
         elif is_node_type(node_df.loc[node_id, "node_type"], "gateway"):
             width, height = 50, 50
+            spacing = 100  # Medium spacing for gateways
         else:
             width, height = 100, 80
+            spacing = 150  # Standard spacing for regular nodes
+
         node_positions[cleaned_id] = {
             "x": x_pos,
             "y": 100,
             "width": width,
             "height": height,
         }
-        x_pos += 150
+        x_pos += spacing
 
     # Create shapes
     for element_id, pos in node_positions.items():
@@ -3575,17 +3579,17 @@ def split_diagram_for_page_fit(laid_out_xml, namespaces):
                     node_y = node_pos["y"]
                     node_height = node_pos["height"]
 
-                                         # Check vertical overlap (same row)
+                    # Check vertical overlap (same row)
                     if (
-                         node_y < source_y + source_height
-                         and node_y + node_height > source_y
-                     ):
-                                                  # Check if node is to the left
-                         if node_right <= source_x:
-                             node_on_left = True
-                         # Check if node is to the right
-                         if node_x >= source_right:
-                             node_on_right = True
+                        node_y < source_y + source_height
+                        and node_y + node_height > source_y
+                    ):
+                        # Check if node is to the left
+                        if node_right <= source_x:
+                            node_on_left = True
+                        # Check if node is to the right
+                        if node_x >= source_right:
+                            node_on_right = True
 
                 horizontal_space_blocked = node_on_left and node_on_right
 
@@ -4283,7 +4287,51 @@ def add_special_nodes_and_annotations(
                 # Move to the next position (300 width + 50 space)
                 annotation_x += 350
 
-        # Step 7: Create legend DataFrame and return both XML and DataFrame
+        # Step 7: Adjust start and end node positions for shorter edge lengths (conservative approach)
+        # Find start and end nodes
+        start_node_id = None
+        end_node_id = None
+        for node_id in parent_positions.keys():
+            if node_id.endswith("start") or node_id == "id_start":
+                start_node_id = node_id
+            elif node_id.endswith("end") or node_id == "id_end":
+                end_node_id = node_id
+
+        # Only adjust start node position (move it closer to the right)
+        if start_node_id and start_node_id in parent_positions:
+            # Find all flow nodes (excluding start/end)
+            flow_nodes = [
+                (node_id, pos)
+                for node_id, pos in parent_positions.items()
+                if node_id not in [start_node_id, end_node_id]
+            ]
+
+            if flow_nodes:
+                # Sort by x position to find the leftmost flow node
+                flow_nodes.sort(key=lambda x: x[1]["x"])
+                first_node_pos = flow_nodes[0][1]
+
+                current_start_x = parent_positions[start_node_id]["x"]
+                # Only move if there's a significant gap (> 80px)
+                gap = first_node_pos["x"] - (
+                    current_start_x + parent_positions[start_node_id]["width"]
+                )
+
+                if gap > 80:
+                    # Move start node 30px closer (conservative)
+                    new_start_x = current_start_x + 30
+
+                    # Update the start node position in the XML
+                    start_shape = plane.find(
+                        f".//bpmndi:BPMNShape[@bpmnElement='{start_node_id}']",
+                        namespaces,
+                    )
+                    if start_shape is not None:
+                        bounds = start_shape.find("dc:Bounds", namespaces)
+                        if bounds is not None:
+                            bounds.set("x", str(new_start_x))
+
+        # Step 8: Create legend DataFrame and return both XML and DataFrame
         legend_df = pd.DataFrame(legend_entries).reset_index(drop=True)
         updated_xml = ET.tostring(root, encoding="utf-8").decode("utf-8")
         return updated_xml, legend_df
