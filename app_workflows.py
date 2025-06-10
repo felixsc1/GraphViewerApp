@@ -3746,7 +3746,8 @@ def add_special_nodes_and_annotations(
                 for index, row in task_nodes.iterrows():
                     label = str(row["Empfänger"])
                     for abbr, full_name in user_legend_dict.items():
-                        if abbr in label and abbr not in used_abbreviations:
+                        # Check if abbreviation appears as Empfänger
+                        if abbr == label and abbr not in used_abbreviations:
                             used_abbreviations.add(abbr)
                             legend_entries.append(
                                 {
@@ -3915,7 +3916,8 @@ def add_special_nodes_and_annotations(
             for index, row in task_nodes.iterrows():
                 label = str(row["Empfänger"])
                 for abbr, full_name in user_legend_dict.items():
-                    if abbr in label and abbr not in used_abbreviations:
+                    # Check if abbreviation appears in parentheses, e.g. (ste)
+                    if f"({abbr})" in label and abbr not in used_abbreviations:
                         user_legend_entries.append((abbr, full_name))
                         used_abbreviations.add(abbr)
                         # Store user abbreviation legend entry for DataFrame
