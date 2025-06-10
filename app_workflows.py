@@ -3145,14 +3145,15 @@ def process_bpmn_layout(basic_xml):
             st.error(f"❌ Error processing uploaded file: {str(e)}")
 
 
-def split_diagram_for_page_fit(laid_out_xml, namespaces):
+def split_diagram_for_page_fit(laid_out_xml, namespaces, split_number=2):
     """
-    Splits a BPMN diagram into two lines for page fit, ensuring proper arrow connections
+    Splits a BPMN diagram into multiple lines for page fit, ensuring proper arrow connections
     and splitting after parallel conditions are closed.
 
     Args:
         laid_out_xml (str): The input BPMN XML string.
         namespaces (dict): XML namespaces.
+        split_number (int): Number of lines to split the diagram into (default: 2).
 
     Returns:
         tuple: (updated XML string, boolean indicating if splitting occurred)
@@ -3205,13 +3206,13 @@ def split_diagram_for_page_fit(laid_out_xml, namespaces):
     total_nodes = len(node_sequence)
 
     # Check if splitting is necessary
-    if total_nodes < MIN_NODES_PER_LINE * 2:
+    if total_nodes < MIN_NODES_PER_LINE * split_number:
         return laid_out_xml, False
 
     max_x = max(pos["x"] + pos["width"] for pos in positions.values())
     min_x = min(pos["x"] for pos in positions.values())
     diagram_width = max_x - min_x
-    if diagram_width <= A4_WIDTH_GUIDELINE:
+    if diagram_width <= A4_WIDTH_GUIDELINE and split_number == 2:
         return laid_out_xml, False
 
     # Helper functions to identify gateways and conditions
@@ -3266,6 +3267,40 @@ def split_diagram_for_page_fit(laid_out_xml, namespaces):
 
         return crossing_count
 
+    # Helper function to count crossing edges for multiple split indices
+    def count_crossing_edges_multi(split_indices_list):
+        # Create line sets based on split indices
+        line_sets = []
+        prev_idx = 0
+        for split_idx in sorted(split_indices_list):
+            line_sets.append(set(node_sequence[prev_idx : split_idx + 1]))
+            prev_idx = split_idx + 1
+        line_sets.append(set(node_sequence[prev_idx:]))  # Last line
+
+        crossing_count = 0
+        for edge in process.findall(".//bpmn:sequenceFlow", namespaces):
+            source_ref = edge.get("sourceRef")
+            target_ref = edge.get("targetRef")
+
+            # Find which lines contain source and target
+            source_line = None
+            target_line = None
+            for i, line_set in enumerate(line_sets):
+                if source_ref in line_set:
+                    source_line = i
+                if target_ref in line_set:
+                    target_line = i
+
+            # Count if edge crosses between different lines
+            if (
+                source_line is not None
+                and target_line is not None
+                and source_line != target_line
+            ):
+                crossing_count += 1
+
+        return crossing_count
+
     # Find optimal split point by minimizing crossing edges
     open_conditions = 0
     condition_status = {}  # Track condition status at each index
@@ -3286,73 +3321,103 @@ def split_diagram_for_page_fit(laid_out_xml, namespaces):
 
         condition_status[idx] = open_conditions
 
-    # Generate candidate split points around the middle third of the diagram
-    min_split = max(total_nodes // 4, 0)
-    max_split = min(3 * total_nodes // 4, total_nodes - 2)
+    # Find optimal split points for multiple lines
+    split_indices = []
 
-    best_split_idx = total_nodes // 2  # Default fallback
-    min_crossing_edges = float("inf")
-    use_single_link = False
+    # Calculate target positions for splits (at 1/split_number, 2/split_number, etc.)
+    target_positions = [
+        int(total_nodes * i / split_number) for i in range(1, split_number)
+    ]
 
-    # Evaluate each potential split point
-    for idx in range(min_split, max_split + 1):
-        if idx >= len(node_sequence) - 1:
-            continue
+    for split_num, target_pos in enumerate(target_positions):
+        # Generate candidate split points around each target position
+        min_split = max(target_pos - total_nodes // (split_number * 2), 0)
+        max_split = min(target_pos + total_nodes // (split_number * 2), total_nodes - 2)
 
-        crossing_count = count_crossing_edges(idx)
+        best_split_idx = target_pos  # Default fallback
+        min_crossing_edges = float("inf")
 
-        # Add penalty factors to the score
-        penalty = 0
+        # Evaluate each potential split point
+        for idx in range(min_split, max_split + 1):
+            if idx >= len(node_sequence) - 1:
+                continue
 
-        # Heavy penalty for splitting right after a gateway split (ending line with split gateway)
-        if is_split_gateway(node_sequence[idx]):
-            penalty += 10
+            # Skip if this split point is too close to previously selected ones
+            too_close = False
+            for prev_split in split_indices:
+                if abs(idx - prev_split) < MIN_NODES_PER_LINE // 2:
+                    too_close = True
+                    break
+            if too_close:
+                continue
 
-        # Light penalty for having open conditions (prefer closed conditions when possible)
-        conditions_open = condition_status.get(idx, 0)
-        penalty += conditions_open * 2
+            # Create temporary split indices for crossing count
+            temp_splits = split_indices + [idx]
+            crossing_count = count_crossing_edges_multi(temp_splits)
 
-        # Slight penalty for being far from the middle (prefer balanced splits)
-        distance_from_middle = abs(idx - total_nodes // 2)
-        penalty += distance_from_middle * 0.1
+            # Add penalty factors to the score
+            penalty = 0
 
-        total_score = crossing_count + penalty
+            # Heavy penalty for splitting right after a gateway split
+            if is_split_gateway(node_sequence[idx]):
+                penalty += 10
 
-        # Update best split point if this is better
-        if total_score < min_crossing_edges:
-            min_crossing_edges = total_score
-            best_split_idx = idx
-            # Use single link if we found a clean split (no conditions open and <= 1 crossing edge)
-            use_single_link = conditions_open == 0 and crossing_count <= 1
+            # Light penalty for having open conditions
+            conditions_open = condition_status.get(idx, 0)
+            penalty += conditions_open * 2
 
-    split_idx = best_split_idx
+            # Slight penalty for being far from the target position
+            distance_from_target = abs(idx - target_pos)
+            penalty += distance_from_target * 0.1
 
-    line_nodes = [node_sequence[: split_idx + 1], node_sequence[split_idx + 1 :]]
+            total_score = crossing_count + penalty
 
-    # Calculate shifts for second line
+            # Update best split point if this is better
+            if total_score < min_crossing_edges:
+                min_crossing_edges = total_score
+                best_split_idx = idx
+
+        split_indices.append(best_split_idx)
+
+    # Create line_nodes based on split indices
+    line_nodes = []
+    prev_idx = 0
+    for split_idx in split_indices:
+        line_nodes.append(node_sequence[prev_idx : split_idx + 1])
+        prev_idx = split_idx + 1
+    line_nodes.append(node_sequence[prev_idx:])  # Last line
+
+    # Calculate shifts for all lines after the first
     initial_x = min_x
-    first_line_max_y = max(
-        positions[n]["y"] + positions[n]["height"] for n in line_nodes[0]
-    )
-    current_line_y_offset = first_line_max_y + SPACING_Y
-    delta_x = initial_x - positions[line_nodes[0][-1]]["x"]
-    delta_y = current_line_y_offset
+    current_line_y_offset = 0
 
-    # Shift nodes in second line
-    for node in line_nodes[1]:
-        if node in positions:
-            shape = plane.find(
-                f".//bpmndi:BPMNShape[@bpmnElement='{node}']", namespaces
-            )
-            bounds = shape.find("dc:Bounds", namespaces)
-            old_x = float(bounds.get("x"))
-            old_y = float(bounds.get("y"))
-            new_x = old_x + delta_x
-            new_y = old_y + delta_y
-            bounds.set("x", str(new_x))
-            bounds.set("y", str(new_y))
-            positions[node]["x"] = new_x
-            positions[node]["y"] = new_y
+    # Process each line after the first (line 0 stays in place)
+    for line_idx in range(1, len(line_nodes)):
+        # Calculate Y offset for this line
+        prev_line_max_y = max(
+            positions[n]["y"] + positions[n]["height"] for n in line_nodes[line_idx - 1]
+        )
+        current_line_y_offset = prev_line_max_y + SPACING_Y
+
+        # Calculate shifts
+        delta_x = initial_x - positions[line_nodes[line_idx][0]]["x"]
+        delta_y = current_line_y_offset - positions[line_nodes[line_idx][0]]["y"]
+
+        # Shift nodes in current line
+        for node in line_nodes[line_idx]:
+            if node in positions:
+                shape = plane.find(
+                    f".//bpmndi:BPMNShape[@bpmnElement='{node}']", namespaces
+                )
+                bounds = shape.find("dc:Bounds", namespaces)
+                old_x = float(bounds.get("x"))
+                old_y = float(bounds.get("y"))
+                new_x = old_x + delta_x
+                new_y = old_y + delta_y
+                bounds.set("x", str(new_x))
+                bounds.set("y", str(new_y))
+                positions[node]["x"] = new_x
+                positions[node]["y"] = new_y
 
     # Also shift any DataObjectReference elements and other special nodes that might be attached to moved parents
     all_shapes = plane.findall(".//bpmndi:BPMNShape", namespaces)
@@ -3367,13 +3432,39 @@ def split_diagram_for_page_fit(laid_out_xml, namespaces):
             old_x = float(bounds.get("x"))
             old_y = float(bounds.get("y"))
 
-            # Check if this shape should be moved based on its position relative to the split
-            # If it's positioned after the split point horizontally, move it
-            if old_x > positions[line_nodes[0][-1]]["x"]:
-                new_x = old_x + delta_x
-                new_y = old_y + delta_y
-                bounds.set("x", str(new_x))
-                bounds.set("y", str(new_y))
+            # Determine which line this shape should be moved with based on its position
+            for line_idx in range(1, len(line_nodes)):
+                # Check if this shape is positioned after the start of this line
+                line_start_x = (
+                    positions[line_nodes[line_idx][0]]["x"]
+                    if line_nodes[line_idx]
+                    else float("inf")
+                )
+                prev_line_end_x = (
+                    positions[line_nodes[line_idx - 1][-1]]["x"]
+                    if line_nodes[line_idx - 1]
+                    else float("-inf")
+                )
+
+                if old_x > prev_line_end_x and (
+                    line_idx == len(line_nodes) - 1 or old_x <= line_start_x
+                ):
+                    # Calculate the same shifts that were applied to this line
+                    prev_line_max_y = max(
+                        positions[n]["y"] + positions[n]["height"]
+                        for n in line_nodes[line_idx - 1]
+                    )
+                    line_y_offset = prev_line_max_y + SPACING_Y
+                    line_delta_x = initial_x - positions[line_nodes[line_idx][0]]["x"]
+                    line_delta_y = (
+                        line_y_offset - positions[line_nodes[line_idx][0]]["y"]
+                    )
+
+                    new_x = old_x + line_delta_x
+                    new_y = old_y + line_delta_y
+                    bounds.set("x", str(new_x))
+                    bounds.set("y", str(new_y))
+                    break
 
     # Identify crossing edges that need link events
     crossing_edges = []
@@ -3402,8 +3493,11 @@ def split_diagram_for_page_fit(laid_out_xml, namespaces):
             )
 
     # Create link events for crossing edges
-    if use_single_link and len(crossing_edges) <= 1:
-        # Simple case: single link event for clean split point
+    # For multiple lines, we always use the complex case with labeled link events
+    use_single_link = False  # Disable single link for multi-line splits
+
+    if use_single_link and len(crossing_edges) <= 1 and len(line_nodes) == 2:
+        # Simple case: single link event for clean split point (only for 2-line splits)
         if crossing_edges:
             edge_info = crossing_edges[0]
             last_node_id = edge_info["source_ref"]
@@ -3920,41 +4014,157 @@ def split_diagram_for_page_fit(laid_out_xml, namespaces):
         if edge_di_elem is not None:
             plane.remove(edge_di_elem)
 
-    # Shift edges within the second line
+    # Calculate line shifts for reuse
+    line_shifts = {}
+    for line_idx in range(1, len(line_nodes)):
+        prev_line_max_y = max(
+            positions[n]["y"] + positions[n]["height"] for n in line_nodes[line_idx - 1]
+        )
+        line_y_offset = prev_line_max_y + SPACING_Y
+        line_delta_x = initial_x - positions[line_nodes[line_idx][0]]["x"]
+        line_delta_y = line_y_offset - positions[line_nodes[line_idx][0]]["y"]
+        line_shifts[line_idx] = (line_delta_x, line_delta_y)
+
+    # Find which line each node belongs to
+    node_to_line = {}
+    for line_idx, line in enumerate(line_nodes):
+        for node in line:
+            node_to_line[node] = line_idx
+
+    # Shift edges based on their endpoints and waypoint positions
     for edge in plane.findall(".//bpmndi:BPMNEdge", namespaces):
         bpmn_element = edge.get("bpmnElement")
+        waypoints = edge.findall("di:waypoint", namespaces)
+        if not waypoints:
+            continue
+
         if bpmn_element in flow_dict:
             source, target = flow_dict[bpmn_element]
-            if source in line_nodes[1] and target in line_nodes[1]:
-                waypoints = edge.findall("di:waypoint", namespaces)
+            source_line = node_to_line.get(source, 0)
+            target_line = node_to_line.get(target, 0)
+
+            # If both endpoints are on the same moved line, move all waypoints
+            if source_line == target_line and source_line > 0:
+                line_delta_x, line_delta_y = line_shifts[source_line]
                 for wp in waypoints:
                     old_x = float(wp.get("x"))
                     old_y = float(wp.get("y"))
-                    new_x = old_x + delta_x
-                    new_y = old_y + delta_y
+                    new_x = old_x + line_delta_x
+                    new_y = old_y + line_delta_y
                     wp.set("x", str(new_x))
                     wp.set("y", str(new_y))
-        else:
-            # Handle other types of edges (like DataOutputAssociation for special nodes)
-            waypoints = edge.findall("di:waypoint", namespaces)
-            if waypoints:
-                # Check if any waypoint is positioned after the split point
-                should_move = False
+
+            # If endpoints are on different lines, handle waypoints individually
+            elif source_line != target_line:
+                # For crossing edges, we need to be more careful about waypoint positioning
+                # Move waypoints based on their X position relative to line boundaries
                 for wp in waypoints:
                     old_x = float(wp.get("x"))
-                    if old_x > positions[line_nodes[0][-1]]["x"]:
-                        should_move = True
-                        break
+                    old_y = float(wp.get("y"))
 
-                # If edge crosses or is positioned after the split, move all waypoints
-                if should_move:
-                    for wp in waypoints:
-                        old_x = float(wp.get("x"))
-                        old_y = float(wp.get("y"))
-                        new_x = old_x + delta_x
-                        new_y = old_y + delta_y
+                    # Determine which line this waypoint should belong to based on X position
+                    waypoint_line = 0
+                    for line_idx in range(1, len(line_nodes)):
+                        if line_nodes[line_idx]:  # Check if line is not empty
+                            line_start_x = positions[line_nodes[line_idx][0]]["x"]
+                            # If waypoint X is close to or past this line's start, it belongs to this line
+                            if (
+                                old_x >= line_start_x - 200
+                            ):  # 200px tolerance for better detection
+                                waypoint_line = line_idx
+
+                    # Apply shift if waypoint belongs to a moved line
+                    if waypoint_line > 0:
+                        line_delta_x, line_delta_y = line_shifts[waypoint_line]
+                        new_x = old_x + line_delta_x
+                        new_y = old_y + line_delta_y
                         wp.set("x", str(new_x))
                         wp.set("y", str(new_y))
+        else:
+            # Handle other types of edges (like DataOutputAssociation for special nodes)
+            # Move waypoints based on their X position relative to line boundaries
+            for wp in waypoints:
+                old_x = float(wp.get("x"))
+                old_y = float(wp.get("y"))
+
+                # Determine which line this waypoint should belong to
+                waypoint_line = 0
+                for line_idx in range(1, len(line_nodes)):
+                    if line_nodes[line_idx]:  # Check if line is not empty
+                        line_start_x = positions[line_nodes[line_idx][0]]["x"]
+                        if (
+                            old_x >= line_start_x - 200
+                        ):  # 200px tolerance for better detection
+                            waypoint_line = line_idx
+
+                # Apply shift if waypoint belongs to a moved line
+                if waypoint_line > 0:
+                    line_delta_x, line_delta_y = line_shifts[waypoint_line]
+                    new_x = old_x + line_delta_x
+                    new_y = old_y + line_delta_y
+                    wp.set("x", str(new_x))
+                    wp.set("y", str(new_y))
+
+    # After adjusting node positions, update edge waypoints
+    edges = plane.findall(".//bpmndi:BPMNEdge", namespaces)
+    for edge in edges:
+        bpmn_element = edge.get("bpmnElement")
+        if bpmn_element in flow_dict:
+            source_ref, target_ref = flow_dict[bpmn_element]
+            waypoints = edge.findall("di:waypoint", namespaces)
+            if waypoints:
+                # Get the new positions of source and target nodes
+                source_x = (
+                    positions[source_ref]["x"]
+                    if source_ref in positions
+                    else original_positions[source_ref]["x"]
+                )
+                source_y = (
+                    positions[source_ref]["y"]
+                    if source_ref in positions
+                    else original_positions[source_ref]["y"]
+                )
+                target_x = (
+                    positions[target_ref]["x"]
+                    if target_ref in positions
+                    else original_positions[target_ref]["x"]
+                )
+                target_y = (
+                    positions[target_ref]["y"]
+                    if target_ref in positions
+                    else original_positions[target_ref]["y"]
+                )
+                # Adjust waypoints based on the new positions
+                for waypoint in waypoints:
+                    x = float(waypoint.get("x"))
+                    y = float(waypoint.get("y"))
+                    # Check if this waypoint is closer to source or target position
+                    source_distance = abs(
+                        x - original_positions[source_ref]["x"]
+                    ) + abs(y - original_positions[source_ref]["y"])
+                    target_distance = abs(
+                        x - original_positions[target_ref]["x"]
+                    ) + abs(y - original_positions[target_ref]["y"])
+                    if source_distance < target_distance:
+                        # Closer to source
+                        waypoint.set(
+                            "x",
+                            str(source_x + (x - original_positions[source_ref]["x"])),
+                        )
+                        waypoint.set(
+                            "y",
+                            str(source_y + (y - original_positions[source_ref]["y"])),
+                        )
+                    else:
+                        # Closer to target
+                        waypoint.set(
+                            "x",
+                            str(target_x + (x - original_positions[target_ref]["x"])),
+                        )
+                        waypoint.set(
+                            "y",
+                            str(target_y + (y - original_positions[target_ref]["y"])),
+                        )
 
     # Serialize and return updated XML
     updated_xml = ET.tostring(root, encoding="utf-8").decode("utf-8")
@@ -3962,7 +4172,7 @@ def split_diagram_for_page_fit(laid_out_xml, namespaces):
 
 
 def add_special_nodes_and_annotations(
-    split_diagrams=False, include_legend=False, include_befehl=False
+    split_diagrams=False, include_legend=False, include_befehl=False, split_number=2
 ):
     """
     Adds 'rule', 'substep', and optionally 'befehl' nodes as DataObjectReference elements below their parents
@@ -4013,7 +4223,7 @@ def add_special_nodes_and_annotations(
         # Optional Step: Split diagram if too wide for A4 page
         if split_diagrams:
             laid_out_xml, was_split = split_diagram_for_page_fit(
-                laid_out_xml, namespaces
+                laid_out_xml, namespaces, split_number
             )
             root = ET.fromstring(laid_out_xml)  # Always update root from laid_out_xml
             process = root.find(".//bpmn:process", namespaces)
@@ -4699,6 +4909,16 @@ def show():
                         split_diagrams = st.checkbox(
                             "Split long diagrams", value=False, key="split_diagrams"
                         )
+                        # Create nested columns to control the width of number_input
+                        num_col1, num_col2 = st.columns([1, 1])
+                        with num_col1:
+                            split_number = st.number_input(
+                                "Number of lines",
+                                value=2,
+                                min_value=2,
+                                max_value=10,
+                                key="split_number",
+                            )
                     with col2:
                         include_legend = st.checkbox(
                             "Include legend", value=False, key="include_legend"
@@ -4713,8 +4933,9 @@ def show():
                         split_diagrams = st.session_state.get("split_diagrams", False)
                         include_legend = st.session_state.get("include_legend", False)
                         include_befehl = st.session_state.get("include_befehl", False)
+                        split_number = st.session_state.get("split_number", 2)
                         result_xml, legend_df = add_special_nodes_and_annotations(
-                            split_diagrams, include_legend, include_befehl
+                            split_diagrams, include_legend, include_befehl, split_number
                         )
                         if result_xml is not None:
                             bpmn_modeler_component(result_xml)
