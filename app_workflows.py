@@ -3244,9 +3244,29 @@ def split_diagram_for_page_fit(laid_out_xml, namespaces):
             for pattern in ["repeat_gateway_join", "skip_gateway_join"]
         )
 
-    # Find split point after all conditions (parallel, repeat, skip) are closed
+    # Helper function to count crossing edges for a given split index
+    def count_crossing_edges(split_idx):
+        line1_nodes = set(node_sequence[: split_idx + 1])
+        line2_nodes = set(node_sequence[split_idx + 1 :])
+
+        crossing_count = 0
+        for edge in process.findall(".//bpmn:sequenceFlow", namespaces):
+            source_ref = edge.get("sourceRef")
+            target_ref = edge.get("targetRef")
+
+            # Count edges that cross between lines
+            if (source_ref in line1_nodes and target_ref in line2_nodes) or (
+                source_ref in line2_nodes and target_ref in line1_nodes
+            ):
+                crossing_count += 1
+
+        return crossing_count
+
+    # Find optimal split point by minimizing crossing edges
     open_conditions = 0
-    split_candidates = []
+    condition_status = {}  # Track condition status at each index
+
+    # First pass: track condition states
     for idx, node in enumerate(node_sequence[:-1]):
         # Track parallel gateways
         if is_split_gateway(node):
@@ -3260,17 +3280,48 @@ def split_diagram_for_page_fit(laid_out_xml, namespaces):
         elif is_condition_end(node):
             open_conditions -= 1
 
-        # Only consider split points when all conditions are closed
-        if open_conditions == 0 and idx >= total_nodes // 4:
-            split_candidates.append(idx)
+        condition_status[idx] = open_conditions
 
-    # Select split point
-    if split_candidates:
-        split_idx = min(split_candidates, key=lambda x: abs(x - total_nodes // 2))
-        use_single_link = True
-    else:
-        split_idx = total_nodes // 2  # Fallback when no clean split point exists
-        use_single_link = False
+    # Generate candidate split points around the middle third of the diagram
+    min_split = max(total_nodes // 4, 0)
+    max_split = min(3 * total_nodes // 4, total_nodes - 2)
+
+    best_split_idx = total_nodes // 2  # Default fallback
+    min_crossing_edges = float("inf")
+    use_single_link = False
+
+    # Evaluate each potential split point
+    for idx in range(min_split, max_split + 1):
+        if idx >= len(node_sequence) - 1:
+            continue
+
+        crossing_count = count_crossing_edges(idx)
+
+        # Add penalty factors to the score
+        penalty = 0
+
+        # Heavy penalty for splitting right after a gateway split (ending line with split gateway)
+        if is_split_gateway(node_sequence[idx]):
+            penalty += 10
+
+        # Light penalty for having open conditions (prefer closed conditions when possible)
+        conditions_open = condition_status.get(idx, 0)
+        penalty += conditions_open * 2
+
+        # Slight penalty for being far from the middle (prefer balanced splits)
+        distance_from_middle = abs(idx - total_nodes // 2)
+        penalty += distance_from_middle * 0.1
+
+        total_score = crossing_count + penalty
+
+        # Update best split point if this is better
+        if total_score < min_crossing_edges:
+            min_crossing_edges = total_score
+            best_split_idx = idx
+            # Use single link if we found a clean split (no conditions open and <= 1 crossing edge)
+            use_single_link = conditions_open == 0 and crossing_count <= 1
+
+    split_idx = best_split_idx
 
     line_nodes = [node_sequence[: split_idx + 1], node_sequence[split_idx + 1 :]]
 
