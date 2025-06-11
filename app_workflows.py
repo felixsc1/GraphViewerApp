@@ -55,12 +55,14 @@ def initialize_state():
     pickle_path = os.path.join(workflows_dir, "user_dict.pickle")
     loaded_dict = {}
     loaded_legend = {}
+    loaded_template_dict = {}
     if os.path.exists(pickle_path):
         try:
             with open(pickle_path, "rb") as f:
                 data = pickle.load(f)
                 loaded_dict = data.get("user_dict", {})
                 loaded_legend = data.get("user_legend", {})
+                loaded_template_dict = data.get("template_dict", {})
                 loaded_standard_activities = data.get("standard_activities", [])
         except Exception as e:
             st.error(f"Benutzerliste konnte nicht geladen werden: {str(e)}")
@@ -70,6 +72,7 @@ def initialize_state():
     loaded_legend.update(default_user_legend)
     st.session_state["user_dict"] = loaded_dict
     st.session_state["user_legend"] = loaded_legend
+    st.session_state["template_dict"] = loaded_template_dict
     st.session_state["standard_activities"] = loaded_standard_activities
 
     # Save the updated dictionaries
@@ -78,6 +81,7 @@ def initialize_state():
             {
                 "user_dict": loaded_dict,
                 "user_legend": loaded_legend,
+                "template_dict": loaded_template_dict,
                 "standard_activities": default_standard_activities,
             },
             f,
@@ -86,7 +90,7 @@ def initialize_state():
 
 def upload_user_list():
     uploaded_files = st.file_uploader(
-        "Upload exported list for Benutzer / Gruppen / Stellen",
+        "Upload exported list for Benutzer / Gruppen / Stellen / Ausgangsvorlagen",
         type=["xlsx"],
         accept_multiple_files=True,
     )
@@ -98,10 +102,15 @@ def upload_user_list():
                 st.session_state["user_dict"] = {}
             if "user_legend" not in st.session_state:
                 st.session_state["user_legend"] = {}
+            if "template_dict" not in st.session_state:
+                st.session_state["template_dict"] = {}
 
             # Track processed files to avoid duplicates
             if "processed_files" not in st.session_state:
                 st.session_state["processed_files"] = set()
+
+            # Track template processing results
+            total_templates_added = 0
 
             # Process each uploaded file
             for uploaded_file in uploaded_files:
@@ -111,6 +120,14 @@ def upload_user_list():
                     continue
 
                 st.session_state["processed_files"].add(file_hash)
+
+                # Check for template file and process it
+                templates_added = process_template_file(uploaded_file)
+                total_templates_added += templates_added
+
+                # If this was a template file, skip the user processing
+                if templates_added > 0:
+                    continue
 
                 # Read the second sheet of the Excel file
                 df = pd.read_excel(uploaded_file, sheet_name=1, header=0)
@@ -249,8 +266,15 @@ def upload_user_list():
                     {
                         "user_dict": st.session_state["user_dict"],
                         "user_legend": st.session_state["user_legend"],
+                        "template_dict": st.session_state.get("template_dict", {}),
                     },
                     f,
+                )
+
+            # Show success message for templates
+            if total_templates_added > 0:
+                st.success(
+                    f"Successfully added {total_templates_added} template entries."
                 )
 
         except Exception as e:
@@ -341,6 +365,7 @@ def modify_user_entries():
                     {
                         "user_dict": st.session_state["user_dict"],
                         "user_legend": st.session_state["user_legend"],
+                        "template_dict": st.session_state.get("template_dict", {}),
                     },
                     f,
                 )
@@ -352,6 +377,7 @@ def modify_user_entries():
         # Reset session state
         st.session_state["user_dict"] = {}
         st.session_state["user_legend"] = {}
+        st.session_state["template_dict"] = {}
 
         # Delete the pickle file if it exists
         workflows_dir = os.path.join(st.session_state["cwd"], "data", "workflows")
@@ -407,6 +433,165 @@ def get_column_name(columns, starts_with):
         # Strip any leading/trailing whitespace characters from the column names
         return matching_cols[0].strip()
     return None
+
+
+def process_template_file(uploaded_file):
+    """
+    Process template file containing Ausgangsvorlage sheet.
+    Returns number of templates processed, or 0 if no templates found.
+    """
+    try:
+        # Check if the file has "Ausgangsvorlage" sheet
+        excel_file = pd.ExcelFile(uploaded_file)
+        if "Ausgangsvorlage" not in excel_file.sheet_names:
+            return 0
+
+        # Also check if required sheets exist
+        if "Dokumentvorlage" not in excel_file.sheet_names:
+            st.error(
+                f"Template file {uploaded_file.name} is missing 'Dokumentvorlage' sheet"
+            )
+            return 0
+        if "Vorlagenordner" not in excel_file.sheet_names:
+            st.error(
+                f"Template file {uploaded_file.name} is missing 'Vorlagenordner' sheet"
+            )
+            return 0
+
+        # Initialize template_dict if it doesn't exist
+        if "template_dict" not in st.session_state:
+            st.session_state["template_dict"] = {}
+
+        template_dict = st.session_state.get("template_dict", {}).copy()
+
+        # Read the Dokumentvorlage sheet
+        dokument_df = pd.read_excel(
+            uploaded_file, sheet_name="Dokumentvorlage", header=0
+        )
+
+        # Get column names using helper function - need to be more specific for complex column names
+        transport_id_col = get_column_name(dokument_df.columns, "TransportID")
+
+        # Look for the specific "Name" column (not "Name des neuen Objekts")
+        name_col = None
+        for col in dokument_df.columns:
+            if col.startswith("Name\n") and "Rubicon.Dms.DocumentMixin.Name" in col:
+                name_col = col
+                break
+
+        # Look for the specific "Vorlage" column (not "Vorlage für Expertensuche")
+        vorlage_col = None
+        for col in dokument_df.columns:
+            if col.startswith("Vorlage\n") and "MailItemClassName" in col:
+                vorlage_col = col
+                break
+
+        ordner_col = get_column_name(dokument_df.columns, "Ordner")
+
+        # Check if required columns are found
+        if not all([transport_id_col, name_col, vorlage_col, ordner_col]):
+            missing_cols = []
+            if not transport_id_col:
+                missing_cols.append("TransportID")
+            if not name_col:
+                missing_cols.append("Name")
+            if not vorlage_col:
+                missing_cols.append("Vorlage")
+            if not ordner_col:
+                missing_cols.append("Ordner")
+            st.error(
+                f"Could not find required columns in Dokumentvorlage sheet: {', '.join(missing_cols)}"
+            )
+            return 0
+
+        # Read the Vorlagenordner sheet
+        try:
+            ordner_df = pd.read_excel(
+                uploaded_file, sheet_name="Vorlagenordner", header=0
+            )
+            ordner_transport_id_col = get_column_name(ordner_df.columns, "TransportID")
+            ordner_bezeichnung_col = get_column_name(ordner_df.columns, "Bezeichnung")
+
+            if not all([ordner_transport_id_col, ordner_bezeichnung_col]):
+                missing_cols = []
+                if not ordner_transport_id_col:
+                    missing_cols.append("TransportID")
+                if not ordner_bezeichnung_col:
+                    missing_cols.append("Bezeichnung")
+                st.error(
+                    f"Could not find required columns in Vorlagenordner sheet: {', '.join(missing_cols)}"
+                )
+                return 0
+
+            # Create lookup dictionary for Vorlagenordner
+            ordner_lookup = {}
+            for _, row in ordner_df.iterrows():
+                ordner_transport_id = row[ordner_transport_id_col]
+                if pd.notna(ordner_transport_id):
+                    ordner_transport_id = str(ordner_transport_id)
+                    bezeichnung = (
+                        row[ordner_bezeichnung_col]
+                        if pd.notna(row[ordner_bezeichnung_col])
+                        else ""
+                    )
+                    ordner_lookup[ordner_transport_id] = bezeichnung
+
+        except Exception as e:
+            st.error(f"Error reading Vorlagenordner sheet: {str(e)}")
+            return 0
+
+        # Process each row in Dokumentvorlage
+        templates_added = 0
+        skipped_rows = 0
+        for idx, row in dokument_df.iterrows():
+            transport_id = row[transport_id_col]
+
+            # Skip rows with missing TransportID
+            if pd.isna(transport_id):
+                skipped_rows += 1
+                continue
+
+            transport_id = str(transport_id)
+
+            # Get values for constructing the template description
+            name_value = row[name_col] if name_col and pd.notna(row[name_col]) else ""
+            vorlage_value = (
+                row[vorlage_col] if vorlage_col and pd.notna(row[vorlage_col]) else ""
+            )
+            ordner_value = row[ordner_col] if pd.notna(row[ordner_col]) else ""
+
+            # For templates, we need at least the Name field. Vorlage can be empty.
+            if not name_value:
+                skipped_rows += 1
+                continue
+
+            # Construct the base description: Name, Vorlage, Bezeichnung (comma-separated)
+            template_description = name_value
+
+            if vorlage_value:
+                template_description += f", {vorlage_value}"
+
+            # Look up the Ordner information if available
+            if ordner_value:
+                # Extract ID using the extract_id helper function
+                ordner_id = extract_id(ordner_value)
+                if ordner_id and ordner_id in ordner_lookup:
+                    bezeichnung = ordner_lookup[ordner_id]
+                    if bezeichnung:
+                        template_description += f", {bezeichnung}"
+
+            # Add to template dictionary (overwrite existing entries)
+            template_dict[transport_id] = template_description
+            templates_added += 1
+
+        # Update session state
+        st.session_state["template_dict"] = template_dict
+
+        return templates_added
+
+    except Exception as e:
+        st.error(f"Error processing template file {uploaded_file.name}: {str(e)}")
+        return 0
 
 
 def resolve_empfaenger(xls, empfaenger_id):
@@ -4816,6 +5001,8 @@ def bpmn_modeler_component(bpmn_xml):
 
 def show():
     initialize_state()
+
+    st.write(st.session_state["template_dict"])
 
     with st.expander("User Management", expanded=False):
         st.success(
