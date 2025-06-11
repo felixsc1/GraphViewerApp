@@ -4172,7 +4172,7 @@ def split_diagram_for_page_fit(laid_out_xml, namespaces, split_number=2):
 
 
 def add_special_nodes_and_annotations(
-    split_diagrams=False, include_legend=False, include_befehl=False, split_number=2
+    split_diagrams=False, include_legend=False, include_befehl=False, row_number=1
 ):
     """
     Adds 'rule', 'substep', and optionally 'befehl' nodes as DataObjectReference elements below their parents
@@ -4183,6 +4183,7 @@ def add_special_nodes_and_annotations(
         split_diagrams (bool): Whether to split the diagram for page fit
         include_legend (bool): Whether to include text annotations/legend below the diagram
         include_befehl (bool): Whether to include befehl (parameter) nodes
+        row_number (int): Number of rows to split the diagram into (1 = no split, 2+ = split)
 
     Returns:
         tuple: (updated BPMN XML string, legend DataFrame) or (None, None) if processing fails
@@ -4223,7 +4224,7 @@ def add_special_nodes_and_annotations(
         # Optional Step: Split diagram if too wide for A4 page
         if split_diagrams:
             laid_out_xml, was_split = split_diagram_for_page_fit(
-                laid_out_xml, namespaces, split_number
+                laid_out_xml, namespaces, row_number
             )
             root = ET.fromstring(laid_out_xml)  # Always update root from laid_out_xml
             process = root.find(".//bpmn:process", namespaces)
@@ -4906,18 +4907,15 @@ def show():
 
                     col1, col2, col3, _ = st.columns(4)
                     with col1:
-                        split_diagrams = st.checkbox(
-                            "Split long diagrams", value=False, key="split_diagrams"
-                        )
                         # Create nested columns to control the width of number_input
                         num_col1, num_col2 = st.columns([1, 1])
                         with num_col1:
-                            split_number = st.number_input(
-                                "Number of lines",
-                                value=2,
-                                min_value=2,
+                            row_number = st.number_input(
+                                "\# of rows (1 = no split)",
+                                value=1,
+                                min_value=1,
                                 max_value=10,
-                                key="split_number",
+                                key="row_number",
                             )
                     with col2:
                         include_legend = st.checkbox(
@@ -4930,12 +4928,12 @@ def show():
                             key="include_befehl",
                         )
                     if st.button("Generate Laid-Out BPMN XML"):
-                        split_diagrams = st.session_state.get("split_diagrams", False)
+                        row_number = st.session_state.get("row_number", 1)
+                        split_diagrams = row_number > 1  # Split only if row_number > 1
                         include_legend = st.session_state.get("include_legend", False)
                         include_befehl = st.session_state.get("include_befehl", False)
-                        split_number = st.session_state.get("split_number", 2)
                         result_xml, legend_df = add_special_nodes_and_annotations(
-                            split_diagrams, include_legend, include_befehl, split_number
+                            split_diagrams, include_legend, include_befehl, row_number
                         )
                         if result_xml is not None:
                             bpmn_modeler_component(result_xml)
