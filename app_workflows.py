@@ -584,6 +584,96 @@ def process_template_file(uploaded_file):
             template_dict[transport_id] = template_description
             templates_added += 1
 
+        # Now process the Ausgangsvorlage sheet with the same logic
+        ausgangs_df = pd.read_excel(
+            uploaded_file, sheet_name="Ausgangsvorlage", header=0
+        )
+
+        # Get column names using the same logic as Dokumentvorlage
+        ausgangs_transport_id_col = get_column_name(ausgangs_df.columns, "TransportID")
+
+        # Look for the specific "Name" column (not "Name des neuen Objekts")
+        ausgangs_name_col = None
+        for col in ausgangs_df.columns:
+            if col.startswith("Name\n") and "Rubicon.Dms.DocumentMixin.Name" in col:
+                ausgangs_name_col = col
+                break
+
+        # Look for the specific "Vorlage" column (not "Vorlage für Expertensuche")
+        ausgangs_vorlage_col = None
+        for col in ausgangs_df.columns:
+            if col.startswith("Vorlage\n") and "MailItemClassName" in col:
+                ausgangs_vorlage_col = col
+                break
+
+        ausgangs_ordner_col = get_column_name(ausgangs_df.columns, "Ordner")
+
+        # Check if required columns are found
+        if not all([ausgangs_transport_id_col, ausgangs_name_col, ausgangs_ordner_col]):
+            missing_cols = []
+            if not ausgangs_transport_id_col:
+                missing_cols.append("TransportID")
+            if not ausgangs_name_col:
+                missing_cols.append("Name")
+            if not ausgangs_ordner_col:
+                missing_cols.append("Ordner")
+            st.error(
+                f"Could not find required columns in Ausgangsvorlage sheet: {', '.join(missing_cols)}"
+            )
+        else:
+            # Process each row in Ausgangsvorlage
+            ausgangs_skipped_rows = 0
+            for idx, row in ausgangs_df.iterrows():
+                ausgangs_transport_id = row[ausgangs_transport_id_col]
+
+                # Skip rows with missing TransportID
+                if pd.isna(ausgangs_transport_id):
+                    ausgangs_skipped_rows += 1
+                    continue
+
+                ausgangs_transport_id = str(ausgangs_transport_id)
+
+                # Get values for constructing the template description
+                ausgangs_name_value = (
+                    row[ausgangs_name_col]
+                    if ausgangs_name_col and pd.notna(row[ausgangs_name_col])
+                    else ""
+                )
+                ausgangs_vorlage_value = (
+                    row[ausgangs_vorlage_col]
+                    if ausgangs_vorlage_col and pd.notna(row[ausgangs_vorlage_col])
+                    else ""
+                )
+                ausgangs_ordner_value = (
+                    row[ausgangs_ordner_col]
+                    if pd.notna(row[ausgangs_ordner_col])
+                    else ""
+                )
+
+                # For templates, we need at least the Name field. Vorlage can be empty.
+                if not ausgangs_name_value:
+                    ausgangs_skipped_rows += 1
+                    continue
+
+                # Construct the base description: Name, Vorlage, Bezeichnung (comma-separated)
+                ausgangs_template_description = ausgangs_name_value
+
+                if ausgangs_vorlage_value:
+                    ausgangs_template_description += f", {ausgangs_vorlage_value}"
+
+                # Look up the Ordner information if available
+                if ausgangs_ordner_value:
+                    # Extract ID using the extract_id helper function
+                    ausgangs_ordner_id = extract_id(ausgangs_ordner_value)
+                    if ausgangs_ordner_id and ausgangs_ordner_id in ordner_lookup:
+                        bezeichnung = ordner_lookup[ausgangs_ordner_id]
+                        if bezeichnung:
+                            ausgangs_template_description += f", {bezeichnung}"
+
+                # Add to template dictionary (overwrite existing entries)
+                template_dict[ausgangs_transport_id] = ausgangs_template_description
+                templates_added += 1
+
         # Update session state
         st.session_state["template_dict"] = template_dict
 
@@ -679,6 +769,58 @@ def resolve_empfaenger(xls, empfaenger_id):
 # --- Generating Workflow Tables ---
 
 
+def process_befehl_with_templates(befehl_value, parameter_value):
+    """
+    Process befehl and parameter values, replacing template IDs with template names
+    when CreateSettlement or CreateDocument commands are detected.
+
+    Args:
+        befehl_value: Value from the Befehl column
+        parameter_value: Value from the Parameter column
+
+    Returns:
+        str or None: Processed befehl string with template names, or None if invalid
+    """
+    # Check if befehl_value is valid
+    if pd.isna(befehl_value):
+        return None
+
+    befehl_str = str(befehl_value)
+
+    # If parameter is missing, just return the befehl value
+    if pd.isna(parameter_value):
+        return befehl_str
+
+    parameter_str = str(parameter_value)
+
+    # Check if befehl contains CreateSettlement or CreateDocument
+    if "CreateSettlement" in befehl_str or "CreateDocument" in befehl_str:
+        # Look for UIDs in the parameter string using regex
+        # UUID pattern: 8-4-4-4-12 hexadecimal characters separated by hyphens
+        uid_pattern = r"[A-Fa-f0-9]{8}-[A-Fa-f0-9]{4}-[A-Fa-f0-9]{4}-[A-Fa-f0-9]{4}-[A-Fa-f0-9]{12}"
+
+        def replace_uid(match):
+            uid = match.group(0)
+            template_dict = st.session_state.get("template_dict", {})
+
+            if uid in template_dict:
+                # Return the UID followed by comma, template name, and newline
+                return f"{uid}, {template_dict[uid]}\n"
+            else:
+                # Show warning for unknown template
+                st.warning(f"Unknown Dokumentvorlage: {uid}")
+                return uid
+
+        # Replace all UIDs in the parameter string
+        processed_parameter = re.sub(uid_pattern, replace_uid, parameter_str)
+
+        # Format the final befehl string
+        return f"{befehl_str}:\n{processed_parameter}"
+    else:
+        # Standard formatting for non-template commands
+        return f"{befehl_str}:\n{parameter_str}"
+
+
 def build_activities_table(xls):
     """
     Builds an activities table from an Excel file by combining data from specified sheets.
@@ -769,17 +911,10 @@ def build_activities_table(xls):
                 parameter_col = get_column_name(df.columns, "Parameter")
 
                 if befehl_col is not None and parameter_col is not None:
-                    # Format as "Befehl-value:\nParameter-value"
+                    # Format as "Befehl-value:\nParameter-value" with template processing
                     temp_df["befehl"] = df.apply(
-                        lambda row: (
-                            f"{row[befehl_col]}:\n{row[parameter_col]}"
-                            if pd.notna(row[befehl_col])
-                            and pd.notna(row[parameter_col])
-                            else (
-                                str(row[befehl_col])
-                                if pd.notna(row[befehl_col])
-                                else None
-                            )
+                        lambda row: process_befehl_with_templates(
+                            row[befehl_col], row[parameter_col]
                         ),
                         axis=1,
                     )
