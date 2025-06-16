@@ -3799,6 +3799,12 @@ def split_diagram_for_page_fit(laid_out_xml, namespaces, split_number=2):
                     bounds.set("y", str(new_y))
                     break
 
+    # Create node-to-line mapping for later use
+    node_to_line = {}
+    for line_idx, line in enumerate(line_nodes):
+        for node in line:
+            node_to_line[node] = line_idx
+
     # Identify crossing edges that need link events
     crossing_edges = []
     for edge in process.findall(".//bpmn:sequenceFlow", namespaces):
@@ -3979,10 +3985,11 @@ def split_diagram_for_page_fit(laid_out_xml, namespaces, split_number=2):
             # Use vertical positioning only when horizontal space is blocked
             # Check if this is the first event originating from this specific source
             first_event_from_this_source = True
+            source_event_count = 0
             for j in range(i):
                 if crossing_edges[j]["source_ref"] == source_ref:
                     first_event_from_this_source = False
-                    break
+                    source_event_count += 1
 
             # Simple logic: use vertical positioning only if nodes exist both before AND after the gateway
             horizontal_space_blocked = False
@@ -3993,6 +4000,7 @@ def split_diagram_for_page_fit(laid_out_xml, namespaces, split_number=2):
                 )
                 source_y = positions[source_ref]["y"]
                 source_height = positions[source_ref]["height"]
+                source_line = node_to_line.get(source_ref, 0)
 
                 # Check if there are nodes immediately to the left and right of the gateway
                 node_on_left = False
@@ -4001,6 +4009,11 @@ def split_diagram_for_page_fit(laid_out_xml, namespaces, split_number=2):
                 for node_id, node_pos in positions.items():
                     if node_id == source_ref:
                         continue
+
+                    # Only consider nodes on the same line
+                    if node_to_line.get(node_id, 0) != source_line:
+                        continue
+
                     node_x = node_pos["x"]
                     node_right = node_pos["x"] + node_pos["width"]
                     node_y = node_pos["y"]
@@ -4049,8 +4062,11 @@ def split_diagram_for_page_fit(laid_out_xml, namespaces, split_number=2):
                     + (positions[source_ref]["height"] - 36) / 2
                 )
                 # Stack multiple events vertically while maintaining horizontal alignment
-                if i > 0:
-                    throw_y += i * 60  # Increased spacing for better clarity
+                # Only stack events from the same source
+                if source_event_count > 0:
+                    throw_y += (
+                        source_event_count * 60
+                    )  # Increased spacing for better clarity
 
             throw_shape = ET.SubElement(
                 plane,
@@ -4084,10 +4100,11 @@ def split_diagram_for_page_fit(laid_out_xml, namespaces, split_number=2):
             # Use vertical positioning only when horizontal space is blocked
             # Check if this is the first event targeting this specific target
             first_event_to_this_target = True
+            target_event_count = 0
             for j in range(i):
                 if crossing_edges[j]["target_ref"] == target_ref:
                     first_event_to_this_target = False
-                    break
+                    target_event_count += 1
 
             # Simple logic: use vertical positioning only if nodes exist both before AND after the gateway
             horizontal_space_blocked_target = False
@@ -4098,6 +4115,7 @@ def split_diagram_for_page_fit(laid_out_xml, namespaces, split_number=2):
                 )
                 target_y = positions[target_ref]["y"]
                 target_height = positions[target_ref]["height"]
+                target_line = node_to_line.get(target_ref, 0)
 
                 # Check if there are nodes immediately to the left and right of the gateway
                 node_on_left = False
@@ -4106,6 +4124,11 @@ def split_diagram_for_page_fit(laid_out_xml, namespaces, split_number=2):
                 for node_id, node_pos in positions.items():
                     if node_id == target_ref:
                         continue
+
+                    # Only consider nodes on the same line
+                    if node_to_line.get(node_id, 0) != target_line:
+                        continue
+
                     node_x = node_pos["x"]
                     node_right = node_pos["x"] + node_pos["width"]
                     node_y = node_pos["y"]
@@ -4152,8 +4175,11 @@ def split_diagram_for_page_fit(laid_out_xml, namespaces, split_number=2):
                     + (positions[target_ref]["height"] - 36) / 2
                 )
                 # Stack multiple events vertically while maintaining horizontal alignment
-                if i > 0:
-                    catch_y += i * 60  # Increased spacing for better clarity
+                # Only stack events to the same target
+                if target_event_count > 0:
+                    catch_y += (
+                        target_event_count * 60
+                    )  # Increased spacing for better clarity
 
             catch_shape = ET.SubElement(
                 plane,
@@ -4358,12 +4384,6 @@ def split_diagram_for_page_fit(laid_out_xml, namespaces, split_number=2):
         line_delta_y = line_y_offset - positions[line_nodes[line_idx][0]]["y"]
         line_shifts[line_idx] = (line_delta_x, line_delta_y)
 
-    # Find which line each node belongs to
-    node_to_line = {}
-    for line_idx, line in enumerate(line_nodes):
-        for node in line:
-            node_to_line[node] = line_idx
-
     # Shift edges based on their endpoints and waypoint positions
     for edge in plane.findall(".//bpmndi:BPMNEdge", namespaces):
         bpmn_element = edge.get("bpmnElement")
@@ -4501,7 +4521,7 @@ def split_diagram_for_page_fit(laid_out_xml, namespaces, split_number=2):
 
     # Serialize and return updated XML
     updated_xml = ET.tostring(root, encoding="utf-8").decode("utf-8")
-    print(updated_xml)
+    # print(updated_xml)
     return updated_xml, True
 
 
