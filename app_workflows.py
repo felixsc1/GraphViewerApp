@@ -13,7 +13,7 @@ import json
 import base64
 
 # Global debug variable
-DEBUG_OUTPUT_DATAFRAMES = False
+DEBUG_OUTPUT_DATAFRAMES = True
 
 
 def initialize_state():
@@ -2166,6 +2166,10 @@ def build_edges_table(updated_nodes, updated_groups):
             # Connect branches
             used_labels = set()  # Track used labels to avoid duplicates
             branch_index = 0
+            empty_branch_count = (
+                0  # Track empty branches for unique edge identification
+            )
+
             for b_type, b_id, _ in branches:
                 if b_type == "node":
                     node_type = get_safe_value_bpmn(
@@ -2219,14 +2223,20 @@ def build_edges_table(updated_nodes, updated_groups):
                     has_activity = has_activity_in_group(b_id)
                     if not has_activity:
                         # Empty subgroup, connect split directly to join
-                        if (split, join) not in edge_set:
+                        # Use a unique edge identifier that includes the empty branch count
+                        empty_edge_key = (
+                            split,
+                            join,
+                            f"empty_branch_{empty_branch_count}",
+                        )
+                        if empty_edge_key not in edge_set:
                             edges.append((split, join))
-                            edge_set.add((split, join))
+                            edge_set.add(empty_edge_key)
                             if (
                                 branch_index < len(parallel_labels)
                                 and parallel_labels[branch_index] not in used_labels
                             ):
-                                edge_labels[(split, join)] = parallel_labels[
+                                edge_labels[empty_edge_key] = parallel_labels[
                                     branch_index
                                 ]
                                 used_labels.add(parallel_labels[branch_index])
@@ -2235,11 +2245,12 @@ def build_edges_table(updated_nodes, updated_groups):
                                 branch_index < len(decision_labels)
                                 and decision_labels[branch_index] not in used_labels
                             ):
-                                edge_labels[(split, join)] = decision_labels[
+                                edge_labels[empty_edge_key] = decision_labels[
                                     branch_index
                                 ]
                                 used_labels.add(decision_labels[branch_index])
                                 branch_index += 1
+                        empty_branch_count += 1
                     else:
                         b_first, b_last = process_group(b_id)
                         if b_first and (split, b_first) not in edge_set:
@@ -2401,7 +2412,9 @@ def build_edges_table(updated_nodes, updated_groups):
     # Create a map from (source, target) to all matching edge tuples in edge_set
     edge_tuples_map = defaultdict(list)
     for edge_tuple in edge_set:
-        if len(edge_tuple) == 3:  # It's a special edge with branch ID
+        if (
+            len(edge_tuple) == 3
+        ):  # It's a special edge with branch ID or empty branch ID
             source, target, branch_id = edge_tuple
             edge_tuples_map[(source, target)].append(edge_tuple)
 
