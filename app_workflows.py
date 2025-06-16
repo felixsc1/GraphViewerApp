@@ -3483,7 +3483,7 @@ def split_diagram_for_page_fit(laid_out_xml, namespaces, split_number=2):
     # Constants
     A4_WIDTH_GUIDELINE = 800  # A4 width guideline in pixels (relaxed for first line)
     SPACING_Y = 350  # Vertical spacing between lines
-    MIN_NODES_PER_LINE = 8  # Minimum nodes per line to consider splitting
+    MIN_NODES_PER_LINE = 5  # Minimum nodes per line to consider splitting
 
     # Parse XML and find elements
     root = ET.fromstring(laid_out_xml)
@@ -4488,7 +4488,7 @@ def split_diagram_for_page_fit(laid_out_xml, namespaces, split_number=2):
 
     # Serialize and return updated XML
     updated_xml = ET.tostring(root, encoding="utf-8").decode("utf-8")
-    # print(updated_xml)
+    print(updated_xml)
     return updated_xml, True
 
 
