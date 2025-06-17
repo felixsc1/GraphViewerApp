@@ -1690,7 +1690,12 @@ def generate_additional_nodes(activities_table, groups_table):
                             decision_label,
                             "+",
                             "+",
-                            "",  # Empty label for rule node
+                            (
+                                groups_table.loc[group_id, "name"]
+                                if pd.notna(groups_table.loc[group_id, "name"])
+                                and str(groups_table.loc[group_id, "name"]).strip()
+                                else ""
+                            ),  # Use parent parallel group's name as rule label
                         ],  # Plus symbol for AllBranches gateways
                         "befehl": [
                             "",  # Empty befehl for decision node
@@ -1784,7 +1789,14 @@ def generate_additional_nodes(activities_table, groups_table):
                 node_types.append("rule")
                 parent_activities.append(decision_node_id)
                 sequence_numbers.append(rule_seq)
-                labels.append("")  # Empty label for rule node
+                # Use parent parallel group's name as rule label
+                group_name = groups_table.loc[group_id, "name"]
+                rule_label = (
+                    group_name
+                    if pd.notna(group_name) and str(group_name).strip()
+                    else ""
+                )
+                labels.append(rule_label)
                 befehls.append(
                     groups_table.loc[group_id, "parallel_condition_expression"]
                 )  # Expression goes to befehl
@@ -1881,7 +1893,14 @@ def generate_additional_nodes(activities_table, groups_table):
                 node_types.append("rule")
                 parent_activities.append(decision_node_id)
                 sequence_numbers.append(rule_seq)
-                labels.append("")  # Empty label for rule node
+                # Use parent parallel group's name as rule label
+                group_name = groups_table.loc[group_id, "name"]
+                rule_label = (
+                    group_name
+                    if pd.notna(group_name) and str(group_name).strip()
+                    else ""
+                )
+                labels.append(rule_label)
                 befehls.append(
                     groups_table.loc[group_id, "parallel_condition_expression"]
                 )  # Expression goes to befehl
