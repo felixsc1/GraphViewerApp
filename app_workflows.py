@@ -1247,7 +1247,11 @@ def build_groups_table(xls):
                 # Create formatted string with name: expression pairs
                 formatted_expressions = []
                 for i in range(len(condition_names)):
-                    if condition_names[i]:  # Only include non-empty names
+                    if (
+                        condition_names[i]
+                        and pd.notna(condition_expressions[i])
+                        and str(condition_expressions[i]).strip()
+                    ):  # Only include non-empty names and valid expressions
                         formatted_expressions.append(
                             f"{condition_names[i]}: {condition_expressions[i]}"
                         )
