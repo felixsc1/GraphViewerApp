@@ -1686,8 +1686,16 @@ def generate_additional_nodes(activities_table, groups_table):
                             decision_label,
                             "+",
                             "+",
-                            groups_table.loc[group_id, "parallel_condition_expression"],
+                            "",  # Empty label for rule node
                         ],  # Plus symbol for AllBranches gateways
+                        "befehl": [
+                            "",  # Empty befehl for decision node
+                            "",  # Empty befehl for gateway split
+                            "",  # Empty befehl for gateway join
+                            groups_table.loc[
+                                group_id, "parallel_condition_expression"
+                            ],  # Expression goes to befehl
+                        ],
                         "type": [
                             None,
                             None,
@@ -1705,6 +1713,7 @@ def generate_additional_nodes(activities_table, groups_table):
                         "parent": [group_id, group_id],
                         "SequenceNumber": [gateway_split_seq, gateway_join_seq],
                         "label": ["+", "+"],  # Plus symbol for AllBranches
+                        "befehl": ["", ""],  # Empty befehl for gateways
                         "type": [None, None],  # Standard gateways
                     }
                 ).set_index("node_id")
@@ -1762,15 +1771,19 @@ def generate_additional_nodes(activities_table, groups_table):
             decision_label = groups_table.loc[group_id, "Erledigungsmodus"]
             labels.extend([decision_label, gateway_split_label, gateway_join_label])
 
+            # Prepare befehl list for all nodes created so far
+            befehls = ["", "", ""]  # Empty befehl for decision and gateway nodes
+
             # Add rule node only if there's a condition expression
             if has_condition_expr:
                 node_ids.append(rule_node_id)
                 node_types.append("rule")
                 parent_activities.append(decision_node_id)
                 sequence_numbers.append(rule_seq)
-                labels.append(
+                labels.append("")  # Empty label for rule node
+                befehls.append(
                     groups_table.loc[group_id, "parallel_condition_expression"]
-                )
+                )  # Expression goes to befehl
 
             # Create types list - mark decision as UserChoice
             types = []
@@ -1788,6 +1801,7 @@ def generate_additional_nodes(activities_table, groups_table):
                     "parent": parent_activities,
                     "SequenceNumber": sequence_numbers,
                     "label": labels,
+                    "befehl": befehls,  # Add befehl column
                     "type": types,
                 }
             ).set_index("node_id")
@@ -1854,15 +1868,19 @@ def generate_additional_nodes(activities_table, groups_table):
                 )
             labels.extend([decision_label, gateway_split_label, gateway_join_label])
 
+            # Prepare befehl list for all nodes
+            befehls = ["", "", ""]  # Empty befehl for decision and gateway nodes
+
             # Add rule node only if there's a condition expression
             if has_condition_expr:
                 node_ids.append(rule_node_id)
                 node_types.append("rule")
                 parent_activities.append(decision_node_id)
                 sequence_numbers.append(rule_seq)
-                labels.append(
+                labels.append("")  # Empty label for rule node
+                befehls.append(
                     groups_table.loc[group_id, "parallel_condition_expression"]
-                )
+                )  # Expression goes to befehl
 
             # Create types list - standard decisions for AnyBranch/OnlyOneBranch
             types = [None] * len(node_ids)  # All are standard, not UserChoice
@@ -1875,6 +1893,7 @@ def generate_additional_nodes(activities_table, groups_table):
                     "parent": parent_activities,
                     "SequenceNumber": sequence_numbers,
                     "label": labels,
+                    "befehl": befehls,  # Add befehl column
                     "type": types,
                 }
             ).set_index("node_id")
@@ -1943,12 +1962,19 @@ def generate_additional_nodes(activities_table, groups_table):
                     gateway_join_seq,
                 ],
                 "label": [
-                    (skip_name + "\n" if pd.notna(skip_name) else "")
-                    + (skip_condition if pd.notna(skip_condition) else ""),
+                    skip_name if pd.notna(skip_name) else "",  # Only skip_name in label
                     "Überspringen, falls\n"
                     + (skip_name if pd.notna(skip_name) else ""),
                     "X",  # X symbol for skip gateway split
                     "X",  # X symbol for skip gateway join
+                ],
+                "befehl": [
+                    (
+                        skip_condition if pd.notna(skip_condition) else ""
+                    ),  # skip_condition in befehl column
+                    "",  # Empty befehl for decision node
+                    "",  # Empty befehl for gateway split
+                    "",  # Empty befehl for gateway join
                 ],
                 "type": [None, None, None, None],  # Standard skip decision
             }
@@ -2020,12 +2046,21 @@ def generate_additional_nodes(activities_table, groups_table):
                     gateway_join_seq,
                 ],
                 "label": [
-                    (repeat_name + "\n" if pd.notna(repeat_name) else "")
-                    + (repeat_condition if pd.notna(repeat_condition) else ""),
+                    (
+                        repeat_name if pd.notna(repeat_name) else ""
+                    ),  # Only repeat_name in label
                     "Wiederholen, falls\n"
                     + (repeat_name if pd.notna(repeat_name) else ""),
                     "X",  # X symbol for gateway split
                     "X",  # X symbol for gateway join
+                ],
+                "befehl": [
+                    (
+                        repeat_condition if pd.notna(repeat_condition) else ""
+                    ),  # repeat_condition in befehl column
+                    "",  # Empty befehl for decision node
+                    "",  # Empty befehl for gateway split
+                    "",  # Empty befehl for gateway join
                 ],
                 "type": [None, None, None, None],  # Standard repeat decision
             }
