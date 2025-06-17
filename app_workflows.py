@@ -13,7 +13,7 @@ import json
 import base64
 
 # Global debug variable
-DEBUG_OUTPUT_DATAFRAMES = True
+DEBUG_OUTPUT_DATAFRAMES = False
 
 
 def initialize_state():
@@ -905,22 +905,58 @@ def build_activities_table(xls):
             else:
                 temp_df["Empfänger"] = None
 
-            # Add "befehl" for Befehlsaktivität; set to None for others
+            # Add "label" and "befehl" for Befehlsaktivität; set to None for others
             if sheet_name == "Befehlsaktivität":
                 befehl_col = get_column_name(df.columns, "Befehl")
                 parameter_col = get_column_name(df.columns, "Parameter")
 
-                if befehl_col is not None and parameter_col is not None:
-                    # Format as "Befehl-value:\nParameter-value" with template processing
-                    temp_df["befehl"] = df.apply(
-                        lambda row: process_befehl_with_templates(
-                            row[befehl_col], row[parameter_col]
-                        ),
-                        axis=1,
-                    )
+                if befehl_col is not None:
+                    # Raw Befehl value goes to label column
+                    temp_df["label"] = df[befehl_col]
+                else:
+                    temp_df["label"] = None
+
+                if parameter_col is not None:
+                    # Process parameter column for template replacement and put in befehl column
+                    def process_parameter_only(row):
+                        if pd.isna(row[parameter_col]):
+                            return None
+
+                        parameter_str = str(row[parameter_col])
+                        befehl_value = row[befehl_col] if befehl_col is not None else ""
+
+                        # Check if befehl contains CreateSettlement or CreateDocument for template processing
+                        if befehl_col is not None and not pd.isna(befehl_value):
+                            befehl_str = str(befehl_value)
+                            if (
+                                "CreateSettlement" in befehl_str
+                                or "CreateDocument" in befehl_str
+                            ):
+                                # Look for UIDs in the parameter string using regex
+                                uid_pattern = r"[A-Fa-f0-9]{8}-[A-Fa-f0-9]{4}-[A-Fa-f0-9]{4}-[A-Fa-f0-9]{4}-[A-Fa-f0-9]{12}"
+
+                                def replace_uid(match):
+                                    uid = match.group(0)
+                                    template_dict = st.session_state.get(
+                                        "template_dict", {}
+                                    )
+                                    if uid in template_dict:
+                                        return f"{uid}, {template_dict[uid]}\n"
+                                    else:
+                                        st.warning(f"Unknown Dokumentvorlage: {uid}")
+                                        return uid
+
+                                # Replace all UIDs in the parameter string
+                                return re.sub(uid_pattern, replace_uid, parameter_str)
+
+                        # Return parameter as-is for non-template commands
+                        return parameter_str
+
+                    temp_df["befehl"] = df.apply(process_parameter_only, axis=1)
                 else:
                     temp_df["befehl"] = None
             else:
+                temp_df["label"] = None
                 temp_df["befehl"] = None
 
             # Append to the list
@@ -1525,7 +1561,8 @@ def generate_additional_nodes(activities_table, groups_table):
                     "node_type": "befehl",
                     "parent": activity_id,
                     "SequenceNumber": -1,  # Not in main sequence
-                    "label": activity["befehl"],
+                    "label": activity.get("label", ""),  # Command name goes to label
+                    "befehl": activity["befehl"],  # Processed parameter goes to befehl
                     # Copy other relevant columns with None values
                     "Empfänger": None,
                     "name": None,
@@ -4609,6 +4646,7 @@ def add_special_nodes_and_annotations(
                                     "#": str(abbr),
                                     "Typ": "Abkürzung",
                                     "Legende": full_name,
+                                    "Parameter": "",  # Empty parameter for abbreviations
                                 }
                             )
             legend_df = pd.DataFrame(legend_entries).reset_index(drop=True)
@@ -4757,7 +4795,14 @@ def add_special_nodes_and_annotations(
 
             # Store legend entry for DataFrame
             legend_entries.append(
-                {"#": str(legend_counter), "Typ": legend_type, "Legende": row["label"]}
+                {
+                    "#": str(legend_counter),
+                    "Typ": legend_type,
+                    "Legende": row["label"],  # Label goes to Legende column
+                    "Parameter": row.get(
+                        "befehl", ""
+                    ),  # Befehl (processed parameter) goes to Parameter column
+                }
             )
 
             legend_counter += 1
@@ -4777,7 +4822,12 @@ def add_special_nodes_and_annotations(
                         used_abbreviations.add(abbr)
                         # Store user abbreviation legend entry for DataFrame
                         legend_entries.append(
-                            {"#": str(abbr), "Typ": "Abkürzung", "Legende": full_name}
+                            {
+                                "#": str(abbr),
+                                "Typ": "Abkürzung",
+                                "Legende": full_name,
+                                "Parameter": "",  # Empty parameter for abbreviations
+                            }
                         )
 
         # Step 6: Generate text annotations only if include_legend is True
@@ -5223,11 +5273,12 @@ def show():
                         num_col1, num_col2 = st.columns([1, 1])
                         with num_col1:
                             row_number = st.number_input(
-                                "\# of rows (1 = no split)",
+                                "\# rows",
                                 value=1,
                                 min_value=1,
                                 max_value=10,
                                 key="row_number",
+                                help="1 = no split",
                             )
                     with col2:
                         include_legend = st.checkbox(
