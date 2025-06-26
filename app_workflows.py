@@ -1555,9 +1555,16 @@ def generate_additional_nodes(activities_table, groups_table):
     befehl_nodes_list = []
 
     for activity_id, activity in activities_table.iterrows():
-        if pd.notna(activity.get("befehl")):
+        # Create befehl node if activity has either befehl value OR label value
+        # (label value indicates Befehlsaktivität without parameters)
+        if pd.notna(activity.get("befehl")) or pd.notna(activity.get("label")):
             # Use properties for unique IDs
             befehl_node_id = generate_node_id("befehl", {"activity_id": activity_id})
+
+            # Handle befehl value - use actual befehl if available, otherwise empty string
+            befehl_value = (
+                activity.get("befehl", "") if pd.notna(activity.get("befehl")) else ""
+            )
 
             # Create a befehl node
             befehl_node = pd.Series(
@@ -1566,7 +1573,7 @@ def generate_additional_nodes(activities_table, groups_table):
                     "parent": activity_id,
                     "SequenceNumber": -1,  # Not in main sequence
                     "label": activity.get("label", ""),  # Command name goes to label
-                    "befehl": activity["befehl"],  # Processed parameter goes to befehl
+                    "befehl": befehl_value,  # Processed parameter goes to befehl (empty if no parameters)
                     # Copy other relevant columns with None values
                     "Empfänger": None,
                     "name": None,
