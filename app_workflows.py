@@ -4844,7 +4844,17 @@ def add_special_nodes_and_annotations(
             )
 
             # Store annotation info
-            annotation_text = f"({legend_counter})\n{row['label']}"
+            label_text = str(row["label"]).strip() if row["label"] else ""
+            parameter_text = str(row.get("befehl", "")).strip()
+
+            # Build annotation text, avoiding empty lines
+            annotation_parts = [f"({legend_counter})"]
+            if label_text:
+                annotation_parts.append(label_text)
+            if parameter_text:
+                annotation_parts.extend(["Parameter:", parameter_text])
+
+            annotation_text = "\n".join(annotation_parts)
             annotations.append((annotation_text, legend_counter))
 
             # Determine legend type based on node_type
