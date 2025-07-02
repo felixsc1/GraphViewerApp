@@ -1829,16 +1829,12 @@ def generate_additional_nodes(activities_table, groups_table):
                 }
             ).set_index("node_id")
         else:
-            # For AnyBranch and OnlyOneBranch, include decision and rule nodes
-            # Check if there's a valid parallel_condition_expression
+            # For AnyBranch and OnlyOneBranch, check if there's a valid parallel_condition_expression
             has_condition_expr = pd.notna(
                 groups_table.loc[group_id, "parallel_condition_expression"]
             )
 
-            # For AnyBranch and OnlyOneBranch, always create decision and gateway nodes
-            decision_node_id = generate_node_id(
-                "decision", {"group_id": group_id, "type": erledigungsmodus}
-            )
+            # Create gateway nodes for AnyBranch and OnlyOneBranch
             gateway_split_id = generate_node_id(
                 "gateway_split", {"group_id": group_id, "type": erledigungsmodus}
             )
@@ -1846,21 +1842,9 @@ def generate_additional_nodes(activities_table, groups_table):
                 "gateway_join", {"group_id": group_id, "type": erledigungsmodus}
             )
 
-            # Only create rule node if there's a condition expression
-            if has_condition_expr:
-                rule_node_id = generate_node_id(
-                    "rule", {"group_id": group_id, "type": erledigungsmodus}
-                )
-                rule_seq = -1  # Rule not in main sequence
-
-            # Place nodes in sequence
-            decision_seq = min_seq - 2  # Decision comes before gateway
-            gateway_split_seq = (
-                min_seq - 1
-            )  # Gateway split comes just before the first child
-            gateway_join_seq = (
-                max_seq + 1
-            )  # Gateway join comes just after the last child
+            # Place gateways at the beginning and end
+            gateway_split_seq = min_seq - 1  # Just before first child
+            gateway_join_seq = max_seq + 1  # Just after last child
 
             # Set gateway labels based on the erledigungsmodus
             if erledigungsmodus == "AnyBranch":
@@ -1870,63 +1854,86 @@ def generate_additional_nodes(activities_table, groups_table):
                 gateway_split_label = "X"  # Empty diamond for OnlyOneBranch
                 gateway_join_label = "X"  # Empty diamond for OnlyOneBranch
 
-            # Prepare node data for DataFrame
-            node_ids = []
-            node_types = []
-            parent_activities = []
-            sequence_numbers = []
-            labels = []
-
-            # Always add decision and gateway nodes
-            node_ids.extend([decision_node_id, gateway_split_id, gateway_join_id])
-            node_types.extend(["decision", "gateway", "gateway"])
-            parent_activities.extend([group_id, group_id, group_id])
-            sequence_numbers.extend([decision_seq, gateway_split_seq, gateway_join_seq])
-            parallel_condition = groups_table.loc[group_id, "parallel_condition_name"]
-            if pd.isna(parallel_condition) or str(parallel_condition) == "None":
-                decision_label = "Entscheid"
-            else:
-                decision_label = "Entscheid\n" + str(parallel_condition).replace(
-                    ";", "\n"
-                )
-            labels.extend([decision_label, gateway_split_label, gateway_join_label])
-
-            # Prepare befehl list for all nodes
-            befehls = ["", "", ""]  # Empty befehl for decision and gateway nodes
-
-            # Add rule node only if there's a condition expression
             if has_condition_expr:
-                node_ids.append(rule_node_id)
-                node_types.append("rule")
-                parent_activities.append(decision_node_id)
-                sequence_numbers.append(rule_seq)
-                # Use parent parallel group's name as rule label
-                group_name = groups_table.loc[group_id, "name"]
-                rule_label = (
-                    group_name
-                    if pd.notna(group_name) and str(group_name).strip()
-                    else ""
+                # If condition exists, create decision node and rule node (like AllBranches with condition)
+                decision_node_id = generate_node_id(
+                    "decision", {"group_id": group_id, "type": erledigungsmodus}
                 )
-                labels.append(rule_label)
-                befehls.append(
-                    groups_table.loc[group_id, "parallel_condition_expression"]
-                )  # Expression goes to befehl
+                rule_node_id = generate_node_id(
+                    "rule", {"group_id": group_id, "type": erledigungsmodus}
+                )
 
-            # Create types list - standard decisions for AnyBranch/OnlyOneBranch
-            types = [None] * len(node_ids)  # All are standard, not UserChoice
+                decision_seq = min_seq - 2  # Decision comes before gateway
+                rule_seq = -1  # Rule not in main sequence
 
-            # Create nodes dataframe for AnyBranch or OnlyOneBranch
-            new_nodes = pd.DataFrame(
-                {
-                    "node_id": node_ids,
-                    "node_type": node_types,
-                    "parent": parent_activities,
-                    "SequenceNumber": sequence_numbers,
-                    "label": labels,
-                    "befehl": befehls,  # Add befehl column
-                    "type": types,
-                }
-            ).set_index("node_id")
+                # Get condition name for label
+                parallel_condition = groups_table.loc[
+                    group_id, "parallel_condition_name"
+                ]
+                if pd.isna(parallel_condition) or str(parallel_condition) == "None":
+                    decision_label = "Entscheid"
+                else:
+                    decision_label = "Entscheid\n" + str(parallel_condition).replace(
+                        ";", "\n"
+                    )
+
+                # Create nodes dataframe for AnyBranch/OnlyOneBranch with condition (gateways + decision + rule)
+                new_nodes = pd.DataFrame(
+                    {
+                        "node_id": [
+                            decision_node_id,
+                            gateway_split_id,
+                            gateway_join_id,
+                            rule_node_id,
+                        ],
+                        "node_type": ["decision", "gateway", "gateway", "rule"],
+                        "parent": [group_id, group_id, group_id, decision_node_id],
+                        "SequenceNumber": [
+                            decision_seq,
+                            gateway_split_seq,
+                            gateway_join_seq,
+                            rule_seq,
+                        ],
+                        "label": [
+                            decision_label,
+                            gateway_split_label,
+                            gateway_join_label,
+                            (
+                                groups_table.loc[group_id, "name"]
+                                if pd.notna(groups_table.loc[group_id, "name"])
+                                and str(groups_table.loc[group_id, "name"]).strip()
+                                else ""
+                            ),  # Use parent parallel group's name as rule label
+                        ],
+                        "befehl": [
+                            "",  # Empty befehl for decision node
+                            "",  # Empty befehl for gateway split
+                            "",  # Empty befehl for gateway join
+                            groups_table.loc[
+                                group_id, "parallel_condition_expression"
+                            ],  # Expression goes to befehl
+                        ],
+                        "type": [
+                            None,
+                            None,
+                            None,
+                            None,
+                        ],  # Standard decision for AnyBranch/OnlyOneBranch, not UserChoice
+                    }
+                ).set_index("node_id")
+            else:
+                # Create nodes dataframe for AnyBranch/OnlyOneBranch without condition (only gateways)
+                new_nodes = pd.DataFrame(
+                    {
+                        "node_id": [gateway_split_id, gateway_join_id],
+                        "node_type": ["gateway", "gateway"],
+                        "parent": [group_id, group_id],
+                        "SequenceNumber": [gateway_split_seq, gateway_join_seq],
+                        "label": [gateway_split_label, gateway_join_label],
+                        "befehl": ["", ""],  # Empty befehl for gateways
+                        "type": [None, None],  # Standard gateways
+                    }
+                ).set_index("node_id")
 
         # Append new nodes to the updated table
         updated_nodes = pd.concat([updated_nodes, new_nodes])
@@ -2220,16 +2227,20 @@ def build_edges_table(updated_nodes, updated_groups):
                         join = c_id
 
             # Check required nodes based on Erledigungsmodus
-            if erledigungsmodus == "AllBranches":
-                if not (split and join):
-                    print(
-                        f"Warning: Parallel group {group_id} missing split/join for AllBranches."
-                    )
-                    return None, None
-            else:
+            # For all parallel groups, we need at least split and join gateways
+            if not (split and join):
+                print(
+                    f"Warning: Parallel group {group_id} missing split/join gateways."
+                )
+                return None, None
+
+            # For groups with decision nodes, ensure the decision exists
+            # (This applies to parallel groups with conditions regardless of Erledigungsmodus)
+            if decision:
+                # If we have a decision node, make sure all three exist
                 if not (decision and split and join):
                     print(
-                        f"Warning: Parallel group {group_id} missing decision/split/join."
+                        f"Warning: Parallel group {group_id} has decision but missing other required nodes."
                     )
                     return None, None
 
