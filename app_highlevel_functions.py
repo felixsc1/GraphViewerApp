@@ -39,19 +39,57 @@ def load_data(file):
 def raw_cleanup(toggle_gmaps=False):
     file_paths = st.session_state.get("file_paths", {})
 
-    # create files with separate hyperlinks column and use this from here on
-    st.write("Reading excel files and extracting hyperlinks (takes several minutes)...")
-    df_organisationen = extract_hyperlinks(file_paths["organisationen"], ["Objekt", "VerknuepftesObjekt"])
-    df_personen = extract_hyperlinks(file_paths["personen"], ["Objekt", "VerknuepftesObjekt"])
-    
-    # Update the file_paths dictionary
-    file_paths["personen"] = df_personen
-    file_paths["organisationen"] = df_organisationen
-    # Reassign the updated file_paths dictionary back to the session state
+    # Check if Objektlink column exists to avoid time-consuming hyperlink extraction
+    def process_excel_file(file_path, entity_type):
+        # First, quickly check if Objektlink column exists
+        try:
+            # Load just the header to check columns
+            df_header = pd.read_excel(file_path, nrows=0)
+            if "Objektlink" in df_header.columns:
+                # Objektlink column exists - use it directly
+                st.write(
+                    f"✓ Using existing Objektlink column for {entity_type} (skipping hyperlink extraction)"
+                )
+                df = load_data(file_path)
+                # Rename Objektlink to Objekt_link for backwards compatibility
+                df = df.rename(columns={"Objektlink": "Objekt_link"})
+                return df
+            else:
+                # Objektlink column doesn't exist - extract hyperlinks as before
+                st.write(
+                    f"⚠ Objektlink column not found for {entity_type} - extracting hyperlinks (takes several minutes)..."
+                )
+                processed_file = extract_hyperlinks(file_path, ["Objekt"])
+                df = load_data(processed_file)
+                return df, processed_file
+        except Exception as e:
+            st.write(
+                f"⚠ Error checking {entity_type} file: {e} - falling back to hyperlink extraction"
+            )
+            processed_file = extract_hyperlinks(file_path, ["Objekt"])
+            df = load_data(processed_file)
+            return df, processed_file
+
+    # Process organisationen file
+    org_result = process_excel_file(file_paths["organisationen"], "organisationen")
+    if isinstance(org_result, tuple):
+        df_organisationen, processed_org_file = org_result
+        file_paths["organisationen"] = processed_org_file
+    else:
+        df_organisationen = org_result
+        # Keep original file path since we didn't create a new file
+
+    # Process personen file
+    pers_result = process_excel_file(file_paths["personen"], "personen")
+    if isinstance(pers_result, tuple):
+        df_personen, processed_pers_file = pers_result
+        file_paths["personen"] = processed_pers_file
+    else:
+        df_personen = pers_result
+        # Keep original file path since we didn't create a new file
+
+    # Update the file_paths dictionary and session state
     st.session_state["file_paths"] = file_paths
-    
-    df_organisationen = load_data(file_paths["organisationen"])
-    df_personen = load_data(file_paths["personen"])
 
     st.write("Basic cleanup Organisationen & Personen...")
     df_organisationen = basic_cleanup(df_organisationen, organisation=True)
@@ -69,9 +107,11 @@ def raw_cleanup(toggle_gmaps=False):
     )
 
     df_organisationen["Name_Zeile2"] = df_organisationen.apply(
-        lambda x: x["Name"] + "|" + str(x["Zeile2"])
-        if pd.notna(x["Zeile2"]) and x["Zeile2"] != ""
-        else x["Name"],
+        lambda x: (
+            x["Name"] + "|" + str(x["Zeile2"])
+            if pd.notna(x["Zeile2"]) and x["Zeile2"] != ""
+            else x["Name"]
+        ),
         axis=1,
     )
 
@@ -95,8 +135,6 @@ def raw_cleanup(toggle_gmaps=False):
     df_organisationen = add_produkte_columns(
         df_organisationen, organisationsrollen_df
     )  # only count of Inhaber/Addressant.
-    
-    
 
     df_personenrollen = load_data(file_paths["personenrollen"])
     df_personen = add_personen_produkte_columns(
@@ -150,7 +188,7 @@ def raw_cleanup(toggle_gmaps=False):
     return df_organisationen, df_personen
 
 
-def create_edges_and_clusters():  
+def create_edges_and_clusters():
     file_paths = st.session_state.get("file_paths", {})
 
     # Assuming pickle file was created by raw_cleanup()
@@ -165,11 +203,11 @@ def create_edges_and_clusters():
     df_personen = dfs["personen"]
     df_organisationen = dfs["organisationen"]
     df_organisationsrollen = dfs["organisationsrollen_all"]
-    
+
     # helper functions to map ReferenceIDs to hyperlinks
     def create_link_mapping(df):
         return dict(zip(df["ReferenceID"], df["Objekt_link"]))
-    
+
     personen_link_map = create_link_mapping(df_personen)
     organisationen_link_map = create_link_mapping(df_organisationen)
 
@@ -190,12 +228,13 @@ def create_edges_and_clusters():
         edges_organisationsrollen
     )
     # edges_organisationsrollen.to_excel("data/edges_organisationsrollen_step2_df_debug.xlsx", index=False) # DEBUG
-    
-    
+
     personenrollen_df = load_data(file_paths["personenrollen"])
     edges_personenrollen = personenrollen_group_aggregate(personenrollen_df)
     # edges_personenrollen.to_excel("data/edges_personenrollen_df_debug.xlsx", index=False)
-    edges_personenrollen = generate_edge_list_from_personenrollen_aggregate(edges_personenrollen)
+    edges_personenrollen = generate_edge_list_from_personenrollen_aggregate(
+        edges_personenrollen
+    )
     # edges_personenrollen.to_excel("data/edges_personenrollen_step2_df_debug.xlsx", index=False)
 
     edges_personen = match_organizations_internally_simplified(
@@ -205,7 +244,6 @@ def create_edges_and_clusters():
     edges_personen_to_organisationen = match_organizations_between_dataframes(
         df_personen, df_organisationen
     )
-
 
     # Combine everything while keeping track of the source of the edge (not quite sure if this is even needed, could be used for conditional formatting).
     edges_organisationen["source_type"] = "organisation"
@@ -218,14 +256,20 @@ def create_edges_and_clusters():
     edges_personenrollen["target_type"] = "produkt"
     edges_personen_to_organisationen["source_type"] = "person"
     edges_personen_to_organisationen["target_type"] = "organisation"
-    
-    edge_list = [edges_organisationen, edges_personen, edges_organisationsrollen, edges_personenrollen, edges_personen_to_organisationen]
+
+    edge_list = [
+        edges_organisationen,
+        edges_personen,
+        edges_organisationsrollen,
+        edges_personenrollen,
+        edges_personen_to_organisationen,
+    ]
     all_edges = pd.concat(edge_list, ignore_index=True)
-    
+
     # all_edges.to_excel("data/all_edges_df_debug_before_cleanup.xlsx", index=False)
 
     all_edges = cleanup_edges_df(all_edges)
-    
+
     # all_edges.to_excel("data/all_edges_df_debug.xlsx", index=False)
 
     special_nodes = set(
@@ -235,9 +279,9 @@ def create_edges_and_clusters():
     all_clusters = find_clusters_all(
         all_edges, special_nodes, skip_singular_clusters=False
     )
-    
+
     # add new link column with list of links corresponding to list of nodes
-    all_clusters['link'] = all_clusters['nodes'].apply(generate_links_for_cluster)
+    all_clusters["link"] = all_clusters["nodes"].apply(generate_links_for_cluster)
 
     # Store dataframes as pickle
     dfs = {"edges": all_edges, "clusters": all_clusters}
@@ -248,7 +292,7 @@ def create_edges_and_clusters():
         pickle.dump(dfs, file)
 
     st.success("Cluster data stored!", icon="✅")
-    
+
     # all_edges.to_excel(os.path.join(directory, "all_edgesfinal.xlsx"), index=False)
-    
+
     return
