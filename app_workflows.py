@@ -4722,10 +4722,12 @@ def add_special_nodes_and_annotations(
                                     "#": str(abbr),
                                     "Typ": "Abkürzung",
                                     "Legende": full_name,
-                                    "Parameter": "",  # Empty parameter for abbreviations
+                                    "Parameter": None,  # No parameter for abbreviations
                                 }
                             )
             legend_df = pd.DataFrame(legend_entries).reset_index(drop=True)
+            # Replace None values with empty strings for cleaner display
+            legend_df = legend_df.fillna("")
             return laid_out_xml, legend_df
 
         # Step 2: Extract parent positions from the laid-out diagram
@@ -4862,7 +4864,8 @@ def add_special_nodes_and_annotations(
             annotation_parts = [f"({legend_counter})"]
             if label_text:
                 annotation_parts.append(label_text)
-            if parameter_text:
+            # Only include parameter if it has meaningful content (not nan, None, or empty)
+            if parameter_text and parameter_text.lower() not in ["nan", "none"]:
                 annotation_parts.extend(["Parameter:", parameter_text])
 
             annotation_text = "\n".join(annotation_parts)
@@ -4880,16 +4883,15 @@ def add_special_nodes_and_annotations(
                 legend_type = "Sonstiges"  # fallback
 
             # Store legend entry for DataFrame
-            legend_entries.append(
-                {
-                    "#": str(legend_counter),
-                    "Typ": legend_type,
-                    "Legende": row["label"],  # Label goes to Legende column
-                    "Parameter": row.get(
-                        "befehl", ""
-                    ),  # Befehl (processed parameter) goes to Parameter column
-                }
-            )
+            legend_entry = {
+                "#": str(legend_counter),
+                "Typ": legend_type,
+                "Legende": row["label"],  # Label goes to Legende column
+            }
+            # Always include Parameter column for consistent DataFrame structure
+            parameter_value = str(row.get("befehl", "")).strip()
+            legend_entry["Parameter"] = parameter_value if parameter_value else None
+            legend_entries.append(legend_entry)
 
             legend_counter += 1
 
@@ -4912,7 +4914,7 @@ def add_special_nodes_and_annotations(
                                 "#": str(abbr),
                                 "Typ": "Abkürzung",
                                 "Legende": full_name,
-                                "Parameter": "",  # Empty parameter for abbreviations
+                                "Parameter": None,  # No parameter for abbreviations
                             }
                         )
 
@@ -4990,6 +4992,8 @@ def add_special_nodes_and_annotations(
 
         # Step 8: Create legend DataFrame and return both XML and DataFrame
         legend_df = pd.DataFrame(legend_entries).reset_index(drop=True)
+        # Replace None values with empty strings for cleaner display
+        legend_df = legend_df.fillna("")
         updated_xml = ET.tostring(root, encoding="utf-8").decode("utf-8")
         return updated_xml, legend_df
 
