@@ -56,20 +56,28 @@ def initialize_state():
     loaded_dict = {}
     loaded_legend = {}
     loaded_template_dict = {}
-    if os.path.exists(pickle_path):
+    loaded_standard_activities = None  # None indicates not loaded yet
+    file_exists = os.path.exists(pickle_path)
+
+    if file_exists:
         try:
             with open(pickle_path, "rb") as f:
                 data = pickle.load(f)
                 loaded_dict = data.get("user_dict", {})
                 loaded_legend = data.get("user_legend", {})
                 loaded_template_dict = data.get("template_dict", {})
-                loaded_standard_activities = data.get("standard_activities", [])
+                loaded_standard_activities = data.get("standard_activities", None)
         except Exception as e:
             st.error(f"Benutzerliste konnte nicht geladen werden: {str(e)}")
 
     # Always update the dictionaries with the default entries
     loaded_dict.update(default_user_dict)
     loaded_legend.update(default_user_legend)
+
+    # For standard_activities, use loaded data if available, otherwise use defaults
+    if loaded_standard_activities is None:
+        loaded_standard_activities = default_standard_activities.copy()
+
     st.session_state["user_dict"] = loaded_dict
     st.session_state["user_legend"] = loaded_legend
     st.session_state["template_dict"] = loaded_template_dict
@@ -82,7 +90,7 @@ def initialize_state():
                 "user_dict": loaded_dict,
                 "user_legend": loaded_legend,
                 "template_dict": loaded_template_dict,
-                "standard_activities": default_standard_activities,
+                "standard_activities": loaded_standard_activities,
             },
             f,
         )
