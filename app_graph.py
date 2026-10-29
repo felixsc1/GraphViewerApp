@@ -467,7 +467,6 @@ def show():
             g, personen_of_cluster, organisationen_of_cluster, produkte_of_cluster, serviceroles_of_cluster = generate_graph(
                 cluster_dfs, data_dfs, filter_refid
             )
-            svg_path, svg_str = g.render()
         except Exception as e:
             st.error(
                 "Cannot display graph. Please check the settings.",
@@ -483,17 +482,145 @@ def show():
             # st.image(svg_path)
             # st.components.v1.html(svg_str, height=500)
 
-            # This feature requires installation on Graphviz for windows.
-            try:
-                with open(svg_path, "rb") as file:
-                    btn = st.download_button(
-                        label="Download Graph as SVG",
-                        data=file,
-                        file_name=svg_path,
-                        mime="image/svg+xml",
-                    )
-            except Exception as e:
-                st.warning(f"Could not create download button. Error: {str(e)}")
+            # Client-side SVG/PNG download using the SVG rendered by Streamlit's built-in Graphviz engine
+            safe_refid = re.sub(r"[^a-zA-Z0-9_-]", "_", filter_refid) or "graph"
+            st.components.v1.html(
+                f"""
+                <style>
+                    body {{
+                        margin: 0;
+                        padding: 0;
+                        background: transparent;
+                        font-family: "Source Sans Pro", sans-serif;
+                    }}
+                    .btn-row {{
+                        display: flex;
+                        gap: 0.5rem;
+                        align-items: center;
+                    }}
+                    .dl-btn {{
+                        display: inline-flex;
+                        align-items: center;
+                        justify-content: center;
+                        font-weight: 400;
+                        padding: 0.35rem 0.75rem;
+                        border-radius: 0.5rem;
+                        min-height: 2.25rem;
+                        margin: 0;
+                        line-height: 1.6;
+                        font-size: 14px;
+                        color: rgb(49, 51, 63);
+                        background-color: rgb(255, 255, 255);
+                        border: 1px solid rgba(49, 51, 63, 0.2);
+                        cursor: pointer;
+                    }}
+                    .dl-btn:hover {{
+                        border-color: rgb(255, 75, 75);
+                        color: rgb(255, 75, 75);
+                    }}
+                </style>
+                <div class="btn-row">
+                    <button id="dl-svg" class="dl-btn">Download Graph as SVG</button>
+                    <button id="dl-png" class="dl-btn">Download Graph as PNG</button>
+                </div>
+                <script>
+                    function getRenderedGraphSvg() {{
+                        const doc = window.parent.document;
+                        const svgs = doc.querySelectorAll('[data-testid="stGraphVizChart"] svg, .stGraphVizChart svg');
+                        if (svgs.length > 0) {{
+                            return svgs[svgs.length - 1];
+                        }}
+                        // Fallback: find any SVG with class "graph" inside a <g> element (standard Graphviz SVG structure)
+                        const graphGroups = doc.querySelectorAll('svg > g.graph');
+                        if (graphGroups.length > 0) {{
+                            return graphGroups[graphGroups.length - 1].ownerSVGElement;
+                        }}
+                        return null;
+                    }}
+
+                    function serializeGraphSvg() {{
+                        const svgEl = getRenderedGraphSvg();
+                        if (!svgEl) {{
+                            alert("Graph SVG is still rendering or not found.");
+                            return null;
+                        }}
+                        const clone = svgEl.cloneNode(true);
+                        // Reset any pan/zoom transform on the outer SVG or inner viewport group so the full graph is exported
+                        clone.removeAttribute("style");
+                        if (!clone.getAttribute("xmlns")) {{
+                            clone.setAttribute("xmlns", "http://www.w3.org/2000/svg");
+                        }}
+                        if (!clone.getAttribute("xmlns:xlink")) {{
+                            clone.setAttribute("xmlns:xlink", "http://www.w3.org/1999/xlink");
+                        }}
+                        const serializer = new XMLSerializer();
+                        let svgString = serializer.serializeToString(clone);
+                        if (!svgString.trim().startsWith("<?xml")) {{
+                            svgString = '<?xml version="1.0" encoding="UTF-8" standalone="no"?>\\n' + svgString;
+                        }}
+                        return {{ svgEl, clone, svgString }};
+                    }}
+
+                    document.getElementById("dl-svg").addEventListener("click", function() {{
+                        const res = serializeGraphSvg();
+                        if (!res) return;
+                        const blob = new Blob([res.svgString], {{ type: "image/svg+xml;charset=utf-8" }});
+                        const url = URL.createObjectURL(blob);
+                        const a = document.createElement("a");
+                        a.href = url;
+                        a.download = "graph_{safe_refid}.svg";
+                        a.click();
+                        URL.revokeObjectURL(url);
+                    }});
+
+                    document.getElementById("dl-png").addEventListener("click", async function() {{
+                        const res = serializeGraphSvg();
+                        if (!res) return;
+
+                        const viewBox = res.svgEl.viewBox && res.svgEl.viewBox.baseVal;
+                        const bbox = res.svgEl.getBoundingClientRect();
+                        const width = (viewBox && viewBox.width) ? viewBox.width : (bbox.width || 800);
+                        const height = (viewBox && viewBox.height) ? viewBox.height : (bbox.height || 600);
+
+                        res.clone.setAttribute("width", width + "pt");
+                        res.clone.setAttribute("height", height + "pt");
+                        const serializer = new XMLSerializer();
+                        const sizedSvgString = serializer.serializeToString(res.clone);
+
+                        const scaleFactor = 3;
+                        const img = new Image();
+                        const svgBlob = new Blob([sizedSvgString], {{ type: "image/svg+xml;charset=utf-8" }});
+                        const svgUrl = URL.createObjectURL(svgBlob);
+
+                        img.onload = function() {{
+                            const w = img.naturalWidth || width;
+                            const h = img.naturalHeight || height;
+                            const canvas = document.createElement("canvas");
+                            canvas.width = w * scaleFactor;
+                            canvas.height = h * scaleFactor;
+                            const ctx = canvas.getContext("2d");
+                            ctx.scale(scaleFactor, scaleFactor);
+                            ctx.imageSmoothingEnabled = true;
+                            ctx.imageSmoothingQuality = "high";
+                            ctx.fillStyle = "white";
+                            ctx.fillRect(0, 0, w, h);
+                            ctx.drawImage(img, 0, 0, w, h);
+                            canvas.toBlob(function(blob) {{
+                                const url = URL.createObjectURL(blob);
+                                const a = document.createElement("a");
+                                a.href = url;
+                                a.download = "graph_{safe_refid}.png";
+                                a.click();
+                                URL.revokeObjectURL(url);
+                                URL.revokeObjectURL(svgUrl);
+                            }}, "image/png", 0.95);
+                        }};
+                        img.src = svgUrl;
+                    }});
+                </script>
+                """,
+                height=50,
+            )
 
             st.subheader("👨‍💼 Personen:")
             st.dataframe(show_subset_of_columns(personen_of_cluster), hide_index=True)
