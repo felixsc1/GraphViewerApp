@@ -1,3 +1,4 @@
+/*! bpmn-auto-layout@1.3.0 | MIT | standalone UMD bundle incl. bpmn-moddle@10, min-dash@5 */
 (function (global, factory) {
   typeof exports === 'object' && typeof module !== 'undefined' ? factory(exports) :
   typeof define === 'function' && define.amd ? define(['exports'], factory) :
@@ -67,7 +68,7 @@
    * @return {Boolean}
    */
   function has(target, key) {
-    return nativeHasOwnProperty.call(target, key);
+    return !isNil(target) && nativeHasOwnProperty.call(target, key);
   }
 
   /**
@@ -156,7 +157,7 @@
    * @param {Collection<T>} collection
    * @param {Matcher<T>} matcher
    *
-   * @return {number}
+   * @return {number | string | undefined}
    */
   function findIndex(collection, matcher) {
 
@@ -387,13 +388,108 @@
    */
   function Base() { }
 
+  /**
+   * @template { keyof this } K
+   *
+   * Get property value (typed)
+   *
+   * @overload
+   *
+   * @param {K} name
+   *
+   * @return { this[K] }
+   */
+  /**
+   * @template T
+   *
+   * Get property value
+   *
+   * @overload
+   *
+   * @param {string} name
+   *
+   * @return {T}
+   */
+  /**
+   * Get property value
+   *
+   * @overload
+   *
+   * @param {string} name
+   *
+   * @return {unknown}
+   */
   Base.prototype.get = function(name) {
     return this.$model.properties.get(this, name);
   };
 
+  /**
+   * @template { keyof this } K
+   * @template { this[K] } V
+   *
+   * Set property value
+   *
+   * @overload
+   *
+   * @param {K} name
+   * @param {V} value
+   */
+  /**
+   * @template { string } S
+   *
+   * Set property value
+   *
+   * @overload
+   *
+   * @param { S extends keyof this ? never : S } name
+   * @param { any } value
+   */
   Base.prototype.set = function(name, value) {
     this.$model.properties.set(this, name, value);
   };
+
+  /**
+   * @typedef {import('./ns.js').Namespace} Namespace
+   * @typedef {import('./moddle.js').default} Moddle
+   * @typedef {import('./properties.js').default} Properties
+   * @typedef {import('./registry.js').EffectiveDescriptor} EffectiveDescriptor
+   * @typedef {import('./base.js').default} BaseElement
+   * @typedef {import('./descriptor-builder.js').AnyTypeDescriptor} AnyTypeDescriptor
+   */
+
+  /**
+   * @template [T=Record<string,any>]
+   * @typedef {{
+   *   new(attrs?: Partial<T>): ModdleElement<T>;
+   *   prototype: ModdleElement<T>;
+   *   readonly $model: Moddle;
+   *   readonly $descriptor: EffectiveDescriptor;
+   * }} ModdleElementType
+   */
+
+  /**
+   * @template [T=Record<string,any>]
+   * @typedef {BaseElement & T & {
+   *   readonly $model: Moddle;
+   *   readonly $descriptor: EffectiveDescriptor;
+   *   readonly $type: Namespace['name'];
+   *   readonly $attrs: Record<string, any>;
+   *   $parent?: ModdleElement | AnyModdleElement;
+   *   hasType: Moddle['hasType'];
+   *   $instanceOf: Moddle['hasType'];
+   * }} ModdleElement
+   */
+
+  /**
+   * @template [T=Record<string,any>]
+   * @typedef {BaseElement & T & {
+   *   $type: string;
+   *   $instanceOf: (type: string) => boolean;
+   *   $parent?: ModdleElement | AnyModdleElement;
+   *   readonly $model: Moddle;
+   *   readonly $descriptor: AnyTypeDescriptor;
+   * }} AnyModdleElement
+   */
 
   /**
    * A model element factory.
@@ -402,11 +498,23 @@
    * @param {Properties} properties
    */
   function Factory(model, properties) {
+
+    /**
+     * @private
+     */
     this.model = model;
+
+    /**
+     * @private
+     */
     this.properties = properties;
   }
 
-
+  /**
+   * @template [T=Record<string,any>]
+   * @param {EffectiveDescriptor} descriptor
+   * @return {ModdleElementType<T>}
+   */
   Factory.prototype.createType = function(descriptor) {
 
     var model = this.model;
@@ -428,6 +536,8 @@
 
     /**
      * The new type constructor
+     *
+     * @type { ModdleElementType }
      */
     function ModdleElement(attrs) {
       props.define(this, '$type', { value: name, enumerable: true });
@@ -453,26 +563,62 @@
   /**
    * Built-in moddle types
    */
-  var BUILTINS = {
+  var BUILTINS = assign(Object.create(null), {
     String: true,
     Boolean: true,
     Integer: true,
     Real: true,
     Element: true
-  };
+  });
 
   /**
-   * Converters for built in types from string representations
+   * Converters for built-in types from string representations
    */
-  var TYPE_CONVERTERS = {
+  var TYPE_CONVERTERS = assign(Object.create(null), {
     String: function(s) { return s; },
     Boolean: function(s) { return s === 'true'; },
     Integer: function(s) { return parseInt(s, 10); },
     Real: function(s) { return parseFloat(s); }
-  };
+  });
 
   /**
+   * @typedef {'String'} StringType
+   * @typedef {'Boolean'} BooleanType
+   * @typedef {'Integer'} IntegerType
+   * @typedef {'Real'} RealType
+   * @typedef {'Element'} ElementType
+   * @typedef {StringType | BooleanType | IntegerType | RealType} BuiltInSimpleType
+   * @typedef {BuiltInSimpleType | ElementType} BuiltInType
+   */
+
+  /**
+   * Convert given value to string
+   * @overlord
+   * @param {StringType} type
+   * @param {any} value
+   * @return {string}
+   */
+  /**
+   * Convert given value to boolean
+   * @overlord
+   * @param {BooleanType} type
+   * @param {any} value
+   * @return {boolean}
+   */
+  /**
+   * Convert given value to number
+   * @overlord
+   * @param {IntegerType | RealType} type
+   * @param {any} value
+   * @return {number}
+   */
+  /**
    * Convert a type to its real representation
+   * @template T
+   * @overlord
+   * @param {Exclude<string,BuiltInSimpleType>} type
+   * @param {T} value
+   * @return {T}
    */
   function coerceType(type, value) {
 
@@ -487,17 +633,43 @@
 
   /**
    * Return whether the given type is built-in
+   * @overload
+   * @param {BuiltInType} type
+   * @return {true}
+   */
+  /**
+   * Return whether the given type is built-in
+   * @overload
+   * @param {Exclude<string,BuiltInType>} type
+   * @return {false}
    */
   function isBuiltIn(type) {
     return !!BUILTINS[type];
   }
 
   /**
-   * Return whether the given type is simple
+   * Return true if the given type is simple
+   * @overload
+   * @param {BuiltInSimpleType} type
+   * @return {true}
+   */
+  /**
+   * Return false the given type is not simple
+   * @overload
+   * @param {Exclude<string,BuiltInSimpleType>} type
+   * @return {false}
    */
   function isSimple(type) {
     return !!TYPE_CONVERTERS[type];
   }
+
+  /**
+   * @typedef {{
+   *   name: string;
+   *   prefix: string;
+   *   localName: string;
+   * }} Namespace
+   */
 
   /**
    * Parses a namespaced attribute name of the form (ns:)localName to an object,
@@ -506,7 +678,7 @@
    * @param {String} name
    * @param {String} [defaultPrefix] the default prefix to take, if none is present.
    *
-   * @return {Object} the parsed name
+   * @return {Namespace} the parsed name
    */
   function parseName(name, defaultPrefix) {
     var parts = name.split(/:/),
@@ -538,18 +710,97 @@
   }
 
   /**
+   * @typedef {import('./ns.js').Namespace} Namespace
+   * @typedef {import('./registry.js').RegisteredPackage} RegisteredPackage
+   * @typedef {import('./registry.js').RegisteredTypeDef} RegisteredTypeDef
+   * @typedef {import('./registry.js').RegisteredPropertyDef} RegisteredPropertyDef
+   */
+
+  /**
+   * Effective element descriptor
+   * aka element type descriptor
+   * aka element descriptor
+   * @typedef {{
+   *   readonly ns: Namespace;
+   *   readonly name: Namespace['name'];
+   *   readonly allTypes: Array<RegisteredTypeDef>;
+   *   readonly allTypesByName: Record<string, RegisteredTypeDef>;
+   *   readonly properties: Array<PropertyDescriptor>;
+   *   readonly propertiesByName: Record<string, PropertyDescriptor>;
+   *   readonly bodyProperty?: PropertyDescriptor;
+   *   readonly idProperty?: PropertyDescriptor;
+   *   readonly $pkg?: RegisteredPackage;
+   * }} EffectiveDescriptor
+   */
+
+  /**
+   * Property descriptor
+   * @typedef {RegisteredPropertyDef & {
+   *   localName: Namespace['localName'];
+   *   inherited?: boolean;
+   *   definedBy?: RegisteredTypeDef;
+   * }} PropertyDescriptor
+   */
+
+  /**
+   * @typedef {{
+   *   name: string;
+   *   isGeneric: true;
+   *   ns: {
+   *     prefix: string;
+   *     localName: string;
+   *     uri: string;
+   *   };
+   * }} AnyTypeDescriptor
+   */
+
+  /**
    * A utility to build element descriptors.
+   * @class DescriptorBuilder
+   * @param {Namespace} nameNs
    */
   function DescriptorBuilder(nameNs) {
+
+    /**
+     * @private
+     * @type {Namespace}
+     */
     this.ns = nameNs;
+
+    /**
+     * @private
+     * @type {Namespace['name']}
+     */
     this.name = nameNs.name;
+
+    /**
+     * @private
+     * @type {Array<RegisteredTypeDef>}
+     */
     this.allTypes = [];
-    this.allTypesByName = {};
+
+    /**
+     * @private
+     * @type {Record<string, RegisteredTypeDef>}
+     */
+    this.allTypesByName = Object.create(null);
+
+    /**
+     * @private
+     * @type {Array<PropertyDescriptor>}
+     */
     this.properties = [];
-    this.propertiesByName = {};
+
+    /**
+     * @private
+     * @type {Record<string, PropertyDescriptor>}
+     */
+    this.propertiesByName = Object.create(null);
   }
 
-
+  /**
+   * @return {EffectiveDescriptor}
+   */
   DescriptorBuilder.prototype.build = function() {
     return pick(this, [
       'ns',
@@ -566,7 +817,7 @@
   /**
    * Add property at given index.
    *
-   * @param {Object} p
+   * @param {PropertyDescriptor} p
    * @param {Number} [idx]
    * @param {Boolean} [validate=true]
    */
@@ -588,7 +839,11 @@
     }
   };
 
-
+  /**
+   * @param {PropertyDescriptor} oldProperty
+   * @param {PropertyDescriptor} newProperty
+   * @param {string} replace
+   */
   DescriptorBuilder.prototype.replaceProperty = function(oldProperty, newProperty, replace) {
     var oldNameNs = oldProperty.ns;
 
@@ -638,7 +893,11 @@
     propertiesByName[oldNameNs.name] = propertiesByName[oldNameNs.localName] = newProperty;
   };
 
-
+  /**
+   * @param {PropertyDescriptor} p
+   * @param {string} targetPropertyName
+   * @param {string} replace
+   */
   DescriptorBuilder.prototype.redefineProperty = function(p, targetPropertyName, replace) {
 
     var nsPrefix = p.ns.prefix;
@@ -657,6 +916,10 @@
     delete p.redefines;
   };
 
+  /**
+   * @param {PropertyDescriptor} p
+   * @param {boolean} validate
+   */
   DescriptorBuilder.prototype.addNamedProperty = function(p, validate) {
     var ns = p.ns,
         propsByName = this.propertiesByName;
@@ -669,6 +932,9 @@
     propsByName[ns.name] = propsByName[ns.localName] = p;
   };
 
+  /**
+   * @param {RegisteredPropertyDef} p
+   */
   DescriptorBuilder.prototype.removeNamedProperty = function(p) {
     var ns = p.ns,
         propsByName = this.propertiesByName;
@@ -677,6 +943,10 @@
     delete propsByName[ns.localName];
   };
 
+  /**
+   * @param {PropertyDescriptor} p
+   * @param {boolean} [validate]
+   */
   DescriptorBuilder.prototype.setBodyProperty = function(p, validate) {
 
     if (validate && this.bodyProperty) {
@@ -688,6 +958,10 @@
     this.bodyProperty = p;
   };
 
+  /**
+   * @param {PropertyDescriptor} p
+   * @param {boolean} [validate]
+   */
   DescriptorBuilder.prototype.setIdProperty = function(p, validate) {
 
     if (validate && this.idProperty) {
@@ -699,6 +973,9 @@
     this.idProperty = p;
   };
 
+  /**
+   * @param {RegisteredTypeDef} typeDescriptor
+   */
   DescriptorBuilder.prototype.assertNotTrait = function(typeDescriptor) {
 
     const _extends = typeDescriptor.extends || [];
@@ -710,6 +987,9 @@
     }
   };
 
+  /**
+   * @param {PropertyDescriptor} p
+   */
   DescriptorBuilder.prototype.assertNotDefined = function(p, name) {
     var propertyName = p.name,
         definedProperty = this.propertiesByName[propertyName];
@@ -722,10 +1002,18 @@
     }
   };
 
+  /**
+   * @param {string} name
+   * @return {PropertyDescriptor}
+   */
   DescriptorBuilder.prototype.hasProperty = function(name) {
     return this.propertiesByName[name];
   };
 
+  /**
+   * @param {RegisteredTypeDef} t
+   * @param {boolean} inherited
+   */
   DescriptorBuilder.prototype.addTrait = function(t, inherited) {
 
     if (inherited) {
@@ -775,32 +1063,93 @@
   };
 
   /**
+   * @typedef {import('./ns.js').Namespace} Namespace
+   * @typedef {import('./moddle.js').PackageDefinition} PackageDefinition
+   * @typedef {import('./moddle.js').TypeDefinition} TypeDefinition
+   * @typedef {import('./moddle.js').PropertyDefinition} PropertyDefinition
+   * @typedef {import('./properties.js').default} Properties
+   * @typedef {import('./descriptor-builder.js').EffectiveDescriptor} EffectiveDescriptor
+   */
+
+  /**
+   * Registered package definition
+   * @typedef {Omit<PackageDefinition, 'types'> & {
+   *   types?: Array<RegisteredTypeDef>;
+   * }} RegisteredPackage
+   */
+
+  /**
+   * Registered type definition
+   * @typedef {Omit<TypeDefinition, 'properties'> & {
+   *   properties?: Array<RegisteredPropertyDef>;
+   *   propertiesByName?: Record<string, RegisteredPropertyDef>;
+   *   superClass?: Array<string>;
+   *   extends?: Array<string>;
+   *   meta?: Record<string, *>;
+   *   traits?: Array<string>;
+   *   ns?: Namespace;
+   *   readonly $pkg?: RegisteredPackage;
+   * }} RegisteredTypeDef
+   */
+
+  /**
+   * Registered property definition
+   * @typedef {PropertyDefinition & { ns: Namespace }} RegisteredPropertyDef
+   */
+
+  /**
    * A registry of Moddle packages.
    *
-   * @param {Array<Package>} packages
+   * @param {Array<PackageDefinition> | Record<string,PackageDefinition>} packages
    * @param {Properties} properties
    */
   function Registry(packages, properties) {
-    this.packageMap = {};
-    this.typeMap = {};
 
+    /**
+     * @private
+     * @type {Record<string, RegisteredPackage>} registered packages map
+     */
+    this.packageMap = Object.create(null);
+
+    /**
+     * @type {Record<string,RegisteredTypeDef>}
+     */
+    this.typeMap = Object.create(null);
+
+    /**
+     * @private
+     * @type {Array<RegisteredPackage>} all registered packages
+     */
     this.packages = [];
 
+    /**
+     * @private
+     * @type {Properties}
+     */
     this.properties = properties;
 
     forEach(packages, bind(this.registerPackage, this));
   }
 
-
+  /**
+   * @param {string} uriOrPrefix uri or prefix of package
+   * @return {RegisteredPackage} registered package
+   */
   Registry.prototype.getPackage = function(uriOrPrefix) {
     return this.packageMap[uriOrPrefix];
   };
 
+  /**
+   * @return {Array<RegisteredPackage>} all registered packages
+   */
   Registry.prototype.getPackages = function() {
     return this.packages;
   };
 
-
+  /**
+   * @private
+   * @param {PackageDefinition} pkg registering package
+   */
   Registry.prototype.registerPackage = function(pkg) {
 
     // copy package
@@ -820,22 +1169,23 @@
     this.packages.push(pkg);
   };
 
-
   /**
+   * @private
    * Register a type from a specific package with us
+   * @param {TypeDefinition} type
+   * @param {RegisteredPackage} pkg
    */
   Registry.prototype.registerType = function(type, pkg) {
-
     type = assign({}, type, {
       superClass: (type.superClass || []).slice(),
       extends: (type.extends || []).slice(),
       properties: (type.properties || []).slice(),
-      meta: assign((type.meta || {}))
+      meta: assign({}, type.meta || {})
     });
 
     var ns = parseName(type.name, pkg.prefix),
         name = ns.name,
-        propertiesByName = {};
+        /** @type {Record<string, RegisteredPropertyDef>} */ propertiesByName = Object.create(null);
 
     // parse properties
     forEach(type.properties, bind(function(p) {
@@ -880,18 +1230,24 @@
     this.typeMap[name] = type;
   };
 
+  /**
+   * @callback IteratorFn
+   * @param {RegisteredTypeDef} type
+   * @param {boolean} inherited
+   */
 
   /**
    * Traverse the type hierarchy from bottom to top,
    * calling iterator with (type, inherited) for all elements in
    * the inheritance chain.
-   *
-   * @param {Object} nsName
-   * @param {Function} iterator
+   * @private
+   * @param {Namespace} nsName
+   * @param {IteratorFn} iterator
    * @param {Boolean} [trait=false]
    */
   Registry.prototype.mapTypes = function(nsName, iterator, trait) {
 
+    /** @type {RegisteredTypeDef} */
     var type = isBuiltIn(nsName.name) ? { name: nsName.name } : this.typeMap[nsName.name];
 
     var self = this;
@@ -937,13 +1293,10 @@
     forEach(type.traits, traverseTrait);
   };
 
-
   /**
    * Returns the effective descriptor for a type.
-   *
-   * @param  {String} type the namespaced name (ns:localName) of the type
-   *
-   * @return {Descriptor} the resulting effective descriptor
+   * @param  {Namespace['name']} name the namespaced name (ns:localName) of the type
+   * @return {EffectiveDescriptor} the resulting effective descriptor
    */
   Registry.prototype.getEffectiveDescriptor = function(name) {
 
@@ -963,15 +1316,23 @@
     return descriptor;
   };
 
-
+  /**
+   * @private
+   * @param {RegisteredTypeDef | EffectiveDescriptor} target
+   * @param {RegisteredPackage} pkg
+   */
   Registry.prototype.definePackage = function(target, pkg) {
     this.properties.define(target, '$pkg', { value: pkg });
   };
 
-
-
   // helpers ////////////////////////////
 
+  /**
+   * Checking already defined packages
+   * @param {Record<string, RegisteredPackage>} packageMap
+   * @param {PackageDefinition} pkg
+   * @param {'prefix' | 'uri'} identifierKey
+   */
   function ensureAvailable(packageMap, pkg, identifierKey) {
 
     var value = pkg[identifierKey];
@@ -982,20 +1343,29 @@
   }
 
   /**
+   * @typedef {import('./moddle.js').default} Moddle
+   * @typedef {import('./descriptor-builder.js').PropertyDescriptor} PropertyDesc
+   * @typedef {import('./registry.js').EffectiveDescriptor} EffectiveDescriptor
+   * @typedef {import('./factory.js').ModdleElement} ModdleElement
+   * @typedef {import('./descriptor-builder.js').AnyTypeDescriptor} AnyTypeDescriptor
+   */
+
+  /**
    * A utility that gets and sets properties of model elements.
    *
-   * @param {Model} model
+   * @param {Moddle} model
    */
   function Properties(model) {
+
+    /** @type {Moddle} */
     this.model = model;
   }
-
 
   /**
    * Sets a named property on the target element.
    * If the value is undefined, the property gets deleted.
    *
-   * @param {Object} target
+   * @param {ModdleElement} target
    * @param {String} name
    * @param {Object} value
    */
@@ -1037,7 +1407,7 @@
   /**
    * Returns the named property of the given element
    *
-   * @param  {Object} target
+   * @param  {ModdleElement} target
    * @param  {String} name
    *
    * @return {Object}
@@ -1060,13 +1430,12 @@
     return target[propertyName];
   };
 
-
   /**
    * Define a property on the target element
-   *
-   * @param  {Object} target
+   * @template [T=any]
+   * @param  {NonNullable<T>} target
    * @param  {String} name
-   * @param  {Object} options
+   * @param  {PropertyDescriptor} options
    */
   Properties.prototype.define = function(target, name, options) {
 
@@ -1086,9 +1455,11 @@
     Object.defineProperty(target, name, options);
   };
 
-
   /**
    * Define the descriptor for an element
+   * @template [T=any]
+   * @param {NonNullable<T>} target
+   * @param {EffectiveDescriptor | AnyTypeDescriptor} descriptor
    */
   Properties.prototype.defineDescriptor = function(target, descriptor) {
     this.define(target, '$descriptor', { value: descriptor });
@@ -1096,6 +1467,9 @@
 
   /**
    * Define the model for an element
+   * @template [T=any]
+   * @param {NonNullable<T>} target
+   * @param {Moddle} model
    */
   Properties.prototype.defineModel = function(target, model) {
     this.define(target, '$model', { value: model });
@@ -1104,10 +1478,10 @@
   /**
    * Return property with the given name on the element.
    *
-   * @param {any} target
+   * @param {ModdleElement} target
    * @param {string} name
    *
-   * @return {object | null} property
+   * @return {PropertyDesc | null} property
    */
   Properties.prototype.getProperty = function(target, name) {
 
@@ -1132,7 +1506,6 @@
         throw error;
       } else {
 
-        // eslint-disable-next-line no-undef
         typeof console !== 'undefined' && console.warn(error);
       }
     }
@@ -1157,6 +1530,83 @@
     return name.replace(/^:/, '');
   }
 
+  /**
+   * @typedef {import('./registry.js').RegisteredTypeDef} RegisteredTypeDef
+   * @typedef {import('./registry.js').RegisteredPackage} RegisteredPackage
+   * @typedef {import('./base.js').default} BaseElement
+   * @typedef {import('./descriptor-builder.js').EffectiveDescriptor} EffectiveDescriptor
+   * @typedef {import('./descriptor-builder.js').AnyTypeDescriptor} AnyTypeDescriptor
+   * @typedef {import('./descriptor-builder.js').PropertyDescriptor} PropertyDescriptor
+   */
+
+  /**
+   * @template [T=Record<string,any>]
+   * @typedef {import('./factory.js').ModdleElement<T>} ModdleElement
+   * @typedef {import('./factory.js').ModdleElementType<T>} ModdleElementType
+   * @typedef {import('./factory.js').AnyModdleElement<T>} AnyModdleElement
+   */
+
+  /**
+   * Package definition
+   * @typedef {{
+   *   $schema?: string;
+   *   name: string;
+   *   prefix: string;
+   *   types?: Array<TypeDefinition>;
+   *   [key: string]: any;
+   * } & PackageDefinitionXmlExtension} PackageDefinition
+   */
+
+  /**
+   * Set of extended parameters for package definition used in moddle-xml.
+   * @typedef {{
+   *   uri?: string;
+   *   xml?: {
+   *     tagAlias?: 'lowerCase';
+   *     typePrefix?: string;
+   *   };
+   * }} PackageDefinitionXmlExtension
+   */
+
+  /**
+   * Type definition in declaration in package
+   * @typedef {{
+   *   name: string;
+   *   isAbstract?: boolean;
+   *   properties?: Array<PropertyDefinition>;
+   *   superClass?: Array<string>;
+   *   extends?: Array<string>;
+   *   meta?: Record<string, *>;
+   *   [key: string]: any;
+   * }} TypeDefinition
+   */
+
+  /**
+   * Set of extended parameters for property definition used in moddle-xml.
+   * @typedef {{
+   *   isBody?: boolean;
+   *   isAttr?: boolean;
+   *   xml?: {
+   *     serialize?: string;
+   *   };
+   * }} PropertyDefinitionXmlExtension
+   */
+
+  /**
+   * Property definition of type definition
+   * @typedef {{
+   *   name: string;
+   *   type: 'String' | 'Boolean' | 'Integer' | 'Real' | string;
+   *   default?: string | boolean | number;
+   *   isMany?: boolean;
+   *   isReference?: boolean;
+   *   isId?: boolean;
+   *   redefines?: string;
+   *   replaces?: string;
+   *   [key: string]: any;
+   * } & PropertyDefinitionXmlExtension} PropertyDefinition
+   */
+
   // Moddle implementation /////////////////////////////////////////////////
 
   /**
@@ -1166,7 +1616,7 @@
    *
    * @example
    *
-   * var Moddle = require('moddle');
+   * import Moddle from 'moddle';
    *
    * var pkg = {
    *   name: 'mypackage',
@@ -1178,22 +1628,30 @@
    *
    * var moddle = new Moddle([pkg]);
    *
-   * @param {Array<Package>} packages the packages to contain
-   *
-   * @param { { strict?: boolean } } [config] moddle configuration
+   * @param {Array<PackageDefinition> | Record<string,PackageDefinition>} packages the packages to contain
+   * @param {{ strict?: boolean }} [config={}] moddle configuration
    */
   function Moddle(packages, config = {}) {
 
+    /** @type Readonly<Properties> */
     this.properties = new Properties(this);
 
+    /** @type Readonly<Factory> */
     this.factory = new Factory(this, this.properties);
+
+    /** @type Readonly<Registry> */
     this.registry = new Registry(packages, this.properties);
 
-    this.typeCache = {};
+    /**
+     * @type {Record<string,ModdleElementType>}
+     */
+    this.typeCache = Object.create(null);
 
+    /**
+     * @type {Readonly<{readonly strict?: boolean}>}
+     */
     this.config = config;
   }
-
 
   /**
    * Create an instance of the specified type.
@@ -1205,9 +1663,10 @@
    * var foo = moddle.create('my:Foo');
    * var bar = moddle.create('my:Bar', { id: 'BAR_1' });
    *
-   * @param  {String|Object} descriptor the type descriptor or name know to the model
-   * @param  {Object} attrs   a number of attributes to initialize the model instance with
-   * @return {Object}         model instance
+   * @template [T=Record<string,any>]
+   * @param  {String|EffectiveDescriptor} descriptor the type descriptor or name know to the model
+   * @param  {Partial<T>} [attrs] a number of attributes to initialize the model instance with
+   * @return {ModdleElement<T>} model instance
    */
   Moddle.prototype.create = function(descriptor, attrs) {
     var Type = this.getType(descriptor);
@@ -1219,7 +1678,6 @@
     return new Type(attrs);
   };
 
-
   /**
    * Returns the type representing a given descriptor
    *
@@ -1230,8 +1688,9 @@
    * var Foo = moddle.getType('my:Foo');
    * var foo = new Foo({ 'id' : 'FOO_1' });
    *
-   * @param  {String|Object} descriptor the type descriptor or name know to the model
-   * @return {Object}         the type representing the descriptor
+   * @template [T=Record<string,any>]
+   * @param  {String|EffectiveDescriptor} descriptor the type descriptor or name know to the model
+   * @return {ModdleElementType<T>} the type representing the descriptor
    */
   Moddle.prototype.getType = function(descriptor) {
 
@@ -1248,7 +1707,6 @@
 
     return type;
   };
-
 
   /**
    * Creates an any-element type to be used within model instances.
@@ -1271,16 +1729,17 @@
    *
    * // go ahead and serialize the stuff
    *
-   *
+   * @template [T=Record<string, any>]
    * @param  {String} name  the name of the element
    * @param  {String} nsUri the namespace uri of the element
-   * @param  {Object} [properties] a map of properties to initialize the instance with
-   * @return {Object} the any type instance
+   * @param  {T} [properties] a map of properties to initialize the instance with
+   * @return {AnyModdleElement<T>} the any type instance
    */
   Moddle.prototype.createAny = function(name, nsUri, properties) {
 
     var nameNs = parseName(name);
 
+    /** @type AnyModdleElement */
     var element = {
       $type: name,
       $instanceOf: function(type) {
@@ -1294,6 +1753,7 @@
       }
     };
 
+    /** @type AnyTypeDescriptor */
     var descriptor = {
       name: name,
       isGeneric: true,
@@ -1324,8 +1784,8 @@
 
   /**
    * Returns a registered package by uri or prefix
-   *
-   * @return {Object} the package
+   * @param {string} uriOrPrefix
+   * @return {RegisteredPackage} the package
    */
   Moddle.prototype.getPackage = function(uriOrPrefix) {
     return this.registry.getPackage(uriOrPrefix);
@@ -1334,7 +1794,7 @@
   /**
    * Returns a snapshot of all known packages
    *
-   * @return {Object} the package
+   * @return {Readonly<Array<RegisteredPackage>>} the package
    */
   Moddle.prototype.getPackages = function() {
     return this.registry.getPackages();
@@ -1342,16 +1802,25 @@
 
   /**
    * Returns the descriptor for an element
+   * @param {ModdleElement | ModdleElementType} element
+   * @return {EffectiveDescriptor}
    */
   Moddle.prototype.getElementDescriptor = function(element) {
     return element.$descriptor;
   };
 
   /**
+   * @overload
    * Returns true if the given descriptor or instance
    * represents the given type.
-   *
-   * May be applied to this, if element is omitted.
+   * @param {ModdleElement | ModdleElementType} element
+   * @param {string} type
+   * @return {boolean}
+   */
+  /**
+   * @overload
+   * @param {string} type
+   * @return {boolean}
    */
   Moddle.prototype.hasType = function(element, type) {
     if (type === undefined) {
@@ -1366,13 +1835,18 @@
 
   /**
    * Returns the descriptor of an elements named property
+   * @param {ModdleElement | ModdleElementType} element
+   * @param {string} property
+   * @return {PropertyDescriptor}
    */
   Moddle.prototype.getPropertyDescriptor = function(element, property) {
     return this.getElementDescriptor(element).propertiesByName[property];
   };
 
   /**
-   * Returns a mapped type's descriptor
+   * Return registered type definition
+   * @param {string} type
+   * @return {RegisteredTypeDef}
    */
   Moddle.prototype.getTypeDescriptor = function(type) {
     return this.registry.typeMap[type];
@@ -1455,12 +1929,41 @@
     };
   }
 
-  function cloneNsMatrix(nsMatrix) {
-    var clone = {}, key;
-    for (key in nsMatrix) {
-      clone[key] = nsMatrix[key];
+  /**
+   * Set a namespace matrix entry, recording the previous
+   * value on the given change log for later restoration.
+   *
+   * @param {Object} nsMatrix
+   * @param {Object<string, ?string>} changes
+   * @param {string} key
+   * @param {string} value
+   */
+  function setNsEntry(nsMatrix, changes, key, value) {
+    if (!(key in changes)) {
+      changes[key] = key in nsMatrix ? nsMatrix[key] : null;
     }
-    return clone;
+
+    nsMatrix[key] = value;
+  }
+
+  /**
+   * Restore a namespace matrix, applying the given change log.
+   *
+   * @param {Object} nsMatrix
+   * @param {Object<string, ?string>} changes
+   */
+  function restoreNsMatrix(nsMatrix, changes) {
+    var key, value;
+
+    for (key in changes) {
+      value = changes[key];
+
+      if (value === null) {
+        delete nsMatrix[key];
+      } else {
+        nsMatrix[key] = value;
+      }
+    }
   }
 
   function uriPrefix(prefix) {
@@ -1468,7 +1971,7 @@
   }
 
   function buildNsMatrix(nsUriToPrefix) {
-    var nsMatrix = {},
+    var nsMatrix = Object.create(null),
         uri,
         prefix;
 
@@ -1517,6 +2020,33 @@
     var getContext = noopGetContext;
 
     /**
+     * Are we currently consuming a chunked stream of XML,
+     * i.e. is a `write` call in progress that may be followed
+     * by more chunks?
+     *
+     * @type {boolean}
+     */
+    var streaming = false;
+
+    /**
+     * Did we already encounter the root tag?
+     *
+     * Persisted across `write` calls so we can detect a missing
+     * start tag once the stream ends.
+     *
+     * @type {boolean}
+     */
+    var rootTagFound = false;
+
+    /**
+     * Not yet parsed remainder of the previously written chunk,
+     * i.e. an incomplete token that awaits more input.
+     *
+     * @type {string}
+     */
+    var leftoverXml = '';
+
+    /**
      * Do we need to parse the current elements attributes for namespaces?
      *
      * @type {boolean}
@@ -1543,6 +2073,13 @@
      * @type {boolean}
      */
     var parseStop = false;
+
+    /**
+     * Namespace + node state shared across (streamed) parse runs.
+     */
+    var nsChangesStack,
+        nsMatrix,
+        nodeStack;
 
     /**
      * A map of { uri: prefix } used by the parser.
@@ -1642,7 +2179,7 @@
         throw error$1('required args <nsMap={}>');
       }
 
-      var _nsUriToPrefix = {}, k;
+      var _nsUriToPrefix = Object.create(null), k;
 
       for (k in nsMap) {
         _nsUriToPrefix[k] = nsMap[k];
@@ -1655,7 +2192,22 @@
     };
 
     /**
-     * Parse xml string.
+     * Reset the parser state before a (streamed) parse run.
+     */
+    function resetState() {
+      nsChangesStack = isNamespace ? [] : null;
+      nsMatrix = isNamespace ? buildNsMatrix(nsUriToPrefix) : null;
+      nodeStack = [];
+
+      getContext = noopGetContext;
+      parseStop = false;
+      returnError = null;
+      rootTagFound = false;
+      leftoverXml = '';
+    }
+
+    /**
+     * Parse a complete xml string.
      *
      * @param  {string} xml
      *
@@ -1666,10 +2218,68 @@
         throw error$1('required args <xml=string>');
       }
 
-      returnError = null;
+      if (streaming) {
+        throw error$1('parse during stream; call end() first');
+      }
+
+      resetState();
 
       parse(xml);
 
+      getContext = noopGetContext;
+      parseStop = false;
+
+      return returnError;
+    };
+
+    /**
+     * Write the next chunk of a streamed xml string.
+     *
+     * Parse events are emitted for all complete tokens; an
+     * incomplete trailing token is buffered until the next
+     * `write` or, ultimately, reported as an error on `end`.
+     *
+     * @param  {string} xml
+     *
+     * @return {Parser} self
+     */
+    this['write'] = function(xml) {
+      if (typeof xml !== 'string') {
+        throw error$1('required args <xml=string>');
+      }
+
+      if (!streaming) {
+        resetState();
+        streaming = true;
+      }
+
+      if (!returnError) {
+        leftoverXml = parse(leftoverXml + xml, true) || '';
+      }
+
+      return this;
+    };
+
+    /**
+     * Finish parsing a streamed xml string, i.e. signal that
+     * no more chunks will be written.
+     *
+     * @return {Error} returnError, if not thrown
+     */
+    this['end'] = function() {
+      if (!streaming) {
+        resetState();
+      }
+
+      // flush the buffered remainder, now treating an incomplete
+      // trailing token as a hard error
+      streaming = false;
+
+      if (!returnError) {
+        parse(leftoverXml);
+      }
+
+      leftoverXml = '';
       getContext = noopGetContext;
       parseStop = false;
 
@@ -1686,13 +2296,26 @@
     /**
      * Parse string, invoking configured listeners on element.
      *
-     * @param  {string} xml
+     * Namespace and node stack state is shared across (streamed)
+     * invocations via the enclosing parser scope.
+     *
+     * Internal note: while `streaming`, an incomplete trailing token
+     * is not treated as an error but returned so `write` can buffer it
+     * and prepend it to the next chunk. This buffered remainder is an
+     * implementation detail of the streaming buffer, not a public API;
+     * outside of that case the return value is `undefined`.
+     *
+     * @param {string} xml
+     * @param {boolean} streaming
+     *
+     * @return {string|undefined} buffered remainder, streaming internal use only
      */
-    function parse(xml) {
-      var nsMatrixStack = isNamespace ? [] : null,
-          nsMatrix = isNamespace ? buildNsMatrix(nsUriToPrefix) : null,
-          _nsMatrix,
-          nodeStack = [],
+    function parse(xml, streaming = false) {
+
+      var elNameCache = null;
+
+      var nsChanges,
+          nsSnapshot,
           anonymousNsCount = 0,
           tagStart = false,
           tagEnd = false,
@@ -1710,6 +2333,36 @@
           ;
 
       /**
+       * Normalize a namespaced attribute name against the current
+       * namespace matrix.
+       *
+       * @param {string} name
+       * @param {string|boolean} defaultAlias
+       *
+       * @return {string|null} normalized name, or `null` when the prefix
+       *                       has no namespace (a warning is emitted)
+       */
+      function normalizeAttrName(name, defaultAlias) {
+        var w = name.indexOf(':');
+
+        if (w === -1) {
+          return name;
+        }
+
+        // normalize ns attribute name
+        var nsName = nsMatrix[name.substring(0, w)];
+
+        if (!nsName) {
+          handleWarning(missingNamespaceForPrefix(name.substring(0, w)));
+          return null;
+        }
+
+        return defaultAlias === nsName
+          ? name.substr(w + 1)
+          : nsName + name.substr(w);
+      }
+
+      /**
        * Parse attributes on demand and returns the parsed attributes.
        *
        * Return semantics: (1) `false` on attribute parse error,
@@ -1724,19 +2377,17 @@
 
         var nsUri,
             nsUriPrefix,
-            nsName,
             defaultAlias = isNamespace && nsMatrix['xmlns'],
             attrList = isNamespace && maybeNS ? [] : null,
             i = attrsStart,
             s = attrsString,
             l = s.length,
-            hasNewMatrix,
             newalias,
             value,
             alias,
             name,
             attrs = {},
-            seenAttrs = {},
+            seenAttrs = new Set(),
             skipAttr,
             w,
             j;
@@ -1792,6 +2443,7 @@
 
           name = s.substring(i, j);
 
+          // by definition bound to `xmlns`, must not be declared - https://www.w3.org/TR/xml-names/#ns-decl
           if (name === 'xmlns:xmlns') {
             handleWarning('illegal declaration of xmlns');
             skipAttr = true;
@@ -1849,6 +2501,11 @@
             value = s.substring(i, j);
           }
 
+          // namespace fixed, must not be re-declared - https://www.w3.org/TR/xml-names/#ns-decl
+          if (name === 'xmlns:xml' && value !== 'http://www.w3.org/XML/1998/namespace') {
+            handleError('illegal value of xmlns:xml');
+          }
+
           i = j;
 
           // ensure SPACE follows attribute
@@ -1876,12 +2533,12 @@
           }
 
           // check attribute re-declaration
-          if (name in seenAttrs) {
+          if (seenAttrs.has(name)) {
             handleWarning('attribute <' + name + '> already defined');
             continue;
           }
 
-          seenAttrs[name] = true;
+          seenAttrs.add(name);
 
           if (!isNamespace) {
             attrs[name] = value;
@@ -1925,18 +2582,25 @@
               }
 
               if (nsMatrix[newalias] !== alias) {
-                if (!hasNewMatrix) {
-                  nsMatrix = cloneNsMatrix(nsMatrix);
-                  hasNewMatrix = true;
+
+                // mutate matrix in place, tracking changes
+                // for restoration once the element closes;
+                // null prototype guards against special keys
+                if (!nsChanges) {
+                  nsChanges = Object.create(null);
                 }
 
-                nsMatrix[newalias] = alias;
+                // invalidate cached element names + ns snapshot
+                elNameCache = null;
+                nsSnapshot = null;
+
+                setNsEntry(nsMatrix, nsChanges, newalias, alias);
                 if (newalias === 'xmlns') {
-                  nsMatrix[uriPrefix(alias)] = nsUri;
+                  setNsEntry(nsMatrix, nsChanges, uriPrefix(alias), nsUri);
                   defaultAlias = alias;
                 }
 
-                nsMatrix[nsUriPrefix] = nsUri;
+                setNsEntry(nsMatrix, nsChanges, nsUriPrefix, nsUri);
               }
 
               // expose xmlns(:asd)="..." in attributes
@@ -1953,23 +2617,11 @@
 
           // handle attributes on element without
           // namespace declarations
-          w = name.indexOf(':');
-          if (w === -1) {
-            attrs[name] = value;
+          name = normalizeAttrName(name, defaultAlias);
+
+          if (name === null) {
             continue;
           }
-
-          // normalize ns attribute name
-          if (!(nsName = nsMatrix[name.substring(0, w)])) {
-            handleWarning(missingNamespaceForPrefix(name.substring(0, w)));
-            continue;
-          }
-
-          name = defaultAlias === nsName
-            ? name.substr(w + 1)
-            : nsName + name.substr(w);
-
-          // end: normalize ns attribute name
 
           attrs[name] = value;
         }
@@ -1981,24 +2633,11 @@
           // normalize captured attributes
           for (i = 0, l = attrList.length; i < l; i++) {
 
-            name = attrList[i++];
+            name = normalizeAttrName(attrList[i++], defaultAlias);
             value = attrList[i];
 
-            w = name.indexOf(':');
-
-            if (w !== -1) {
-
-              // normalize ns attribute name
-              if (!(nsName = nsMatrix[name.substring(0, w)])) {
-                handleWarning(missingNamespaceForPrefix(name.substring(0, w)));
-                continue;
-              }
-
-              name = defaultAlias === nsName
-                ? name.substr(w + 1)
-                : nsName + name.substr(w);
-
-              // end: normalize ns attribute name
+            if (name === null) {
+              continue;
             }
 
             attrs[name] = value;
@@ -2053,16 +2692,16 @@
           data = xml.substring(j);
         } else
 
-        // start errors
-        if (j === 0) {
-          data = xml.substring(j, i);
-        }
+          // start errors
+          if (j === 0) {
+            data = xml.substring(j, i);
+          }
 
-        // other errors
-        else {
-          column = i - startOfLine;
-          data = (j == -1 ? xml.substring(i) : xml.substring(i, j + 1));
-        }
+          // other errors
+          else {
+            column = i - startOfLine;
+            data = (j == -1 ? xml.substring(i) : xml.substring(i, j + 1));
+          }
 
         return {
           'data': data,
@@ -2084,7 +2723,14 @@
           }),
           'attrs': getter(getAttrs),
           'ns': getter(function() {
-            return nsMatrix;
+
+            // expose a stable snapshot of the current namespace
+            // matrix, cached until the matrix changes
+            if (!nsSnapshot) {
+              nsSnapshot = Object.assign(Object.create(null), nsMatrix);
+            }
+
+            return nsSnapshot;
           })
         });
       }
@@ -2098,13 +2744,19 @@
           i = xml.indexOf('<', j);
         }
 
-        // parse end
+        // no (more) tags found
         if (i === -1) {
+
+          // buffer the remainder for the next chunk
+          if (streaming) {
+            return xml.substring(j);
+          }
+
           if (nodeStack.length) {
             return handleError('unexpected end of file');
           }
 
-          if (j === 0) {
+          if (!rootTagFound) {
             return handleError('missing start tag');
           }
 
@@ -2115,6 +2767,11 @@
           }
 
           return;
+        }
+
+        // remember that we saw the root tag
+        if (!rootTagFound) {
+          rootTagFound = true;
         }
 
         // parse text
@@ -2149,6 +2806,9 @@
           if (q === 91 && xml.substr(i + 3, 6) === 'CDATA[') { // 91 == "["
             j = xml.indexOf(']]>', i);
             if (j === -1) {
+              if (streaming) {
+                return xml.substring(i);
+              }
               return handleError('unclosed cdata');
             }
 
@@ -2167,6 +2827,9 @@
           if (q === 45 && xml.charCodeAt(i + 3) === 45) { // 45 == "-"
             j = xml.indexOf('-->', i);
             if (j === -1) {
+              if (streaming) {
+                return xml.substring(i);
+              }
               return handleError('unclosed comment');
             }
 
@@ -2187,6 +2850,9 @@
         if (w === 63) { // "?"
           j = xml.indexOf('?>', i);
           if (j === -1) {
+            if (streaming) {
+              return xml.substring(i);
+            }
             return handleError('unclosed question');
           }
 
@@ -2207,6 +2873,9 @@
         for (x = i + 1; ; x++) {
           v = xml.charCodeAt(x);
           if (isNaN(v)) {
+            if (streaming) {
+              return xml.substring(i);
+            }
             j = -1;
             return handleError('unclosed tag');
           }
@@ -2318,15 +2987,11 @@
 
         if (isNamespace) {
 
-          _nsMatrix = nsMatrix;
-
           if (tagStart) {
 
-            // remember old namespace
-            // unless we're self-closing
-            if (!tagEnd) {
-              nsMatrixStack.push(_nsMatrix);
-            }
+            // track namespace changes on this element
+            // for later restoration
+            nsChanges = null;
 
             if (cachedAttrs === null) {
 
@@ -2342,34 +3007,56 @@
                 maybeNS = false;
               }
             }
+
+            // remember changes made by this element
+            // unless we're self-closing
+            if (!tagEnd) {
+              nsChangesStack.push(nsChanges);
+            }
           }
 
           _elementName = elementName;
 
-          w = elementName.indexOf(':');
-          if (w !== -1) {
-            xmlns = nsMatrix[elementName.substring(0, w)];
-
-            // prefix given; namespace must exist
-            if (!xmlns) {
-              return handleError('missing namespace on <' + _elementName + '>');
-            }
-
-            elementName = elementName.substr(w + 1);
-          } else {
-            xmlns = nsMatrix['xmlns'];
-
-            // if no default namespace is defined,
-            // we'll import the element as anonymous.
-            //
-            // it is up to users to correct that to the document defined
-            // targetNamespace, or whatever their undersanding of the
-            // XML spec mandates.
+          // memoize normalized names per namespace state; tag names
+          // typically repeat heavily and the matrix rarely changes.
+          // the cache is rebuilt whenever the matrix changed.
+          if (elNameCache === null) {
+            elNameCache = Object.create(null);
           }
 
-          // adjust namespace prefixs as configured
-          if (xmlns) {
-            elementName = xmlns + ':' + elementName;
+          var _cachedName = elNameCache[elementName];
+
+          if (_cachedName !== undefined) {
+            elementName = _cachedName;
+          } else {
+
+            w = elementName.indexOf(':');
+            if (w !== -1) {
+              xmlns = nsMatrix[elementName.substring(0, w)];
+
+              // prefix given; namespace must exist
+              if (!xmlns) {
+                return handleError('missing namespace on <' + _elementName + '>');
+              }
+
+              elementName = elementName.substr(w + 1);
+            } else {
+              xmlns = nsMatrix['xmlns'];
+
+              // if no default namespace is defined,
+              // we'll import the element as anonymous.
+              //
+              // it is up to users to correct that to the document defined
+              // targetNamespace, or whatever their undersanding of the
+              // XML spec mandates.
+            }
+
+            // adjust namespace prefixs as configured
+            if (xmlns) {
+              elementName = xmlns + ':' + elementName;
+            }
+
+            elNameCache[_elementName] = elementName;
           }
 
         }
@@ -2405,9 +3092,16 @@
           // restore old namespace
           if (isNamespace) {
             if (!tagStart) {
-              nsMatrix = nsMatrixStack.pop();
-            } else {
-              nsMatrix = _nsMatrix;
+              nsChanges = nsChangesStack.pop();
+            }
+
+            if (nsChanges) {
+              restoreNsMatrix(nsMatrix, nsChanges);
+              nsChanges = null;
+
+              // invalidate cached element names + ns snapshot
+              elNameCache = null;
+              nsSnapshot = null;
             }
           }
         }
@@ -3393,10 +4087,48 @@
     return this.defaultPrefixMap[prefix];
   };
 
+  /**
+   * Return the first truthy `fn(scope)` walking this scope and its ancestors.
+   *
+   * @param {(scope: Namespaces) => any} fn
+   *
+   * @return {any}
+   */
+  Namespaces.prototype.resolve = function(fn) {
+
+    var scope = this;
+
+    while (scope) {
+      var resolved = fn(scope);
+
+      if (resolved) {
+        return resolved;
+      }
+
+      scope = scope.parent;
+    }
+  };
+
+  /**
+   * Call `fn(scope)` for this scope and each of its ancestors.
+   *
+   * @param {(scope: Namespaces) => void} fn
+   */
+  Namespaces.prototype.eachScope = function(fn) {
+
+    var scope = this;
+
+    while (scope) {
+      fn(scope);
+
+      scope = scope.parent;
+    }
+  };
+
   Namespaces.prototype.byUri = function(uri) {
-    return this.uriMap[uri] || (
-      this.parent && this.parent.byUri(uri)
-    );
+    return this.resolve(function(scope) {
+      return scope.uriMap[uri];
+    });
   };
 
   Namespaces.prototype.add = function(ns, isWellknown) {
@@ -3413,9 +4145,11 @@
   };
 
   Namespaces.prototype.uriByPrefix = function(prefix) {
-    return this.prefixMap[prefix || 'xmlns'] || (
-      this.parent && this.parent.uriByPrefix(prefix)
-    );
+    var key = prefix || 'xmlns';
+
+    return this.resolve(function(scope) {
+      return scope.prefixMap[key];
+    });
   };
 
   Namespaces.prototype.mapPrefix = function(prefix, uri) {
@@ -3431,12 +4165,12 @@
     var uri = ns.uri;
     var nsKey = this.getNSKey(ns);
 
-    this.used[nsKey] = this.byUri(uri);
+    // all scopes resolve to the same entry, so resolve once
+    var resolved = this.byUri(uri);
 
-    // Inform parent recursively about the usage of this NS
-    if (this.parent) {
-      this.parent.logUsed(ns);
-    }
+    this.eachScope(function(scope) {
+      scope.used[nsKey] = resolved;
+    });
   };
 
   Namespaces.prototype.getUsed = function(ns) {
@@ -3653,20 +4387,32 @@
   }
 
   ElementSerializer.prototype.build = function(element) {
+    buildTree(this, element);
+
+    return this;
+  };
+
+  /**
+   * Enter the element during the build walk: register its namespaces, tag
+   * name and attributes, then return the deferred, ordered work to build its
+   * child nodes (empty when it has none).
+   *
+   * @param {Object} element
+   *
+   * @return {Array<Object>} ordered, deferred work items to build the children
+   */
+  ElementSerializer.prototype.enter = function(element) {
     this.element = element;
 
     var elementDescriptor = element.$descriptor,
         propertyDescriptor = this.propertyDescriptor;
 
-    var otherAttrs,
-        properties;
-
     var isGeneric = elementDescriptor.isGeneric;
 
     if (isGeneric) {
-      otherAttrs = this.parseGenericNsAttributes(element);
+      this.otherAttrs = this.parseGenericNsAttributes(element);
     } else {
-      otherAttrs = this.parseNsAttributes(element);
+      this.otherAttrs = this.parseNsAttributes(element);
     }
 
     if (propertyDescriptor) {
@@ -3675,21 +4421,26 @@
       this.ns = this.nsTagName(elementDescriptor);
     }
 
-    // compute tag name
     this.tagName = this.addTagName(this.ns);
 
     if (isGeneric) {
-      this.parseGenericContainments(element);
-    } else {
-      properties = getSerializableProperties(element);
-
-      this.parseAttributes(filterAttributes(properties));
-      this.parseContainments(filterContained(properties));
+      return this.collectGenericContainments(element);
     }
 
-    this.parseGenericAttributes(element, otherAttrs);
+    var properties = getSerializableProperties(element);
 
-    return this;
+    this.parseAttributes(filterAttributes(properties));
+
+    return this.collectContainments(filterContained(properties));
+  };
+
+  /**
+   * Exit the element during the build walk: register its generic attributes,
+   * which must happen after the children so namespace usage is logged in
+   * document order.
+   */
+  ElementSerializer.prototype.exit = function() {
+    this.parseGenericAttributes(this.element, this.otherAttrs);
   };
 
   ElementSerializer.prototype.nsTagName = function(descriptor) {
@@ -3752,20 +4503,34 @@
     );
   };
 
-  ElementSerializer.prototype.parseGenericContainments = function(element) {
-    var body = element.$body;
+  ElementSerializer.prototype.collectGenericContainments = function(element) {
+    var self = this,
+        children = [];
 
-    if (body) {
-      this.body.push(new BodySerializer().build({ type: 'String' }, body));
-    }
+    var bodyText = element.$body;
 
-    var children = element.$children;
-
-    if (children) {
-      forEach(children, child => {
-        this.body.push(new ElementSerializer(this).build(child));
+    if (bodyText) {
+      children.push({
+        create: function() {
+          return new BodySerializer().build({ type: 'String' }, bodyText);
+        }
       });
     }
+
+    var genericChildren = element.$children;
+
+    if (genericChildren) {
+      forEach(genericChildren, function(child) {
+        children.push({
+          create: function() {
+            return new ElementSerializer(self);
+          },
+          element: child
+        });
+      });
+    }
+
+    return children;
   };
 
   ElementSerializer.prototype.parseNsAttribute = function(element, name, value) {
@@ -3844,7 +4609,6 @@
         self.addAttribute(self.nsAttributeName(attr.name), attr.value);
       } catch (e) {
 
-        // eslint-disable-next-line no-undef
         typeof console !== 'undefined' && console.warn(
           `missing namespace information for <${
           attr.name
@@ -3854,11 +4618,11 @@
     });
   };
 
-  ElementSerializer.prototype.parseContainments = function(properties) {
+  ElementSerializer.prototype.collectContainments = function(properties) {
 
     var self = this,
-        body = this.body,
-        element = this.element;
+        element = this.element,
+        children = [];
 
     forEach(properties, function(p) {
       var value = element.get(p.name),
@@ -3870,14 +4634,26 @@
       }
 
       if (p.isBody) {
-        body.push(new BodySerializer().build(p, value[0]));
+        children.push({
+          create: function() {
+            return new BodySerializer().build(p, value[0]);
+          }
+        });
       } else if (isSimple(p.type)) {
         forEach(value, function(v) {
-          body.push(new ValueSerializer(self.addTagName(self.nsPropertyTagName(p))).build(p, v));
+          children.push({
+            create: function() {
+              return new ValueSerializer(self.addTagName(self.nsPropertyTagName(p))).build(p, v);
+            }
+          });
         });
       } else if (isReference) {
         forEach(value, function(v) {
-          body.push(new ReferenceSerializer(self.addTagName(self.nsPropertyTagName(p))).build(v));
+          children.push({
+            create: function() {
+              return new ReferenceSerializer(self.addTagName(self.nsPropertyTagName(p))).build(v);
+            }
+          });
         });
       } else {
 
@@ -3886,32 +4662,33 @@
         var serialization = getSerialization(p);
 
         forEach(value, function(v) {
-          var serializer;
+          children.push({
+            create: function() {
+              if (serialization) {
+                if (serialization === SERIALIZE_PROPERTY) {
+                  return new ElementSerializer(self, p);
+                }
 
-          if (serialization) {
-            if (serialization === SERIALIZE_PROPERTY) {
-              serializer = new ElementSerializer(self, p);
-            } else {
-              serializer = new TypeSerializer(self, p, serialization);
-            }
-          } else {
-            serializer = new ElementSerializer(self);
-          }
+                return new TypeSerializer(self, p, serialization);
+              }
 
-          body.push(serializer.build(v));
+              return new ElementSerializer(self);
+            },
+            element: v
+          });
         });
       }
     });
+
+    return children;
   };
 
   ElementSerializer.prototype.getNamespaces = function(local) {
 
-    var namespaces = this.namespaces,
-        parent = this.parent,
-        parentNamespaces;
+    var namespaces = this.namespaces;
 
     if (!namespaces) {
-      parentNamespaces = parent && parent.getNamespaces();
+      var parentNamespaces = this.getParentNamespaces();
 
       if (local || !parentNamespaces) {
         this.namespaces = namespaces = new Namespaces(parentNamespaces);
@@ -3921,6 +4698,38 @@
     }
 
     return namespaces;
+  };
+
+  /**
+   * Resolve, and memoize, the namespaces scope owned by the closest
+   * ancestor serializer.
+   *
+   * @return {Namespaces|null}
+   */
+  ElementSerializer.prototype.getParentNamespaces = function() {
+
+    if (this.parentNamespaces !== undefined) {
+      return this.parentNamespaces;
+    }
+
+    var scope = null,
+        ancestor = this.parent;
+
+    while (ancestor) {
+      if (ancestor.namespaces) {
+        scope = ancestor.namespaces;
+        break;
+      }
+
+      if (ancestor.parentNamespaces !== undefined) {
+        scope = ancestor.parentNamespaces;
+        break;
+      }
+
+      ancestor = ancestor.parent;
+    }
+
+    return (this.parentNamespaces = scope);
   };
 
   ElementSerializer.prototype.logNamespace = function(ns, wellknown, local) {
@@ -4071,40 +4880,77 @@
   };
 
   ElementSerializer.prototype.serializeTo = function(writer) {
-    var firstBody = this.body[0],
-        indent = firstBody && firstBody.constructor !== BodySerializer;
+    serializeTree(this, writer);
+  };
 
-    writer
-      .appendIndent()
-      .append('<' + this.tagName);
+  /**
+   * Serialize the serializer tree rooted at the given element serializer to
+   * the writer, using an explicit stack to stay flat for nested documents.
+   *
+   * @param {ElementSerializer} root
+   * @param {Object} writer
+   */
+  function serializeTree(root, writer) {
 
-    this.serializeAttributes(writer);
+    var stack = [ { serializer: root, index: 0, opened: false, indent: false } ];
 
-    writer.append(firstBody ? '>' : ' />');
+    while (stack.length) {
+      var frame = stack[stack.length - 1],
+          serializer = frame.serializer;
 
-    if (firstBody) {
+      if (!frame.opened) {
+        var firstBody = serializer.body[0];
 
-      if (indent) {
+        frame.indent = firstBody && firstBody.constructor !== BodySerializer;
+
         writer
-          .appendNewLine()
-          .indent();
+          .appendIndent()
+          .append('<' + serializer.tagName);
+
+        serializer.serializeAttributes(writer);
+
+        writer.append(firstBody ? '>' : ' />');
+
+        frame.opened = true;
+
+        if (!firstBody) {
+          writer.appendNewLine();
+          stack.pop();
+          continue;
+        }
+
+        if (frame.indent) {
+          writer
+            .appendNewLine()
+            .indent();
+        }
       }
 
-      forEach(this.body, function(b) {
-        b.serializeTo(writer);
-      });
+      if (frame.index < serializer.body.length) {
+        var child = serializer.body[frame.index++];
 
-      if (indent) {
+        if (child instanceof ElementSerializer) {
+          stack.push({ serializer: child, index: 0, opened: false, indent: false });
+        } else {
+          child.serializeTo(writer);
+        }
+
+        continue;
+      }
+
+      if (frame.indent) {
         writer
           .unindent()
           .appendIndent();
       }
 
-      writer.append('</' + this.tagName + '>');
-    }
+      writer
+        .append('</' + serializer.tagName + '>')
+        .appendNewLine();
 
-    writer.appendNewLine();
-  };
+      stack.pop();
+    }
+  }
 
   /**
    * A serializer for types that handles serialization of data types
@@ -4235,6 +5081,51 @@
 
 
   // helpers ///////////
+
+  /**
+   * Build the serializer tree for the given root element, iterating an
+   * explicit stack rather than recursing so deeply nested documents stay
+   * flat.
+   *
+   * Elements are visited pre-order so namespaces register in document order:
+   * `enter` opens an element and returns its children, `exit` runs once its
+   * subtree is built.
+   *
+   * @param {ElementSerializer} rootSerializer
+   * @param {Object} rootElement
+   */
+  function buildTree(rootSerializer, rootElement) {
+
+    var stack = [ {
+      serializer: rootSerializer,
+      children: rootSerializer.enter(rootElement),
+      index: 0
+    } ];
+
+    while (stack.length) {
+      var frame = stack[stack.length - 1];
+
+      if (frame.index >= frame.children.length) {
+        frame.serializer.exit();
+        stack.pop();
+        continue;
+      }
+
+      var child = frame.children[frame.index++];
+
+      var childSerializer = child.create();
+
+      frame.serializer.body.push(childSerializer);
+
+      if (child.element) {
+        stack.push({
+          serializer: childSerializer,
+          children: childSerializer.enter(child.element),
+          index: 0
+        });
+      }
+    }
+  }
 
   /**
    * @param {Moddle} model
@@ -5206,7 +6097,6 @@
   			{
   				name: "operationRef",
   				type: "Operation",
-  				isAttr: true,
   				isReference: true
   			}
   		]
@@ -8036,6 +8926,359 @@
     return false;
   }
 
+  const DEFAULT_TASK_HEIGHT = 80;
+  const DEFAULT_TASK_WIDTH = 100;
+
+  function getDefaultSize(element) {
+    if (is(element, 'bpmn:SubProcess')) {
+      return { width: DEFAULT_TASK_WIDTH, height: DEFAULT_TASK_HEIGHT };
+    }
+
+    if (is(element, 'bpmn:Task')) {
+      return { width: DEFAULT_TASK_WIDTH, height: DEFAULT_TASK_HEIGHT };
+    }
+
+    if (is(element, 'bpmn:Gateway')) {
+      return { width: 50, height: 50 };
+    }
+
+    if (is(element, 'bpmn:Event')) {
+      return { width: 36, height: 36 };
+    }
+
+    if (is(element, 'bpmn:Participant')) {
+      return { width: 400, height: 100 };
+    }
+
+    if (is(element, 'bpmn:Lane')) {
+      return { width: 400, height: 100 };
+    }
+
+    if (is(element, 'bpmn:DataObjectReference')) {
+      return { width: 36, height: 50 };
+    }
+
+    if (is(element, 'bpmn:DataStoreReference')) {
+      return { width: 50, height: 50 };
+    }
+
+    if (is(element, 'bpmn:TextAnnotation')) {
+      return { width: DEFAULT_TASK_WIDTH, height: 30 };
+    }
+
+    return { width: DEFAULT_TASK_WIDTH, height: DEFAULT_TASK_HEIGHT };
+  }
+
+  function is(element, type) {
+    return element.$instanceOf(type);
+  }
+
+  const DEFAULT_CELL_WIDTH = 150;
+  const DEFAULT_CELL_HEIGHT = 140;
+
+  function getMid(bounds) {
+    return {
+      x: bounds.x + bounds.width / 2,
+      y: bounds.y + bounds.height / 2
+    };
+  }
+
+  function getDockingPoint(point, rectangle, dockingDirection = 'r', targetOrientation = 'top-left') {
+
+    // ensure we end up with a specific docking direction
+    // based on the targetOrientation, if <h|v> is being passed
+    if (dockingDirection === 'h') {
+      dockingDirection = /left/.test(targetOrientation) ? 'l' : 'r';
+    }
+
+    if (dockingDirection === 'v') {
+      dockingDirection = /top/.test(targetOrientation) ? 't' : 'b';
+    }
+
+    if (dockingDirection === 't') {
+      return { original: point, x: point.x, y: rectangle.y };
+    }
+
+    if (dockingDirection === 'r') {
+      return { original: point, x: rectangle.x + rectangle.width, y: point.y };
+    }
+
+    if (dockingDirection === 'b') {
+      return { original: point, x: point.x, y: rectangle.y + rectangle.height };
+    }
+
+    if (dockingDirection === 'l') {
+      return { original: point, x: rectangle.x, y: point.y };
+    }
+
+    throw new Error('unexpected dockingDirection: <' + dockingDirection + '>');
+  }
+
+  /**
+   * Modified Manhattan layout: Uses space between grid columns to route connections
+   * if direct connection is not possible.
+   * @param {*} source
+   * @param {*} target
+   * @param layoutGrid
+   * @returns waypoints
+   */
+  function connectElements(source, target, layoutGrid) {
+    const sourceDi = source.di;
+    const targetDi = target.di;
+
+    const sourceBounds = sourceDi.get('bounds');
+    const targetBounds = targetDi.get('bounds');
+
+    const sourceMid = getMid(sourceBounds);
+    const targetMid = getMid(targetBounds);
+
+    const dX = target.gridPosition.col - source.gridPosition.col;
+    const dY = target.gridPosition.row - source.gridPosition.row;
+
+    const dockingSource = `${(dY > 0 ? 'bottom' : 'top')}-${dX > 0 ? 'right' : 'left'}`;
+    const dockingTarget = `${(dY > 0 ? 'top' : 'bottom')}-${dX > 0 ? 'left' : 'right'}`;
+
+    const baseSourceGrid = source.grid || source.attachedToRef?.grid;
+    const baseTargetGrid = target.grid;
+
+    // Source === Target ==> Build loop
+    if (dX === 0 && dY === 0) {
+      const { x, y } = coordinatesToPosition(source.gridPosition.row, source.gridPosition.col);
+      return [
+        getDockingPoint(sourceMid, sourceBounds, 'r', dockingSource),
+        { x: baseSourceGrid ? x + (baseSourceGrid.getGridDimensions()[1] + 1) * DEFAULT_CELL_WIDTH : x + DEFAULT_CELL_WIDTH, y: sourceMid.y },
+        { x: baseSourceGrid ? x + (baseSourceGrid.getGridDimensions()[1] + 1) * DEFAULT_CELL_WIDTH : x + DEFAULT_CELL_WIDTH, y: y },
+        { x: targetMid.x, y: y },
+        getDockingPoint(targetMid, targetBounds, 't', dockingTarget)
+      ];
+    }
+
+    // negative dX indicates connection from future to past
+    if (dX < 0) {
+
+      const { y } = coordinatesToPosition(source.gridPosition.row, source.gridPosition.col);
+
+      const offsetY = DEFAULT_CELL_HEIGHT / 2;
+
+      if (sourceMid.y >= targetMid.y) {
+
+        // edge goes below
+        const maxExpanded = getMaxExpandedBetween(source, target, layoutGrid);
+
+        if (maxExpanded) {
+          return [
+            getDockingPoint(sourceMid, sourceBounds, 'b'),
+            { x: sourceMid.x, y: !baseSourceGrid ? y + DEFAULT_CELL_HEIGHT + maxExpanded * DEFAULT_CELL_HEIGHT : y + (baseSourceGrid.getGridDimensions()[0] + 1) * DEFAULT_CELL_HEIGHT },
+            { x: targetMid.x, y: !baseSourceGrid ? y + DEFAULT_CELL_HEIGHT + maxExpanded * DEFAULT_CELL_HEIGHT : y + (baseSourceGrid.getGridDimensions()[0] + 1) * DEFAULT_CELL_HEIGHT },
+            getDockingPoint(targetMid, targetBounds, 'b')
+          ];
+        }
+
+        return [
+          getDockingPoint(sourceMid, sourceBounds, 'b'),
+          { x: sourceMid.x, y: !baseSourceGrid ? y + DEFAULT_CELL_HEIGHT : y + (baseSourceGrid.getGridDimensions()[0] + 1) * DEFAULT_CELL_HEIGHT },
+          { x: targetMid.x, y: !baseSourceGrid ? y + DEFAULT_CELL_HEIGHT : y + (baseSourceGrid.getGridDimensions()[0] + 1) * DEFAULT_CELL_HEIGHT },
+          getDockingPoint(targetMid, targetBounds, 'b')
+        ];
+      } else {
+
+        // edge goes above
+        const bendY = sourceMid.y - offsetY;
+
+        return [
+          getDockingPoint(sourceMid, sourceBounds, 't'),
+          { x: sourceMid.x, y: bendY },
+          { x: targetMid.x, y: bendY },
+          getDockingPoint(targetMid, targetBounds, 't')
+        ];
+      }
+    }
+
+    // connect horizontally
+    if (dY === 0) {
+      if (isDirectPathBlocked(source, target, layoutGrid)) {
+        const { y } = coordinatesToPosition(source.gridPosition.row, source.gridPosition.col);
+
+        // Route on bottom
+        return [
+          getDockingPoint(sourceMid, sourceBounds, 'b'),
+          { x: sourceMid.x, y: !baseSourceGrid ? y + DEFAULT_CELL_HEIGHT : y + (baseSourceGrid.getGridDimensions()[0] + 1) * DEFAULT_CELL_HEIGHT },
+          { x: targetMid.x, y: !baseSourceGrid ? y + DEFAULT_CELL_HEIGHT : y + (baseSourceGrid.getGridDimensions()[0] + 1) * DEFAULT_CELL_HEIGHT },
+          getDockingPoint(targetMid, targetBounds, 'b')
+        ];
+      } else {
+
+        // if space is clear, connect directly
+        const firstPoint = getDockingPoint(sourceMid, sourceBounds, 'h', dockingSource);
+        const lastPoint = getDockingPoint(targetMid, targetBounds, 'h', dockingTarget);
+        if (baseSourceGrid) {
+          firstPoint.y = sourceBounds.y + DEFAULT_TASK_HEIGHT / 2 ;
+        }
+
+        if (baseTargetGrid) {
+          lastPoint.y = targetBounds.y + DEFAULT_TASK_HEIGHT / 2 ;
+        }
+        return [
+          firstPoint,
+          lastPoint
+        ];
+      }
+    }
+
+    // connect vertically
+    if (dX === 0) {
+      if (isDirectPathBlocked(source, target, layoutGrid)) {
+
+        // Route parallel
+        const yOffset = -Math.sign(dY) * DEFAULT_CELL_HEIGHT / 2;
+        return [
+          getDockingPoint(sourceMid, sourceBounds, 'r'),
+          { x: sourceMid.x + DEFAULT_CELL_WIDTH / 2, y: sourceMid.y }, // out right
+          { x: targetMid.x + DEFAULT_CELL_WIDTH / 2, y: targetMid.y + yOffset },
+          { x: targetMid.x, y: targetMid.y + yOffset },
+          getDockingPoint(targetMid, targetBounds, Math.sign(yOffset) > 0 ? 'b' : 't')
+        ];
+      } else {
+
+        // if space is clear, connect directly
+        return [ getDockingPoint(sourceMid, sourceBounds, 'v', dockingSource),
+          getDockingPoint(targetMid, targetBounds, 'v', dockingTarget)
+        ];
+      }
+    }
+
+    const directManhattan = directManhattanConnect(source, target, layoutGrid);
+
+    if (directManhattan) {
+      const startPoint = getDockingPoint(sourceMid, sourceBounds, directManhattan[0], dockingSource);
+      const endPoint = getDockingPoint(targetMid, targetBounds, directManhattan[1], dockingTarget);
+
+      const midPoint = directManhattan[0] === 'h' ? { x: endPoint.x, y: startPoint.y } : { x: startPoint.x, y: endPoint.y };
+
+      return [
+        startPoint,
+        midPoint,
+        endPoint
+      ];
+    }
+    const yOffset = -Math.sign(dY) * DEFAULT_CELL_HEIGHT / 2;
+
+    return [
+      getDockingPoint(sourceMid, sourceBounds, 'r', dockingSource),
+      { x: sourceMid.x + DEFAULT_CELL_WIDTH / 2, y: sourceMid.y }, // out right
+      { x: sourceMid.x + DEFAULT_CELL_WIDTH / 2, y: targetMid.y + yOffset }, // to target row
+      { x: targetMid.x - DEFAULT_CELL_WIDTH / 2, y: targetMid.y + yOffset }, // to target column
+      { x: targetMid.x - DEFAULT_CELL_WIDTH / 2, y: targetMid.y }, // to mid
+      getDockingPoint(targetMid, targetBounds, 'l', dockingTarget)
+    ];
+  }
+
+  // helpers /////
+  function coordinatesToPosition(row, col) {
+    return {
+      width: DEFAULT_CELL_WIDTH,
+      height: DEFAULT_CELL_HEIGHT,
+      x: col * DEFAULT_CELL_WIDTH,
+      y: row * DEFAULT_CELL_HEIGHT
+    };
+  }
+
+  function getBounds(element, row, col, shift, attachedTo) {
+    let { width, height } = getDefaultSize(element);
+    const { x, y } = shift;
+
+    // Center in cell
+    if (!attachedTo) {
+      return {
+        width: element.isExpanded ? element.grid.getGridDimensions()[1] * DEFAULT_CELL_WIDTH + width : width,
+        height: element.isExpanded ? element.grid.getGridDimensions()[0] * DEFAULT_CELL_HEIGHT + height : height,
+        x: (col * DEFAULT_CELL_WIDTH) + (DEFAULT_CELL_WIDTH - width) / 2 + x,
+        y: row * DEFAULT_CELL_HEIGHT + (DEFAULT_CELL_HEIGHT - height) / 2 + y
+      };
+    }
+
+    const hostBounds = attachedTo.di.bounds;
+
+    return {
+      width, height,
+      x: Math.round(hostBounds.x + hostBounds.width / 2 - width / 2),
+      y: Math.round(hostBounds.y + hostBounds.height - height / 2)
+    };
+  }
+
+  function isDirectPathBlocked(source, target, layoutGrid) {
+    const { row: sourceRow, col: sourceCol } = source.gridPosition;
+    const { row: targetRow, col: targetCol } = target.gridPosition;
+
+    const dX = targetCol - sourceCol;
+    const dY = targetRow - sourceRow;
+
+    let totalElements = 0;
+
+    if (dX) {
+      totalElements += layoutGrid.getElementsInRange({ row: sourceRow, col: sourceCol }, { row: sourceRow, col: targetCol }).length;
+    }
+
+    if (dY) {
+      totalElements += layoutGrid.getElementsInRange({ row: sourceRow, col: targetCol }, { row: targetRow, col: targetCol }).length;
+    }
+
+    return totalElements > 2;
+  }
+
+  function directManhattanConnect(source, target, layoutGrid) {
+    const { row: sourceRow, col: sourceCol } = source.gridPosition;
+    const { row: targetRow, col: targetCol } = target.gridPosition;
+
+    const dX = targetCol - sourceCol;
+    const dY = targetRow - sourceRow;
+
+    // Only directly connect left-to-right flow
+    if (!(dX > 0 && dY !== 0)) {
+      return;
+    }
+
+    // If below, go down then horizontal
+    if (dY > 0) {
+      let totalElements = 0;
+      const bendPoint = { row: targetRow, col: sourceCol };
+      totalElements += layoutGrid.getElementsInRange({ row: sourceRow, col: sourceCol }, bendPoint).length;
+      totalElements += layoutGrid.getElementsInRange(bendPoint, { row: targetRow, col: targetCol }).length;
+
+      return totalElements > 2 ? false : [ 'v', 'h' ];
+    } else {
+
+      // If above, go horizontal than vertical
+      let totalElements = 0;
+      const bendPoint = { row: sourceRow, col: targetCol };
+
+      totalElements += layoutGrid.getElementsInRange({ row: sourceRow, col: sourceCol }, bendPoint).length;
+      totalElements += layoutGrid.getElementsInRange(bendPoint, { row: targetRow, col: targetCol }).length;
+
+      return totalElements > 2 ? false : [ 'h', 'v' ];
+    }
+  }
+
+
+  function getMaxExpandedBetween(source, target, layoutGrid) {
+
+    const hostSource = source.attachedToRef ? source.attachedToRef : source;
+    const hostTarget = target.attachedToRef ? target.attachedToRef : target;
+
+
+    const [ sourceRow, sourceCol ] = layoutGrid.find(hostSource);
+    const [ , targetCol ] = layoutGrid.find(hostTarget);
+
+    const firstCol = sourceCol < targetCol ? sourceCol : targetCol;
+    const lastCol = sourceCol < targetCol ? targetCol : sourceCol;
+
+    const elementsInRange = layoutGrid.getAllElements().filter(element => element.gridPosition.row === sourceRow && element.gridPosition.col > firstCol && element.gridPosition.col < lastCol);
+
+    return elementsInRange.reduce((acc, cur) => {
+      if (cur.grid?.getGridDimensions()[0] > acc) return cur.grid?.getGridDimensions()[0];
+    }, 0);
+  }
+
   class Grid {
     constructor() {
       this.grid = [];
@@ -8064,11 +9307,11 @@
     }
 
     createRow(afterIndex) {
-      if (!afterIndex) {
+      if (!afterIndex && !Number.isInteger(afterIndex)) {
         this.grid.push([]);
+      } else {
+        this.grid.splice(afterIndex + 1, 0, []);
       }
-
-      this.grid.splice(afterIndex + 1, 0, []);
     }
 
     _addStart(element) {
@@ -8250,6 +9493,36 @@
       const uniqueElements = new Set(flattenedGrid.filter(value => value));
       return uniqueElements.size;
     }
+
+    /**
+     *
+     * @param {number} afterIndex - number is integer
+     * @param {number=} colCount - number is positive integer
+     */
+    createCol(afterIndex, colCount) {
+      this.grid.forEach((row, rowIndex) => {
+        this.expandRow(rowIndex, afterIndex, colCount);
+      });
+    }
+
+    /**
+     * @param {number} rowIndex - is positive integer
+     * @param {number} afterIndex - is integer
+     * @param {number=} colCount - is positive integer
+     */
+    expandRow(rowIndex, afterIndex, colCount) {
+      if (!Number.isInteger(rowIndex) || rowIndex < 0 || rowIndex > this.rowCount - 1) return;
+
+      const placeholder = Number.isInteger(colCount) && colCount > 0 ? Array(colCount) : Array(1);
+
+      const row = this.grid[rowIndex];
+
+      if (!afterIndex && !Number.isInteger(afterIndex)) {
+        row.splice(row.length, 0, ...placeholder);
+      } else {
+        row.splice(afterIndex + 1, 0, ...placeholder);
+      }
+    }
   }
 
   class DiFactory {
@@ -8306,289 +9579,6 @@
     }
   }
 
-  function getDefaultSize(element) {
-    if (is(element, 'bpmn:SubProcess')) {
-      return { width: 100, height: 80 };
-    }
-
-    if (is(element, 'bpmn:Task')) {
-      return { width: 100, height: 80 };
-    }
-
-    if (is(element, 'bpmn:Gateway')) {
-      return { width: 50, height: 50 };
-    }
-
-    if (is(element, 'bpmn:Event')) {
-      return { width: 36, height: 36 };
-    }
-
-    if (is(element, 'bpmn:Participant')) {
-      return { width: 400, height: 100 };
-    }
-
-    if (is(element, 'bpmn:Lane')) {
-      return { width: 400, height: 100 };
-    }
-
-    if (is(element, 'bpmn:DataObjectReference')) {
-      return { width: 36, height: 50 };
-    }
-
-    if (is(element, 'bpmn:DataStoreReference')) {
-      return { width: 50, height: 50 };
-    }
-
-    if (is(element, 'bpmn:TextAnnotation')) {
-      return { width: 100, height: 30 };
-    }
-
-    return { width: 100, height: 80 };
-  }
-
-  function is(element, type) {
-    return element.$instanceOf(type);
-  }
-
-  const DEFAULT_CELL_WIDTH = 150;
-  const DEFAULT_CELL_HEIGHT = 140;
-
-  function getMid(bounds) {
-    return {
-      x: bounds.x + bounds.width / 2,
-      y: bounds.y + bounds.height / 2
-    };
-  }
-
-  function getDockingPoint(point, rectangle, dockingDirection = 'r', targetOrientation = 'top-left') {
-
-    // ensure we end up with a specific docking direction
-    // based on the targetOrientation, if <h|v> is being passed
-
-    if (dockingDirection === 'h') {
-      dockingDirection = /left/.test(targetOrientation) ? 'l' : 'r';
-    }
-
-    if (dockingDirection === 'v') {
-      dockingDirection = /top/.test(targetOrientation) ? 't' : 'b';
-    }
-
-    if (dockingDirection === 't') {
-      return { original: point, x: point.x, y: rectangle.y };
-    }
-
-    if (dockingDirection === 'r') {
-      return { original: point, x: rectangle.x + rectangle.width, y: point.y };
-    }
-
-    if (dockingDirection === 'b') {
-      return { original: point, x: point.x, y: rectangle.y + rectangle.height };
-    }
-
-    if (dockingDirection === 'l') {
-      return { original: point, x: rectangle.x, y: point.y };
-    }
-
-    throw new Error('unexpected dockingDirection: <' + dockingDirection + '>');
-  }
-
-  /**
-       * Modified Manhattan layout: Uses space between grid coloumns to route connections
-       * if direct connection is not possible.
-       * @param {*} source
-       * @param {*} target
-       * @returns waypoints
-       */
-  function connectElements(source, target, layoutGrid) {
-    const sourceDi = source.di;
-    const targetDi = target.di;
-
-    const sourceBounds = sourceDi.get('bounds');
-    const targetBounds = targetDi.get('bounds');
-
-    const sourceMid = getMid(sourceBounds);
-    const targetMid = getMid(targetBounds);
-
-    const dX = target.gridPosition.col - source.gridPosition.col;
-    const dY = target.gridPosition.row - source.gridPosition.row;
-
-    const dockingSource = `${(dY > 0 ? 'bottom' : 'top')}-${dX > 0 ? 'right' : 'left'}`;
-    const dockingTarget = `${(dY > 0 ? 'top' : 'bottom')}-${dX > 0 ? 'left' : 'right'}`;
-
-    // Source === Target ==> Build loop
-    if (dX === 0 && dY === 0) {
-      const { x, y } = coordinatesToPosition(source.gridPosition.row, source.gridPosition.col);
-      return [
-        getDockingPoint(sourceMid, sourceBounds, 'r', dockingSource),
-        { x: x + DEFAULT_CELL_WIDTH, y: sourceMid.y },
-        { x: x + DEFAULT_CELL_WIDTH, y: y },
-        { x: targetMid.x, y: y },
-        getDockingPoint(targetMid, targetBounds, 't', dockingTarget)
-      ];
-    }
-
-    // connect horizontally
-    if (dY === 0) {
-      if (isDirectPathBlocked(source, target, layoutGrid)) {
-
-        // Route on bottom
-        return [
-          getDockingPoint(sourceMid, sourceBounds, 'b'),
-          { x: sourceMid.x, y: sourceMid.y + DEFAULT_CELL_HEIGHT / 2 },
-          { x: targetMid.x, y: sourceMid.y + DEFAULT_CELL_HEIGHT / 2 },
-          getDockingPoint(targetMid, targetBounds, 'b')
-        ];
-      } else {
-
-        // if space is clear, connect directly
-        return [
-          getDockingPoint(sourceMid, sourceBounds, 'h', dockingSource),
-          getDockingPoint(targetMid, targetBounds, 'h', dockingTarget)
-        ];
-      }
-    }
-
-    // connect vertically
-    if (dX === 0) {
-      if (isDirectPathBlocked(source, target, layoutGrid)) {
-
-        // Route parallel
-        const yOffset = -Math.sign(dY) * DEFAULT_CELL_HEIGHT / 2;
-        return [
-          getDockingPoint(sourceMid, sourceBounds, 'r'),
-          { x: sourceMid.x + DEFAULT_CELL_WIDTH / 2, y: sourceMid.y }, // out right
-          { x: targetMid.x + DEFAULT_CELL_WIDTH / 2, y: targetMid.y + yOffset },
-          { x: targetMid.x, y: targetMid.y + yOffset },
-          getDockingPoint(targetMid, targetBounds, Math.sign(yOffset) > 0 ? 'b' : 't')
-        ];
-      } else {
-
-        // if space is clear, connect directly
-        return [ getDockingPoint(sourceMid, sourceBounds, 'v', dockingSource),
-          getDockingPoint(targetMid, targetBounds, 'v', dockingTarget)
-        ];
-      }
-    }
-
-    // negative dX indicates connection from future to past
-    if (dX < 0 && dY <= 0) {
-      return [
-        getDockingPoint(sourceMid, sourceBounds, 'b'),
-        { x: sourceMid.x, y: sourceMid.y + DEFAULT_CELL_HEIGHT / 2 },
-        { x: targetMid.x, y: sourceMid.y + DEFAULT_CELL_HEIGHT / 2 },
-        getDockingPoint(targetMid, targetBounds, 'b')
-      ];
-    }
-    const directManhattan = directManhattanConnect(source, target, layoutGrid);
-
-    if (directManhattan) {
-      const startPoint = getDockingPoint(sourceMid, sourceBounds, directManhattan[0], dockingSource);
-      const endPoint = getDockingPoint(targetMid, targetBounds, directManhattan[1], dockingTarget);
-
-      const midPoint = directManhattan[0] === 'h' ? { x: endPoint.x, y: startPoint.y } : { x: startPoint.x, y: endPoint.y };
-
-      return [
-        startPoint,
-        midPoint,
-        endPoint
-      ];
-    }
-    const yOffset = -Math.sign(dY) * DEFAULT_CELL_HEIGHT / 2;
-
-    return [
-      getDockingPoint(sourceMid, sourceBounds, 'r', dockingSource),
-      { x: sourceMid.x + DEFAULT_CELL_WIDTH / 2, y: sourceMid.y }, // out right
-      { x: sourceMid.x + DEFAULT_CELL_WIDTH / 2, y: targetMid.y + yOffset }, // to target row
-      { x: targetMid.x - DEFAULT_CELL_WIDTH / 2, y: targetMid.y + yOffset }, // to target column
-      { x: targetMid.x - DEFAULT_CELL_WIDTH / 2, y: targetMid.y }, // to mid
-      getDockingPoint(targetMid, targetBounds, 'l', dockingTarget)
-    ];
-  }
-
-  // helpers /////
-  function coordinatesToPosition(row, col) {
-    return {
-      width: DEFAULT_CELL_WIDTH,
-      height: DEFAULT_CELL_HEIGHT,
-      x: col * DEFAULT_CELL_WIDTH,
-      y: row * DEFAULT_CELL_HEIGHT
-    };
-  }
-
-  function getBounds(element, row, col, attachedTo) {
-    const { width, height } = getDefaultSize(element);
-
-    // Center in cell
-    if (!attachedTo) {
-      return {
-        width, height,
-        x: (col * DEFAULT_CELL_WIDTH) + (DEFAULT_CELL_WIDTH - width) / 2,
-        y: row * DEFAULT_CELL_HEIGHT + (DEFAULT_CELL_HEIGHT - height) / 2
-      };
-    }
-
-    const hostBounds = getBounds(attachedTo, row, col);
-
-    return {
-      width, height,
-      x: Math.round(hostBounds.x + hostBounds.width / 2 - width / 2),
-      y: Math.round(hostBounds.y + hostBounds.height - height / 2)
-    };
-  }
-
-  function isDirectPathBlocked(source, target, layoutGrid) {
-    const { row: sourceRow, col: sourceCol } = source.gridPosition;
-    const { row: targetRow, col: targetCol } = target.gridPosition;
-
-    const dX = targetCol - sourceCol;
-    const dY = targetRow - sourceRow;
-
-    let totalElements = 0;
-
-    if (dX) {
-      totalElements += layoutGrid.getElementsInRange({ row: sourceRow, col: sourceCol }, { row: sourceRow, col: targetCol }).length;
-    }
-
-    if (dY) {
-      totalElements += layoutGrid.getElementsInRange({ row: sourceRow, col: targetCol }, { row: targetRow, col: targetCol }).length;
-    }
-
-    return totalElements > 2;
-  }
-
-  function directManhattanConnect(source, target, layoutGrid) {
-    const { row: sourceRow, col: sourceCol } = source.gridPosition;
-    const { row: targetRow, col: targetCol } = target.gridPosition;
-
-    const dX = targetCol - sourceCol;
-    const dY = targetRow - sourceRow;
-
-    // Only directly connect left-to-right flow
-    if (!(dX > 0 && dY !== 0)) {
-      return;
-    }
-
-    // If below, go down then horizontal
-    if (dY > 0) {
-      let totalElements = 0;
-      const bendPoint = { row: targetRow, col: sourceCol };
-      totalElements += layoutGrid.getElementsInRange({ row: sourceRow, col: sourceCol }, bendPoint).length;
-      totalElements += layoutGrid.getElementsInRange(bendPoint, { row: targetRow, col: targetCol }).length;
-
-      return totalElements > 2 ? false : [ 'v', 'h' ];
-    } else {
-
-      // If above, go horizontal than vertical
-      let totalElements = 0;
-      const bendPoint = { row: sourceRow, col: targetCol };
-
-      totalElements += layoutGrid.getElementsInRange({ row: sourceRow, col: sourceCol }, bendPoint).length;
-      totalElements += layoutGrid.getElementsInRange(bendPoint, { row: targetRow, col: targetCol }).length;
-
-      return totalElements > 2 ? false : [ 'h', 'v' ];
-    }
-  }
-
   var attacherHandler = {
     'addToGrid': ({ element, grid, visited }) => {
       const nextElements = [];
@@ -8607,18 +9597,19 @@
         // Add below and to the right of the element
         insertIntoGrid(nextElement, element, grid);
         nextElements.push(nextElement);
+        visited.add(nextElement);
       });
 
       return nextElements;
     },
 
-    'createElementDi': ({ element, row, col, diFactory }) => {
-      const hostBounds = getBounds(element, row, col);
+    'createElementDi': ({ element, row, col, diFactory, shift }) => {
+      const hostBounds = getBounds(element, row, col, shift);
 
       const DIs = [];
       (element.attachers || []).forEach((att, i, arr) => {
         att.gridPosition = { row, col };
-        const bounds = getBounds(att, row, col, element);
+        const bounds = getBounds(att, row, col, shift, element);
 
         // distribute along lower edge
         bounds.x = hostBounds.x + (i + 1) * (hostBounds.width / (arr.length + 1)) - bounds.width / 2;
@@ -8635,7 +9626,7 @@
       return DIs;
     },
 
-    'createConnectionDi': ({ element, row, col, layoutGrid, diFactory }) => {
+    'createConnectionDi': ({ element, row, col, layoutGrid, diFactory, shift }) => {
       const attachers = element.attachers || [];
 
       return attachers.flatMap(att => {
@@ -8648,11 +9639,9 @@
           // Correct waypoints if they don't automatically attach to the bottom
           ensureExitBottom(att, waypoints, [ row, col ]);
 
-          const connectionDi = diFactory.createDiEdge(out, waypoints, {
+          return diFactory.createDiEdge(out, waypoints, {
             id: out.id + '_di'
           });
-
-          return connectionDi;
         });
       });
     }
@@ -8681,12 +9670,14 @@
       return;
     }
 
+    const baseSourceGrid = source.grid || source.attachedToRef?.grid;
+
     if (waypoints.length === 2) {
       const newStart = [
         dockingPoint,
-        { x: dockingPoint.x, y: (row + 1) * DEFAULT_CELL_HEIGHT },
-        { x: (col + 1) * DEFAULT_CELL_WIDTH, y: (row + 1) * DEFAULT_CELL_HEIGHT },
-        { x: (col + 1) * DEFAULT_CELL_WIDTH, y: (row + 0.5) * DEFAULT_CELL_HEIGHT },
+        { x: dockingPoint.x, y: !baseSourceGrid ? (row + 1) * DEFAULT_CELL_HEIGHT : (row + baseSourceGrid.getGridDimensions()[0] + 1) * DEFAULT_CELL_HEIGHT },
+        { x: !baseSourceGrid ? (col + 1) * DEFAULT_CELL_WIDTH : (col + baseSourceGrid.getGridDimensions()[1] + 1) * DEFAULT_CELL_WIDTH, y: !baseSourceGrid ? (row + 1) * DEFAULT_CELL_HEIGHT : (row + baseSourceGrid.getGridDimensions()[0] + 1) * DEFAULT_CELL_HEIGHT },
+        { x: !baseSourceGrid ? (col + 1) * DEFAULT_CELL_WIDTH : (col + baseSourceGrid.getGridDimensions()[1] + 1) * DEFAULT_CELL_WIDTH, y: !baseSourceGrid ? (row + 0.5) * DEFAULT_CELL_HEIGHT : row * DEFAULT_CELL_HEIGHT + DEFAULT_CELL_HEIGHT / 2 },
       ];
 
       waypoints.splice(0, 1, ...newStart);
@@ -8696,18 +9687,17 @@
     // add waypoints to exit bottom and connect to existing path
     const newStart = [
       dockingPoint,
-      { x: dockingPoint.x, y: (row + 1) * DEFAULT_CELL_HEIGHT },
-      { x: waypoints[1].x, y: (row + 1) * DEFAULT_CELL_HEIGHT },
+      { x: dockingPoint.x, y: !baseSourceGrid ? (row + 1) * DEFAULT_CELL_HEIGHT : (row + baseSourceGrid.getGridDimensions()[0] + 1) * DEFAULT_CELL_HEIGHT },
+      { x: waypoints[1].x, y: !baseSourceGrid ? (row + 1) * DEFAULT_CELL_HEIGHT : (row + baseSourceGrid.getGridDimensions()[0] + 1) * DEFAULT_CELL_HEIGHT },
     ];
 
     waypoints.splice(0, 1, ...newStart);
-    return;
   }
 
   var elementHandler = {
-    'createElementDi': ({ element, row, col, diFactory }) => {
+    'createElementDi': ({ element, row, col, diFactory, shift }) => {
 
-      const bounds = getBounds(element, row, col);
+      const bounds = getBounds(element, row, col, shift);
 
       const options = {
         id: element.id + '_di'
@@ -8715,6 +9705,10 @@
 
       if (is(element, 'bpmn:ExclusiveGateway')) {
         options.isMarkerVisible = true;
+      }
+
+      if (element.isExpanded) {
+        options.isExpanded = true;
       }
 
       const shapeDi = diFactory.createDiShape(element, bounds, options);
@@ -8861,23 +9855,76 @@
     }
 
     async layoutProcess(xml) {
-      const { rootElement } = await this.moddle.fromXML(xml);
+      const moddleObj = await this.moddle.fromXML(xml);
+      const { rootElement } = moddleObj;
 
       this.diagram = rootElement;
 
-      const root = this.getProcess();
+      const firstRootProcess = this.getProcess();
 
-      if (root) {
+      if (firstRootProcess) {
+
+        this.setExpandedPropertyToModdleElements(moddleObj);
+
+        this.setExecutedProcesses(firstRootProcess);
+
+        this.createGridsForProcesses();
+
         this.cleanDi();
-        this.handlePlane(root);
+
+        this.createRootDi(firstRootProcess);
+
+        this.drawProcesses();
       }
 
       return (await this.moddle.toXML(this.diagram, { format: true })).xml;
     }
 
-    handlePlane(planeElement) {
-      const layout = this.createGridLayout(planeElement);
-      this.generateDi(planeElement, layout);
+    createGridsForProcesses() {
+      const processes = this.layoutedProcesses.sort((a, b) => b.level - a.level);
+
+      // create and add grids for each process
+      // root processes should be processed last for element expanding
+      for (const process of processes) {
+
+        // add base grid with collapsed elements
+        process.grid = this.createGridLayout(process);
+
+        expandGridHorizontally(process.grid);
+        expandGridVertically(process.grid);
+
+        if (process.isExpanded) {
+          const [ rowCount, colCount ] = process.grid.getGridDimensions();
+          if (rowCount === 0) process.grid.createRow();
+          if (colCount === 0) process.grid.createCol();
+        }
+
+      }
+    }
+
+    setExpandedPropertyToModdleElements(bpmnModel) {
+      const allElements = bpmnModel.elementsById;
+      if (allElements) {
+        for (const element of Object.values(allElements)) {
+          if (element.$type === 'bpmndi:BPMNShape' && element.isExpanded === true) element.bpmnElement.isExpanded = true;
+        }
+      }
+    }
+
+    setExecutedProcesses(firstRootProcess) {
+      this.layoutedProcesses = [];
+
+      const executionStack = [ firstRootProcess ];
+
+      while (executionStack.length > 0) {
+        const executedProcess = executionStack.pop();
+        this.layoutedProcesses.push(executedProcess);
+        executedProcess.level = executedProcess.$parent === this.diagram ? 0 : executedProcess.$parent.level + 1;
+
+        const nextProcesses = executedProcess.get('flowElements').filter(flowElement => is(flowElement, 'bpmn:SubProcess'));
+
+        executionStack.splice(executionStack.length, 0, ...nextProcesses);
+      }
     }
 
     cleanDi() {
@@ -8895,67 +9942,52 @@
         return grid;
       }
 
-      const startingElements = flowElements.filter(el => {
-        return !isConnection(el) && !isBoundaryEvent(el) && (!el.incoming || el.length === 0);
-      });
-
-      const boundaryEvents = flowElements.filter(el => isBoundaryEvent(el));
-      boundaryEvents.forEach(boundaryEvent => {
-        const attachedTask = boundaryEvent.attachedToRef;
-        const attachers = attachedTask.attachers || [];
-        attachers.push(boundaryEvent);
-        attachedTask.attachers = attachers;
-      });
+      bindBoundaryEventsWithHosts (flowElements);
 
       // Depth-first-search
-      const stack = [ ...startingElements ];
       const visited = new Set();
+      while (visited.size < elements.filter(element => !element.attachedToRef).length) {
+        const startingElements = flowElements.filter(el => {
+          return !isConnection(el) &&
+              !isBoundaryEvent(el) &&
+              (!el.incoming || !hasOtherIncoming(el)) &&
+              !visited.has(el);
+        });
 
-      startingElements.forEach(el => {
-        grid.add(el);
-        visited.add(el);
-      });
+        const stack = [ ...startingElements ];
 
-      this.handleGrid(grid,visited,stack);
+        startingElements.forEach(el => {
+          grid.add(el);
+          visited.add(el);
+        });
 
-      if (grid.getElementsTotal() != elements.length) {
-        const gridElements = grid.getAllElements();
-        const missingElements = elements.filter(el => !gridElements.includes(el) && !isBoundaryEvent(el));
-        if (missingElements.length > 1) {
-          stack.push(missingElements[0]);
-          grid.add(missingElements[0]);
-          visited.add(missingElements[0]);
-          this.handleGrid(grid,visited,stack);
+        this.handleGrid(grid,visited,stack);
+
+        if (grid.getElementsTotal() !== elements.length) {
+          const gridElements = grid.getAllElements();
+          const missingElements = elements.filter(el => !gridElements.includes(el) && !isBoundaryEvent(el));
+          if (missingElements.length > 0) {
+            stack.push(missingElements[0]);
+            grid.add(missingElements[0]);
+            visited.add(missingElements[0]);
+            this.handleGrid(grid,visited,stack);
+          }
         }
       }
-
       return grid;
     }
 
-    generateDi(root, layoutGrid) {
+    generateDi(layoutGrid , shift, procDi) {
       const diFactory = this.diFactory;
 
-      // Step 0: Create Root element
-      const diagram = this.diagram;
+      const prePlaneElement = procDi ? procDi : this.diagram.diagrams[0];
 
-      var planeDi = diFactory.createDiPlane({
-        id: 'BPMNPlane_' + root.id,
-        bpmnElement: root
-      });
-      var diagramDi = diFactory.createDiDiagram({
-        id: 'BPMNDiagram_' + root.id,
-        plane: planeDi
-      });
-
-      // deepest subprocess is added first - insert at the front
-      diagram.diagrams.unshift(diagramDi);
-
-      const planeElement = planeDi.get('planeElement');
+      const planeElement = prePlaneElement.plane.get('planeElement');
 
       // Step 1: Create DI for all elements
       layoutGrid.elementsByPosition().forEach(({ element, row, col }) => {
         const dis = this
-          .handle('createElementDi', { element, row, col, layoutGrid, diFactory })
+          .handle('createElementDi', { element, row, col, layoutGrid, diFactory, shift })
           .flat();
 
         planeElement.push(...dis);
@@ -8964,7 +9996,7 @@
       // Step 2: Create DI for all connections
       layoutGrid.elementsByPosition().forEach(({ element, row, col }) => {
         const dis = this
-          .handle('createConnectionDi', { element, row, col, layoutGrid, diFactory })
+          .handle('createConnectionDi', { element, row, col, layoutGrid, diFactory, shift })
           .flat();
 
         planeElement.push(...dis);
@@ -8974,10 +10006,6 @@
     handleGrid(grid, visited, stack) {
       while (stack.length > 0) {
         const currentElement = stack.pop();
-
-        if (is(currentElement, 'bpmn:SubProcess')) {
-          this.handlePlane(currentElement);
-        }
 
         const nextElements = this.handle('addToGrid', { element: currentElement, grid, visited, stack });
 
@@ -8991,6 +10019,146 @@
     getProcess() {
       return this.diagram.get('rootElements').find(el => el.$type === 'bpmn:Process');
     }
+
+    createRootDi(processes) {
+      this.createProcessDi(processes);
+    }
+
+    createProcessDi(element) {
+      const diFactory = this.diFactory;
+
+      const planeDi = diFactory.createDiPlane({
+        id: 'BPMNPlane_' + element.id,
+        bpmnElement: element
+      });
+      const diagramDi = diFactory.createDiDiagram({
+        id: 'BPMNDiagram_' + element.id,
+        plane: planeDi
+      });
+
+      const diagram = this.diagram;
+
+      diagram.diagrams.push(diagramDi);
+
+      return diagramDi;
+    }
+
+    /**
+     * Draw processes.
+     * Root processes should be processed first for element expanding
+     */
+    drawProcesses() {
+      const sortedProcesses = this.layoutedProcesses.sort((a, b) => a.level - b.level);
+
+      for (const process of sortedProcesses) {
+
+        // draw processes in expanded elements
+        if (process.isExpanded) {
+          const baseProcDi = this.getElementDi(process);
+          const diagram = this.getProcDi(baseProcDi);
+          let { x, y } = baseProcDi.bounds;
+          const { width, height } = getDefaultSize(process);
+          x += DEFAULT_CELL_WIDTH / 2 - width / 4;
+          y += DEFAULT_CELL_HEIGHT - height - height / 4;
+          this.generateDi(process.grid, { x, y }, diagram);
+          continue;
+        }
+
+        // draw other processes
+        const diagram = this.diagram.diagrams.find(diagram => diagram.plane.bpmnElement === process);
+        this.generateDi(process.grid, { x: 0, y: 0 }, diagram);
+      }
+    }
+
+    getElementDi(element) {
+      return this.diagram.diagrams
+        .map(diagram => diagram.plane.planeElement).flat()
+        .find(item => item.bpmnElement === element);
+    }
+
+    getProcDi(element) {
+      return this.diagram.diagrams.find(diagram => diagram.plane.planeElement.includes(element));
+    }
+  }
+
+  function bindBoundaryEventsWithHosts(elements) {
+    const boundaryEvents = elements.filter(element => isBoundaryEvent(element));
+    boundaryEvents.forEach(boundaryEvent => {
+      const attachedTask = boundaryEvent.attachedToRef;
+      const attachers = attachedTask.attachers || [];
+      attachers.push(boundaryEvent);
+      attachedTask.attachers = attachers;
+    });
+  }
+
+  /**
+   * Check grid by columns.
+   * If column has elements with isExpanded === true,
+   * find the maximum size of elements grids and expand the parent grid horizontally.
+   * @param grid
+   */
+  function expandGridHorizontally(grid) {
+    const [ numRows , maxCols ] = grid.getGridDimensions();
+    for (let i = maxCols - 1 ; i >= 0; i--) {
+      const elementsInCol = [];
+      for (let j = 0; j < numRows; j++) {
+        const candidate = grid.get(j, i);
+        if (candidate && candidate.isExpanded) elementsInCol.push(candidate);
+      }
+
+      if (elementsInCol.length === 0) continue;
+
+      const maxColCount = elementsInCol.reduce((acc,cur) => {
+        const [ ,curCols ] = cur.grid.getGridDimensions();
+        if (acc === undefined || curCols > acc) return curCols;
+        return acc;
+      }, undefined);
+
+      const shift = !maxColCount ? 2 : maxColCount;
+      grid.createCol(i, shift);
+    }
+  }
+
+  /**
+   * Check grid by rows.
+   * If row has elements with isExpanded === true,
+   * find the maximum size of elements grids and expand the parent grid vertically.
+   * @param grid
+   */
+  function expandGridVertically(grid) {
+    const [ numRows , maxCols ] = grid.getGridDimensions();
+
+    for (let i = numRows - 1 ; i >= 0; i--) {
+      const elementsInRow = [];
+      for (let j = 0; j < maxCols; j++) {
+        const candidate = grid.get(i, j);
+        if (candidate && candidate.isExpanded) elementsInRow.push(candidate);
+      }
+
+      if (elementsInRow.length === 0) continue;
+
+      const maxRowCount = elementsInRow.reduce((acc,cur) => {
+        const [ curRows ] = cur.grid.getGridDimensions();
+        if (acc === undefined || curRows > acc) return curRows;
+        return acc;
+      }, undefined);
+
+      const shift = !maxRowCount ? 1 : maxRowCount;
+
+      // expand the parent grid vertically
+      for (let index = 0; index < shift; index++) {
+        grid.createRow(i);
+      }
+    }
+  }
+
+  function hasOtherIncoming(element) {
+    const fromHost = element.incoming?.filter(edge => edge.sourceRef !== element && edge.sourceRef.attachedToRef === undefined) || [];
+
+    const fromAttached = element.incoming?.filter(edge => edge.sourceRef !== element
+        && edge.sourceRef.attachedToRef !== element);
+
+    return fromHost?.length > 0 || fromAttached?.length > 0;
   }
 
   function layoutProcess(xml) {
@@ -9000,4 +10168,3 @@
   exports.layoutProcess = layoutProcess;
 
 }));
-//# sourceMappingURL=bpmn-auto-layout.js.map

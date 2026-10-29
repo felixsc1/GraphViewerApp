@@ -5,6 +5,7 @@
 data/
 TODO.md
 output/
+test_data/
 
 ### Python ###
 # Byte-compiled / optimized / DLL files
