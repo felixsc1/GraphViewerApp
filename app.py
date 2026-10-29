@@ -36,12 +36,16 @@ if "selection" not in st.session_state:
 # Use buttons instead of radio for navigation with icons
 st.sidebar.title("Navigation")
 
-# Add custom CSS to left-justify button text
+# Streamlit centers labels in a full-width flex wrapper inside the button.
+# Left-align that wrapper so sidebar page buttons read as a menu.
 st.sidebar.markdown(
     """
 <style>
-    div.stButton > button {
+    section[data-testid="stSidebar"] [data-testid="stButton"] button {
         text-align: left;
+        justify-content: flex-start;
+    }
+    section[data-testid="stSidebar"] [data-testid="stButton"] button > div {
         justify-content: flex-start;
     }
 </style>
