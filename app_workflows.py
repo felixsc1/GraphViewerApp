@@ -2,7 +2,6 @@ import streamlit as st
 import pandas as pd
 import os
 import pickle
-from graphviz import Digraph
 import xml.etree.ElementTree as ET
 from xml.dom import minidom
 import streamlit.components.v1 as components
@@ -2557,592 +2556,6 @@ def build_edges_table(updated_nodes, updated_groups):
     return edges_df
 
 
-## -- Generate BPMN Diagram --
-
-# Constants
-ACTIVITY_TABLE_WIDTH = "180"
-ACTIVITY_MAX_CHARS_PER_LINE = 20
-ACTIVITY_FONT_SIZE = "14"
-ACTIVITY_SMALL_FONT_SIZE = "12"
-ACTIVITY_SMALL_MAX_CHARS_PER_LINE = 24
-EDGE_MIN_LENGTH = "1.0"  # Define if not already present
-EDGE_LABEL_DISTANCE = "2.0"  # Define if not already present
-GRAPH_NODE_SEPARATION = "0.5"  # Define if not already present
-GRAPH_RANK_SEPARATION = "0.5"  # Define if not already present
-
-
-def wrap_text(text, max_chars_per_line):
-    """Wrap text into lines not exceeding max_chars_per_line."""
-    words = text.split()
-    lines = []
-    current_line = []
-    current_length = 0
-    for word in words:
-        if current_length + len(word) + len(current_line) > max_chars_per_line:
-            if current_line:
-                lines.append(" ".join(current_line))
-                current_line = []
-                current_length = 0
-            else:
-                lines.append(word)
-                continue
-        current_line.append(word)
-        current_length += len(word)
-    if current_line:
-        lines.append(" ".join(current_line))
-    return lines
-
-
-def get_port(node_id, updated_nodes, direction):
-    """Return the port for edge connections based on node type and direction."""
-    if node_id in updated_nodes.index:
-        try:
-            # Handle Series objects safely
-            node_type = updated_nodes.loc[node_id, "node_type"]
-            if hasattr(node_type, "iloc"):
-                node_type = node_type.iloc[0]
-
-            if isinstance(node_type, str) and node_type == "activity":
-                return ":w" if direction == "in" else ":e"
-        except (IndexError, KeyError, AttributeError):
-            # If any error occurs, return default empty string
-            pass
-    return ""
-
-
-def add_node(dot, node_id, node, edge_set, updated_nodes):
-    """Add a node to the Graphviz diagram based on its type."""
-    # Get node_type and handle if it's a Series
-    node_type = node["node_type"]
-    if hasattr(node_type, "iloc"):
-        node_type = node_type.iloc[0]
-
-    label_value = get_safe_value_bpmn(node, "label", "")
-    label = str(label_value)
-
-    if is_node_type(node_type, "rule"):
-        if node_id.startswith("repeat_rule") or node_id.startswith("skip_rule"):
-            label = f"📄\n{label}"
-        dot.node(node_id, label=label, shape="none")
-        parent_activity = get_safe_value_bpmn(node, "parent", "")
-        if parent_activity and (node_id, parent_activity) not in edge_set:
-            dot.edge(node_id, parent_activity, style="dotted")
-            edge_set.add((node_id, parent_activity))
-        return False
-
-    elif is_node_type(node_type, "substeps"):
-        dot.node(
-            node_id,
-            label=label,
-            shape="none",
-            style="",
-            fontsize="14",
-            align="left",
-            group=get_safe_value_bpmn(node, "parent", ""),
-        )
-        parent_activity = get_safe_value_bpmn(node, "parent", "")
-        if parent_activity and (parent_activity, node_id) not in edge_set:
-            dot.edge(
-                parent_activity,
-                node_id,
-                style="dotted",
-                dir="none",
-                color="black",
-                weight="3.0",
-                len="0.8",
-            )
-            edge_set.add((parent_activity, node_id))
-        return False
-
-    elif is_node_type(node_type, "befehl"):
-        dot.node(
-            node_id,
-            label=label,
-            shape="none",
-            style="",
-            fontsize="14",
-            align="left",
-            group=get_safe_value_bpmn(node, "parent", ""),
-        )
-        parent_activity = get_safe_value_bpmn(node, "parent", "")
-        if parent_activity and (parent_activity, node_id) not in edge_set:
-            dot.edge(
-                parent_activity,
-                node_id,
-                style="dotted",
-                dir="none",
-                color="black",
-                weight="3.0",
-                len="0.8",
-            )
-            edge_set.add((parent_activity, node_id))
-        return False
-    else:
-        if is_node_type(node_type, "activity"):
-            empfanger = get_safe_value_bpmn(node, "Empfänger", "")
-            name_de = get_safe_value_bpmn(node, "name", "")
-            activity_type = get_safe_value_bpmn(node, "type", "")
-
-            emoji = ""
-            if activity_type == "manual":
-                emoji = "👤 "
-            elif activity_type == "system":
-                emoji = "⚙️ "
-            elif activity_type == "script":
-                emoji = "📜 "
-
-            formatted_empfanger = f"{emoji}{empfanger}" if empfanger else emoji
-
-            wrapped_lines = wrap_text(name_de, ACTIVITY_MAX_CHARS_PER_LINE)
-            if len(wrapped_lines) > 2:
-                font_size = ACTIVITY_SMALL_FONT_SIZE
-                wrapped_lines_small = wrap_text(
-                    name_de, ACTIVITY_SMALL_MAX_CHARS_PER_LINE
-                )
-                if len(wrapped_lines_small) > 2:
-                    wrapped_lines = wrapped_lines_small[:2]
-                    wrapped_lines[-1] += " ..."
-                else:
-                    wrapped_lines = wrapped_lines_small
-            else:
-                font_size = ACTIVITY_FONT_SIZE
-
-            formatted_name = "<BR/>".join(wrapped_lines)
-
-            html_label = f"""<<TABLE BORDER="0" CELLBORDER="0" CELLSPACING="0" CELLPADDING="6" WIDTH="{ACTIVITY_TABLE_WIDTH}">
-<TR><TD ALIGN="left" VALIGN="top"><FONT POINT-SIZE="{ACTIVITY_FONT_SIZE}">{formatted_empfanger}</FONT></TD></TR>
-<TR><TD ALIGN="center"><FONT POINT-SIZE="{font_size}">{formatted_name}</FONT></TD></TR>
-</TABLE>>"""
-            label = html_label
-        elif is_node_type(node_type, "helper"):
-            label = ""
-        attrs = {}
-        if is_node_type(node_type, "gateway"):
-            attrs["fontsize"] = "16"
-            attrs["shape"] = "diamond"
-        elif is_node_type(node_type, "activity"):
-            attrs["shape"] = "box"
-            attrs["style"] = "rounded"
-            attrs["margin"] = "0"
-            attrs["group"] = node_id
-        else:
-            attrs["shape"] = "box"
-        dot.node(node_id, label=label, **attrs)
-        return True
-
-
-def is_node_type(value, type_to_check):
-    """Safely check if a node type equals a specific value, handling Series."""
-    if pd.isna(value):
-        return False
-
-    # If it's a Series, extract the first value
-    if hasattr(value, "iloc"):
-        try:
-            value = value.iloc[0]
-        except (IndexError, AttributeError):
-            return False
-
-    return value == type_to_check
-
-
-def add_group(
-    group_id, dot, updated_nodes, updated_groups, edge_set, processed_substeps=None
-):
-    """Build a group in the BPMN diagram recursively."""
-    if processed_substeps is None:
-        processed_substeps = set()
-
-    group = updated_groups.loc[group_id]
-    children = []
-    group_name = get_safe_value_bpmn(group, "name")
-
-    nodes = updated_nodes[updated_nodes["parent"] == group_id]
-    for node_id in nodes.index:
-        seq_num = get_safe_value_bpmn(nodes.loc[node_id], "SequenceNumber", 0)
-        children.append(("node", node_id, seq_num))
-
-    # Find decision node IDs safely
-    decision_ids = []
-    for node_id in nodes.index:
-        node_type = get_safe_value_bpmn(nodes.loc[node_id], "node_type")
-        if is_node_type(node_type, "decision"):
-            decision_ids.append(node_id)
-
-    for decision_id in decision_ids:
-        # Find rule nodes connected to this decision
-        rule_ids = []
-        for node_id in updated_nodes[updated_nodes["parent"] == decision_id].index:
-            node_type = get_safe_value_bpmn(updated_nodes.loc[node_id], "node_type")
-            if is_node_type(node_type, "rule"):
-                rule_ids.append(node_id)
-        for rule_id in rule_ids:
-            seq_num = get_safe_value_bpmn(
-                updated_nodes.loc[rule_id], "SequenceNumber", 0
-            )
-            children.append(("node", rule_id, seq_num))
-
-    # Find activity node IDs safely
-    activity_ids = []
-    for node_id in nodes.index:
-        node_type = get_safe_value_bpmn(nodes.loc[node_id], "node_type")
-        if is_node_type(node_type, "activity"):
-            activity_ids.append(node_id)
-
-    for activity_id in activity_ids:
-        # Find substep nodes connected to this activity
-        substep_ids = []
-        for node_id in updated_nodes[updated_nodes["parent"] == activity_id].index:
-            node_type = get_safe_value_bpmn(updated_nodes.loc[node_id], "node_type")
-            if is_node_type(node_type, "substeps"):
-                substep_ids.append(node_id)
-        for substep_id in substep_ids:
-            if substep_id not in processed_substeps:
-                processed_substeps.add(substep_id)
-                seq_num = get_safe_value_bpmn(
-                    updated_nodes.loc[substep_id], "SequenceNumber", 0
-                )
-                children.append(("node", substep_id, seq_num))
-
-    subgroups = updated_groups[updated_groups["parent"] == group_id]
-    for subgroup_id in subgroups.index:
-        seq_num = get_safe_value_bpmn(subgroups.loc[subgroup_id], "SequenceNumber", 0)
-        children.append(("group", subgroup_id, seq_num))
-
-    children.sort(key=lambda x: x[2])
-
-    gateway_split = gateway_join = skip_gateway_split = skip_gateway_join = (
-        repeat_gateway
-    ) = repeat_helper = None
-    parallel_branches = []
-    gateway_connected_nodes = set()
-
-    # Safely get group type
-    group_type = get_safe_value_bpmn(group, "type")
-
-    # Safely get parallel condition names and compute labels
-    parallel_condition_name = get_safe_value_bpmn(group, "parallel_condition_name")
-    labels = (
-        parallel_condition_name.split(";")
-        if group_type == "parallel" and parallel_condition_name
-        else []
-    )
-
-    # Safely get repeat connections
-    repeat_connections = get_safe_value_bpmn(group, "repeat_connections")
-    if repeat_connections:
-        if isinstance(repeat_connections, dict):
-            repeat_gateway = repeat_connections.get("gateway")
-            repeat_helper = repeat_connections.get("helper")
-        elif isinstance(repeat_connections, str) and "gateway" in repeat_connections:
-            import ast
-
-            try:
-                repeat_dict = ast.literal_eval(repeat_connections)
-                repeat_gateway = repeat_dict.get("gateway")
-                repeat_helper = repeat_dict.get("helper")
-            except:
-                repeat_gateway = repeat_helper = None
-
-    for child_type, child_id, _ in children:
-        if child_type == "node":
-            # Safely get node_type for further checks
-            node_type = get_safe_value_bpmn(updated_nodes.loc[child_id], "node_type")
-            if is_node_type(node_type, "gateway"):
-                if "gateway_split" in child_id and "skip" not in child_id:
-                    gateway_split = child_id
-                elif "gateway_join" in child_id and "skip" not in child_id:
-                    gateway_join = child_id
-                elif "skip_gateway_split" in child_id:
-                    skip_gateway_split = child_id
-                elif "skip_gateway_join" in child_id:
-                    skip_gateway_join = child_id
-
-    if group_type == "parallel" and gateway_split and gateway_join:
-        split_seq = get_safe_value_bpmn(
-            updated_nodes.loc[gateway_split], "SequenceNumber", 0
-        )
-        join_seq = get_safe_value_bpmn(
-            updated_nodes.loc[gateway_join], "SequenceNumber", float("inf")
-        )
-        parallel_branches = [
-            child for child in children if split_seq < child[2] < join_seq
-        ]
-
-    prev_node = first_node = last_node = first_real_node = None
-    for child in children:
-        child_type, child_id, _ = child
-        if child_type == "node":
-            node = updated_nodes.loc[child_id]
-            in_flow = add_node(dot, child_id, node, edge_set, updated_nodes)
-            if in_flow:
-                if first_node is None:
-                    first_node = child_id
-                node_type = get_safe_value_bpmn(node, "node_type")
-                if first_real_node is None and not is_node_type(node_type, "helper"):
-                    first_real_node = child_id
-                last_node = child_id
-                if prev_node and (prev_node, child_id) not in edge_set:
-                    if group_type != "parallel" or (
-                        prev_node not in gateway_connected_nodes
-                        and child_id not in gateway_connected_nodes
-                    ):
-                        from_port = get_port(prev_node, updated_nodes, "out")
-                        to_port = get_port(child_id, updated_nodes, "in")
-                        dot.edge(
-                            prev_node + from_port,
-                            child_id + to_port,
-                            minlen=EDGE_MIN_LENGTH,
-                            weight="2",
-                            constraint="true",
-                        )
-                        edge_set.add((prev_node, child_id))
-                prev_node = child_id
-        elif child_type == "group":
-            with dot.subgraph(name=f"cluster_{child_id}") as sub_dot:
-                subgroup_name = get_safe_value_bpmn(
-                    updated_groups.loc[child_id], "name", ""
-                )
-                sub_dot.attr(
-                    label=f'<<TABLE BORDER="0" CELLBORDER="0" CELLSPACING="0" CELLPADDING="2"><TR><TD ALIGN="left"><B>{subgroup_name}</B></TD></TR></TABLE>>',
-                    style="rounded,dashed",
-                    penwidth="1.0",
-                    labelloc="t",
-                    labeljust="l",
-                    margin="10",
-                    fontname="sans-serif",
-                )
-                subgroup_first, subgroup_last = add_group(
-                    child_id,
-                    sub_dot,
-                    updated_nodes,
-                    updated_groups,
-                    edge_set,
-                    processed_substeps,
-                )
-            if subgroup_first and subgroup_last:
-                if first_node is None:
-                    first_node = subgroup_first
-                if first_real_node is None:
-                    first_real_node = subgroup_first
-                last_node = subgroup_last
-                if (
-                    group_type == "parallel"
-                    and (child, child_id, _) in parallel_branches
-                ):
-                    idx = parallel_branches.index((child, child_id, _))
-                    label = labels[idx] if idx < len(labels) else None
-                    if (
-                        gateway_split
-                        and (gateway_split, subgroup_first) not in edge_set
-                    ):
-                        from_port = ""
-                        to_port = get_port(subgroup_first, updated_nodes, "in")
-                        dot.edge(
-                            gateway_split + from_port,
-                            subgroup_first + to_port,
-                            xlabel=label,
-                            labelangle="0",
-                            labeldistance=EDGE_LABEL_DISTANCE,
-                            minlen=str(float(EDGE_MIN_LENGTH) + 0.2),
-                            weight="2",
-                            constraint="true",
-                        )
-                        edge_set.add((gateway_split, subgroup_first))
-                        gateway_connected_nodes.add(subgroup_first)
-                    if gateway_join and (subgroup_last, gateway_join) not in edge_set:
-                        from_port = get_port(subgroup_last, updated_nodes, "out")
-                        to_port = ""
-                        dot.edge(
-                            subgroup_last + from_port,
-                            gateway_join + to_port,
-                            minlen=EDGE_MIN_LENGTH,
-                            weight="2",
-                            constraint="true",
-                        )
-                        edge_set.add((subgroup_last, gateway_join))
-                        gateway_connected_nodes.add(subgroup_last)
-                elif prev_node and (prev_node, subgroup_first) not in edge_set:
-                    if (
-                        prev_node not in gateway_connected_nodes
-                        and subgroup_first not in gateway_connected_nodes
-                    ):
-                        from_port = get_port(prev_node, updated_nodes, "out")
-                        to_port = get_port(subgroup_first, updated_nodes, "in")
-                        dot.edge(
-                            prev_node + from_port,
-                            subgroup_first + to_port,
-                            minlen=EDGE_MIN_LENGTH,
-                            weight="2",
-                            constraint="true",
-                        )
-                        edge_set.add((prev_node, subgroup_first))
-                prev_node = subgroup_last
-
-    if group_type == "parallel" and gateway_split and gateway_join:
-        for i, branch in enumerate(parallel_branches):
-            if branch[0] == "node":
-                node_id = branch[1]
-                label = labels[i] if i < len(labels) else None
-                if (gateway_split, node_id) not in edge_set:
-                    from_port = ""
-                    to_port = get_port(node_id, updated_nodes, "in")
-                    dot.edge(
-                        gateway_split + from_port,
-                        node_id + to_port,
-                        xlabel=label,
-                        labelangle="0",
-                        labeldistance=EDGE_LABEL_DISTANCE,
-                        minlen=str(float(EDGE_MIN_LENGTH) + 0.2),
-                        weight="2",
-                        constraint="true",
-                    )
-                    edge_set.add((gateway_split, node_id))
-                    gateway_connected_nodes.add(node_id)
-                if (node_id, gateway_join) not in edge_set:
-                    from_port = get_port(node_id, updated_nodes, "out")
-                    to_port = ""
-                    dot.edge(
-                        node_id + from_port,
-                        gateway_join + to_port,
-                        minlen=EDGE_MIN_LENGTH,
-                        weight="2",
-                        constraint="true",
-                    )
-                    edge_set.add((node_id, gateway_join))
-                    gateway_connected_nodes.add(node_id)
-
-    if (
-        skip_gateway_split
-        and skip_gateway_join
-        and (skip_gateway_split, skip_gateway_join) not in edge_set
-    ):
-        skip_name = get_safe_value_bpmn(group, "skip_name")
-        label = skip_name if skip_name else None
-        dot.edge(
-            skip_gateway_split,
-            skip_gateway_join,
-            xlabel=label,
-            labelangle="0",
-            labeldistance=EDGE_LABEL_DISTANCE,
-            constraint="false",
-            minlen=str(float(EDGE_MIN_LENGTH) + 0.5),
-            weight="1",
-        )
-        edge_set.add((skip_gateway_split, skip_gateway_join))
-
-    if (
-        repeat_gateway
-        and repeat_helper
-        and (repeat_gateway, repeat_helper) not in edge_set
-    ):
-        repeat_name = get_safe_value_bpmn(group, "repeat_name")
-        label = repeat_name if repeat_name else None
-        dot.edge(
-            repeat_gateway,
-            repeat_helper,
-            xlabel=label,
-            labelangle="0",
-            labeldistance=EDGE_LABEL_DISTANCE,
-            constraint="false",
-            minlen=str(float(EDGE_MIN_LENGTH) + 0.5),
-            weight="1",
-        )
-        edge_set.add((repeat_gateway, repeat_helper))
-    if (
-        repeat_helper
-        and first_real_node
-        and (repeat_helper, first_real_node) not in edge_set
-    ):
-        from_port = get_port(repeat_helper, updated_nodes, "out")
-        to_port = get_port(first_real_node, updated_nodes, "in")
-        dot.edge(
-            repeat_helper + from_port,
-            first_real_node + to_port,
-            minlen=EDGE_MIN_LENGTH,
-            weight="2",
-            constraint="true",
-        )
-        edge_set.add((repeat_helper, first_real_node))
-
-    return first_node, last_node
-
-
-def build_workflow_diagram(updated_nodes, updated_groups):
-    """Generate the complete BPMN diagram."""
-    dot = Digraph(
-        format="svg",
-        graph_attr={
-            "rankdir": "LR",
-            "splines": "ortho",
-            "fontname": "sans-serif",
-            "nodesep": GRAPH_NODE_SEPARATION,
-            "ranksep": GRAPH_RANK_SEPARATION,
-            "overlap": "false",
-            "sep": "+5",
-            "margin": "0.1",
-            "concentrate": "true",
-            "ordering": "out",
-            "newrank": "true",
-        },
-        node_attr={"fontname": "sans-serif", "margin": "0.1"},
-        edge_attr={"fontname": "sans-serif", "weight": "2"},
-    )
-
-    with dot.subgraph(name="cluster_flow_control") as flow:
-        flow.attr(style="invis")
-        flow.node("rank_start", style="invis", shape="none", width="0")
-        flow.node("rank_end", style="invis", shape="none", width="0")
-        flow.edge("rank_start", "rank_end", style="invis")
-
-    dot.node(
-        "start", shape="circle", label="", width="0.5", height="0.5", rank="source"
-    )
-    dot.node("end", shape="circle", label="", width="0.5", height="0.5", rank="sink")
-
-    dot.edge("rank_start", "start", style="invis", weight="100")
-    dot.edge("rank_end", "end", style="invis", weight="100")
-
-    edge_set = set()
-    top_group_id = updated_groups[updated_groups["parent"].isna()].index[0]
-
-    with dot.subgraph(name=f"cluster_{top_group_id}") as c:
-        c.attr(
-            label=f'<<TABLE BORDER="0" CELLBORDER="0" CELLSPACING="0" CELLPADDING="2"><TR><TD ALIGN="left"><B>{updated_groups.at[top_group_id, "name"]}</B></TD></TR></TABLE>>',
-            style="rounded,dashed",
-            penwidth="1.5",
-            labelloc="t",
-            labeljust="l",
-            margin="10",
-            fontname="sans-serif",
-        )
-        first_node, last_node = add_group(
-            top_group_id, c, updated_nodes, updated_groups, edge_set, set()
-        )
-
-    from_port = ""
-    to_port = get_port(first_node, updated_nodes, "in")
-    dot.edge(
-        "start" + from_port,
-        first_node + to_port,
-        minlen="0.8",
-        weight="10",
-        constraint="true",
-    )
-
-    from_port = get_port(last_node, updated_nodes, "out")
-    to_port = ""
-    dot.edge(
-        last_node + from_port,
-        "end" + to_port,
-        minlen="0.8",
-        weight="10",
-        constraint="true",
-    )
-
-    return dot
-
-
 # --- BPMN XML HELPER FUNCTIONS ---
 
 
@@ -3160,16 +2573,6 @@ def is_node_type(node_type, target_type):
         str(node_type).lower() == target_type.lower()
         or target_type.lower() in str(node_type).lower()
     )
-
-
-# Function to encode file as base64 (for embedding JS)
-import base64
-
-
-def get_base64_of_file(file_path):
-    with open(file_path, "rb") as f:
-        data = f.read()
-    return base64.b64encode(data).decode()
 
 
 # --- BPMN XML ---
@@ -3468,14 +2871,6 @@ def create_main_flow_bpmn_xml(node_df, edges_df):
 # --- Generate BPMN Diagram ---
 
 
-def get_base64_of_file(file_path):
-    import base64
-
-    with open(file_path, "rb") as f:
-        data = f.read()
-    return base64.b64encode(data).decode()
-
-
 def process_bpmn_layout(basic_xml):
     """
     Process BPMN XML, provide a file download mechanism, and handle file upload for further processing.
@@ -3483,11 +2878,6 @@ def process_bpmn_layout(basic_xml):
     Args:
         basic_xml (str): The input BPMN XML string to process.
     """
-    # Initialize session state variables
-    if "bpmn_workflow_state" not in st.session_state:
-        st.session_state["bpmn_workflow_state"] = "initial"
-    if "basic_bpmn_xml" not in st.session_state:
-        st.session_state["basic_bpmn_xml"] = basic_xml
     if "bpmn_layout_result" not in st.session_state:
         st.session_state["bpmn_layout_result"] = None
 
@@ -3588,7 +2978,6 @@ def process_bpmn_layout(basic_xml):
             # Validate it's XML
             if xml_data.startswith("<?xml"):
                 st.session_state["bpmn_layout_result"] = xml_data
-                st.session_state["bpmn_workflow_state"] = "uploaded"
                 st.success(
                     f"✅ Successfully loaded BPMN layout! Length: {len(xml_data)} characters"
                 )
@@ -3702,24 +3091,6 @@ def split_diagram_for_page_fit(laid_out_xml, namespaces, split_number=2):
             pattern in node_id
             for pattern in ["repeat_gateway_join", "skip_gateway_join"]
         )
-
-    # Helper function to count crossing edges for a given split index
-    def count_crossing_edges(split_idx):
-        line1_nodes = set(node_sequence[: split_idx + 1])
-        line2_nodes = set(node_sequence[split_idx + 1 :])
-
-        crossing_count = 0
-        for edge in process.findall(".//bpmn:sequenceFlow", namespaces):
-            source_ref = edge.get("sourceRef")
-            target_ref = edge.get("targetRef")
-
-            # Count edges that cross between lines
-            if (source_ref in line1_nodes and target_ref in line2_nodes) or (
-                source_ref in line2_nodes and target_ref in line1_nodes
-            ):
-                crossing_count += 1
-
-        return crossing_count
 
     # Helper function to count crossing edges for multiple split indices
     def count_crossing_edges_multi(split_indices_list):
@@ -4642,7 +4013,6 @@ def split_diagram_for_page_fit(laid_out_xml, namespaces, split_number=2):
 
     # Serialize and return updated XML
     updated_xml = ET.tostring(root, encoding="utf-8").decode("utf-8")
-    # print(updated_xml)
     return updated_xml, True
 
 
@@ -5030,6 +4400,9 @@ def bpmn_modeler_component(bpmn_xml):
         with open(os.path.join(STATIC_DIR, "diagram-js.css"), "rb") as f:
             diagram_js_css = f.read().decode("utf-8")
 
+        with open(os.path.join(STATIC_DIR, "bpmn-modeler.development.js"), "rb") as f:
+            bpmn_modeler_js = f.read().decode("utf-8")
+
         # Read font files and encode them as base64
         font_files = {
             "eot": "application/vnd.ms-fontobject",
@@ -5117,7 +4490,7 @@ def bpmn_modeler_component(bpmn_xml):
         <button id="download-png" class="download-btn">Download PNG</button>
         <div id="canvas"></div>
         <script>
-            {base64.b64decode(base64.b64encode(open(os.path.join(STATIC_DIR, 'bpmn-modeler.development.js'), 'rb').read())).decode('utf-8')}
+            {bpmn_modeler_js}
         </script>
         <script>
             var diagramXML = `{bpmn_xml}`;
@@ -5275,8 +4648,6 @@ def bpmn_modeler_component(bpmn_xml):
 def show():
     initialize_state()
 
-    # st.write(st.session_state["template_dict"])
-
     with st.expander("User Management", expanded=False):
         st.success(
             f"Currently {len(st.session_state['user_dict'])} user entries stored."
@@ -5342,16 +4713,7 @@ def show():
                         st.info(f"Debug dataframes written to: {debug_file_path}")
                     except Exception as e:
                         st.warning(f"Failed to write debug output: {str(e)}")
-                # Debugging
-                # st.write(updated_nodes.to_dict())
-                # st.write(updated_groups.to_dict())
-                # st.write(edges_table.to_dict())
                 with st.expander("Data Details", expanded=False):
-                    # st.write(st.session_state['user_dict'])
-                    # st.write("Aktivitäten")
-                    # st.dataframe(activities_table)
-                    # st.write("Platzhalter")
-                    # st.dataframe(groups_table)
                     st.write("Nodes")
                     st.dataframe(updated_nodes.reset_index())
                     st.write("Groups")
