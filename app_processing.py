@@ -46,6 +46,7 @@ def show():
 
     if st.button("💻 2. Run Processing"):
         run_processing_steps()
+        st.cache_data.clear()
         st.success("Processing finished!", icon="✅")
         
         

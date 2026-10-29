@@ -58,11 +58,11 @@ def search_names(search_name, data_dfs):
     df_personen = data_dfs["personen"]
     df_organisationen = data_dfs["organisationen"]
 
-    search_words = set(search_name.lower().split())
+    search_words = search_name.lower().split()
 
     def match(row):
-        name_words = set(row.lower().split())
-        return search_words.issubset(name_words)
+        row_lower = row.lower()
+        return all(word in row_lower for word in search_words)
 
     match_personen = df_personen["Name"].apply(match)
     match_organisationen = df_organisationen["Name"].apply(match)
