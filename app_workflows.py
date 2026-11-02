@@ -2880,34 +2880,45 @@ const ENGINES = {
 __ENGINES__
 };
 
-// Survives reruns, so a request is laid out once even if the component is re-rendered
-const startedRequests = (window.__bpmnAutoLayoutRequests ??= new Set());
+// Survives reruns, so a request is laid out once even if the component is re-rendered.
+// The result is re-sent on every render, because Python may ask again for an earlier
+// request (e.g. after switching the engine back) and only keeps the latest state value.
+const layouts = (window.__bpmnAutoLayoutResults ??= new Map());
 
 export default function (component) {
   const { data, setStateValue, parentElement } = component;
-  if (!data || startedRequests.has(data.request_id)) return;
-  startedRequests.add(data.request_id);
+  if (!data) return;
+  window.__bpmnAutoLayoutLatest = data.request_id;
 
-  const status = parentElement.querySelector(".bpmn-layout-status");
-  status.textContent = "Calculating BPMN layout with engine " + data.engine + "...";
+  let layout = layouts.get(data.request_id);
+  if (!layout) {
+    const status = parentElement.querySelector(".bpmn-layout-status");
+    status.textContent = "Calculating BPMN layout with engine " + data.engine + "...";
 
-  // v1 resolves with the XML string, v2 with { xml, warnings }
-  Promise.resolve()
-    .then(() => ENGINES[data.engine].layoutProcess(data.xml))
-    .then((result) => {
-      setStateValue("layout", {
-        request_id: data.request_id,
-        xml: typeof result === "string" ? result : result.xml,
-        warnings: ((result && result.warnings) || []).map((w) => w.message || String(w)),
-      });
-    })
-    .catch((err) => {
-      console.error("BPMN layout error:", err);
-      setStateValue("layout", {
-        request_id: data.request_id,
-        error: String((err && err.message) || err),
-      });
-    });
+    // v1 resolves with the XML string, v2 with { xml, warnings }
+    layout = Promise.resolve()
+      .then(() => ENGINES[data.engine].layoutProcess(data.xml))
+      .then(
+        (result) => ({
+          request_id: data.request_id,
+          xml: typeof result === "string" ? result : result.xml,
+          warnings: ((result && result.warnings) || []).map((w) => w.message || String(w)),
+        }),
+        (err) => {
+          console.error("BPMN layout error:", err);
+          layouts.delete(data.request_id);
+          return { request_id: data.request_id, error: String((err && err.message) || err) };
+        }
+      );
+    layouts.set(data.request_id, layout);
+  }
+
+  layout.then((payload) => {
+    // A slower, outdated layout must not overwrite the one Python is waiting for
+    if (window.__bpmnAutoLayoutLatest === data.request_id) {
+      setStateValue("layout", payload);
+    }
+  });
 }
 """
 
@@ -2956,8 +2967,9 @@ def layout_bpmn(basic_xml):
     layout_engine = st.session_state.get("layout_engine") or "v1"
     request_id = hashlib.sha256(f"{layout_engine}\n{basic_xml}".encode()).hexdigest()
 
-    cached = st.session_state.get("bpmn_layout")
-    if cached is None or cached["request_id"] != request_id:
+    cache = st.session_state.setdefault("bpmn_layouts", {})
+    cached = cache.get(request_id)
+    if cached is None:
         try:
             layout_component = _get_layout_component()
         except OSError as e:
@@ -2982,7 +2994,10 @@ def layout_bpmn(basic_xml):
             st.error(f"Error calculating the BPMN layout: {layout['error']}")
             return None
         cached = layout
-        st.session_state["bpmn_layout"] = cached
+        # Keep only the most recent layouts, e.g. one per engine for the current file
+        while len(cache) >= 4:
+            cache.pop(next(iter(cache)))
+        cache[request_id] = cached
 
     if cached["warnings"]:
         st.warning(
