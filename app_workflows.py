@@ -4,7 +4,6 @@ import os
 import pickle
 import xml.etree.ElementTree as ET
 from xml.dom import minidom
-import streamlit.components.v1 as components
 import hashlib
 from collections import defaultdict
 import re
@@ -4631,7 +4630,7 @@ def bpmn_modeler_component(bpmn_xml):
         """
 
         # Render in Streamlit
-        st.components.v1.html(html_template, height=700, scrolling=True)
+        st.iframe(html_template, height=700)
 
     except Exception as e:
         st.error(f"Error loading BPMN viewer: {str(e)}")
@@ -4769,7 +4768,7 @@ def show():
                             if not legend_df.empty:
                                 st.subheader("Legende")
                                 st.dataframe(
-                                    legend_df, use_container_width=True, hide_index=True
+                                    legend_df, width="stretch", hide_index=True
                                 )
                 except Exception as e:
                     st.error(f"Error generating workflow diagram: {str(e)}")

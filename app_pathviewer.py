@@ -221,7 +221,7 @@ def show():
                             for r in results
                         ]
                     )
-                st.dataframe(results_df, use_container_width=True)
+                st.dataframe(results_df, width="stretch")
 
             else:
                 st.write(

@@ -484,7 +484,7 @@ def show():
 
             # Client-side SVG/PNG download using the SVG rendered by Streamlit's built-in Graphviz engine
             safe_refid = re.sub(r"[^a-zA-Z0-9_-]", "_", filter_refid) or "graph"
-            st.components.v1.html(
+            st.iframe(
                 f"""
                 <style>
                     body {{

@@ -65,7 +65,7 @@ page_options = {
 
 # Create a button for each page
 for page_key, page_title in page_options.items():
-    if st.sidebar.button(page_title, use_container_width=True):
+    if st.sidebar.button(page_title, width="stretch"):
         st.session_state["selection"] = page_key
 
 selection = st.session_state["selection"]
