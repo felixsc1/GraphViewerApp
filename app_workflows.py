@@ -2870,6 +2870,11 @@ def create_main_flow_bpmn_xml(node_df, edges_df):
 
 # --- Generate BPMN Diagram ---
 
+LAYOUT_ENGINES = {
+    "v1": "assets/bpmn-auto-layout.js",
+    "v2 (alpha)": "assets/bpmn-auto-layout-v2-alpha.js",
+}
+
 
 def process_bpmn_layout(basic_xml):
     """
@@ -2881,12 +2886,11 @@ def process_bpmn_layout(basic_xml):
     if "bpmn_layout_result" not in st.session_state:
         st.session_state["bpmn_layout_result"] = None
 
-    # Load the JavaScript library
-    js_path = os.path.join(
-        st.session_state["cwd"], "assets/bpmn-auto-layout.js"
-    )  # Adjust path as needed
+    # Load the JavaScript library of the selected layout engine
+    layout_engine = st.session_state.get("layout_engine") or "v1"
+    js_path = os.path.join(st.session_state["cwd"], LAYOUT_ENGINES[layout_engine])
     if not os.path.exists(js_path):
-        st.error(f"Cannot find bpmn-auto-layout.js at {js_path}")
+        st.error(f"Cannot find layout engine '{layout_engine}' at {js_path}")
         return
     with open(js_path, "r") as f:
         bpmn_layout_js = f.read()
@@ -2920,10 +2924,18 @@ def process_bpmn_layout(basic_xml):
             try {{
               status.textContent = "Processing BPMN layout...";
               const inputXML = "{escaped_xml}";
-              layoutedXML = await BpmnAutoLayout.layoutProcess(inputXML);
+              // v1 resolves with the XML string, v2 with {{ xml, warnings }}
+              const result = await BpmnAutoLayout.layoutProcess(inputXML);
+              layoutedXML = typeof result === "string" ? result : result.xml;
+              const warnings = (result && result.warnings) || [];
               
               preview.textContent = layoutedXML.substring(0, 500) + "...";
-              status.textContent = "Layout completed!";
+              status.textContent = "Layout completed with engine {layout_engine}!";
+              if (warnings.length) {{
+                errorOutput.style.color = "#b26a00";
+                errorOutput.textContent = warnings.length + " layout warning(s): " +
+                  warnings.map(w => w.message || String(w)).join(" | ");
+              }}
               downloadButton.disabled = false;
 
               downloadButton.addEventListener("click", function() {{
@@ -4661,6 +4673,15 @@ def show():
     with tab1:
         st.subheader("Upload Prozess Export")
         xls = upload_dossier()
+        st.segmented_control(
+            "Layout Engine",
+            list(LAYOUT_ENGINES),
+            default="v1",
+            required=True,
+            key="layout_engine",
+            help="v1 = bpmn-auto-layout 1.3.0 (stable), "
+            "v2 (alpha) = bpmn-auto-layout 2.0.0-alpha.2",
+        )
 
         if xls is not None:
             activities_table = build_activities_table(xls)
