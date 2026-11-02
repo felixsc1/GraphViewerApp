@@ -2876,128 +2876,121 @@ LAYOUT_ENGINES = {
 }
 
 
-def process_bpmn_layout(basic_xml):
+_LAYOUT_COMPONENT_JS = """
+const ENGINES = {
+__ENGINES__
+};
+
+// Survives reruns, so a request is laid out once even if the component is re-rendered
+const startedRequests = (window.__bpmnAutoLayoutRequests ??= new Set());
+
+export default function (component) {
+  const { data, setStateValue, parentElement } = component;
+  if (!data || startedRequests.has(data.request_id)) return;
+  startedRequests.add(data.request_id);
+
+  const status = parentElement.querySelector(".bpmn-layout-status");
+  status.textContent = "Calculating BPMN layout with engine " + data.engine + "...";
+
+  // v1 resolves with the XML string, v2 with { xml, warnings }
+  Promise.resolve()
+    .then(() => ENGINES[data.engine].layoutProcess(data.xml))
+    .then((result) => {
+      setStateValue("layout", {
+        request_id: data.request_id,
+        xml: typeof result === "string" ? result : result.xml,
+        warnings: ((result && result.warnings) || []).map((w) => w.message || String(w)),
+      });
+    })
+    .catch((err) => {
+      console.error("BPMN layout error:", err);
+      setStateValue("layout", {
+        request_id: data.request_id,
+        error: String((err && err.message) || err),
+      });
+    });
+}
+"""
+
+_layout_component = None
+
+
+def _get_layout_component():
+    """Register the layout component once; it embeds every engine of LAYOUT_ENGINES."""
+    global _layout_component
+    if _layout_component is None:
+        base_dir = os.path.dirname(os.path.abspath(__file__))
+        engines = []
+        for name, rel_path in LAYOUT_ENGINES.items():
+            with open(os.path.join(base_dir, rel_path), "r", encoding="utf-8") as f:
+                source = f.read()
+            # The bundles are UMD; giving them a CommonJS `module` keeps them off the
+            # shared global `BpmnAutoLayout`, so both engines can coexist on the page.
+            engines.append(
+                f"{json.dumps(name)}: (() => {{\n"
+                "const module = { exports: {} }; const exports = module.exports;\n"
+                f"{source}\n"
+                "return module.exports;\n})(),"
+            )
+        _layout_component = st.components.v2.component(
+            "bpmn_auto_layout",
+            html='<div class="bpmn-layout-status"></div>',
+            js=_LAYOUT_COMPONENT_JS.replace("__ENGINES__", "\n".join(engines)),
+        )
+    return _layout_component
+
+
+def layout_bpmn(basic_xml):
     """
-    Process BPMN XML, provide a file download mechanism, and handle file upload for further processing.
+    Lay out the BPMN XML in the browser with the selected bpmn-auto-layout engine.
+
+    The layout runs asynchronously in the browser and triggers a rerun once it is
+    done, so the first call(s) return None. The result is cached in session state
+    per engine and input XML, so later reruns (e.g. changed options) are instant.
 
     Args:
-        basic_xml (str): The input BPMN XML string to process.
-    """
-    if "bpmn_layout_result" not in st.session_state:
-        st.session_state["bpmn_layout_result"] = None
+        basic_xml (str): The BPMN XML without diagram information.
 
-    # Load the JavaScript library of the selected layout engine
+    Returns:
+        str | None: The laid-out BPMN XML, or None while the layout is pending or failed.
+    """
     layout_engine = st.session_state.get("layout_engine") or "v1"
-    js_path = os.path.join(st.session_state["cwd"], LAYOUT_ENGINES[layout_engine])
-    if not os.path.exists(js_path):
-        st.error(f"Cannot find layout engine '{layout_engine}' at {js_path}")
-        return
-    with open(js_path, "r") as f:
-        bpmn_layout_js = f.read()
+    request_id = hashlib.sha256(f"{layout_engine}\n{basic_xml}".encode()).hexdigest()
 
-    # Escape the XML to safely embed it in JavaScript
-    escaped_xml = basic_xml.replace('"', '\\"').replace("\n", "\\n")
-
-    # HTML component with file download capability
-    html_content = f"""
-    <html>
-      <body>
-        <div id="status">Processing layout...</div>
-        <div id="xml-preview" style="font-family: monospace; height: 100px; overflow: auto; border: 1px solid #ccc; padding: 5px;"></div>
-        <button id="download-button" style="padding: 8px; background-color: #1E88E5; color: white; border: none; border-radius: 4px;" disabled>Download Layout XML</button>
-        <div id="status-message" style="margin-top: 10px;"></div>
-        <div id="error-output" style="color: red;"></div>
-
-        <script>
-        {bpmn_layout_js}
-        </script>
-        <script>
-          document.addEventListener('DOMContentLoaded', async function() {{
-            const status = document.getElementById("status");
-            const preview = document.getElementById("xml-preview");
-            const downloadButton = document.getElementById("download-button");
-            const statusMessage = document.getElementById("status-message");
-            const errorOutput = document.getElementById("error-output");
-            
-            let layoutedXML = null;
-
-            try {{
-              status.textContent = "Processing BPMN layout...";
-              const inputXML = "{escaped_xml}";
-              // v1 resolves with the XML string, v2 with {{ xml, warnings }}
-              const result = await BpmnAutoLayout.layoutProcess(inputXML);
-              layoutedXML = typeof result === "string" ? result : result.xml;
-              const warnings = (result && result.warnings) || [];
-              
-              preview.textContent = layoutedXML.substring(0, 500) + "...";
-              status.textContent = "Layout completed with engine {layout_engine}!";
-              if (warnings.length) {{
-                errorOutput.style.color = "#b26a00";
-                errorOutput.textContent = warnings.length + " layout warning(s): " +
-                  warnings.map(w => w.message || String(w)).join(" | ");
-              }}
-              downloadButton.disabled = false;
-
-              downloadButton.addEventListener("click", function() {{
-                try {{
-                  const blob = new Blob([layoutedXML], {{type: 'application/xml'}});
-                  const url = URL.createObjectURL(blob);
-                  const a = document.createElement('a');
-                  a.href = url;
-                  a.download = 'bpmn_layout.xml';
-                  document.body.appendChild(a);
-                  a.click();
-                  setTimeout(function() {{
-                    document.body.removeChild(a);
-                    URL.revokeObjectURL(url);
-                  }}, 0);
-                  statusMessage.textContent = "✅ Layout downloaded! Now upload the XML file in Step 2 below.";
-                  statusMessage.style.color = "green";
-                }} catch (e) {{
-                  errorOutput.textContent = "Error creating download: " + e.message;
-                  console.error("Download error:", e);
-                }}
-              }});
-            }} catch (e) {{
-              errorOutput.textContent = "Error: " + e.message;
-              console.error("Layout error:", e);
-            }}
-          }});
-        </script>
-      </body>
-    </html>
-    """
-
-    # Step 1: Process and Download
-    st.write("### Step 1: Process and Download the Layout")
-    st.write(
-        "Wait for processing to finish, then click 'Download Layout XML' to save the file:"
-    )
-    st.components.v1.html(html_content, height=250)
-
-    # Step 2: Upload the Layout XML
-    st.write("### Step 2: Upload the Layout XML")
-    st.write("Upload the XML file you just downloaded:")
-    uploaded_file = st.file_uploader(
-        "Upload BPMN layout XML", type=["xml", "bpmn"], key="bpmn_layout_uploader"
-    )
-
-    # Handle file upload
-    if uploaded_file is not None:
+    cached = st.session_state.get("bpmn_layout")
+    if cached is None or cached["request_id"] != request_id:
         try:
-            # Read and decode the uploaded file
-            xml_data = uploaded_file.read().decode("utf-8")
-            # Validate it's XML
-            if xml_data.startswith("<?xml"):
-                st.session_state["bpmn_layout_result"] = xml_data
-                st.success(
-                    f"✅ Successfully loaded BPMN layout! Length: {len(xml_data)} characters"
-                )
-            else:
-                st.error("❌ The uploaded file doesn't appear to be valid XML.")
-                st.write("File starts with:", xml_data[:100])
-        except Exception as e:
-            st.error(f"❌ Error processing uploaded file: {str(e)}")
+            layout_component = _get_layout_component()
+        except OSError as e:
+            st.error(f"Cannot load the BPMN layout engines: {e}")
+            return None
+        placeholder = st.empty()
+        with placeholder:
+            result = layout_component(
+                key="bpmn_auto_layout",
+                data={
+                    "request_id": request_id,
+                    "engine": layout_engine,
+                    "xml": basic_xml,
+                },
+                on_layout_change=lambda: None,
+            )
+        layout = result.layout
+        if not layout or layout.get("request_id") != request_id:
+            return None
+        placeholder.empty()
+        if layout.get("error"):
+            st.error(f"Error calculating the BPMN layout: {layout['error']}")
+            return None
+        cached = layout
+        st.session_state["bpmn_layout"] = cached
+
+    if cached["warnings"]:
+        st.warning(
+            f"{len(cached['warnings'])} layout warning(s): "
+            + " | ".join(cached["warnings"])
+        )
+    return cached["xml"]
 
 
 def split_diagram_for_page_fit(laid_out_xml, namespaces, split_number=2):
@@ -4029,7 +4022,11 @@ def split_diagram_for_page_fit(laid_out_xml, namespaces, split_number=2):
 
 
 def add_special_nodes_and_annotations(
-    split_diagrams=False, include_legend=False, include_befehl=False, row_number=1
+    laid_out_xml,
+    split_diagrams=False,
+    include_legend=False,
+    include_befehl=False,
+    row_number=1,
 ):
     """
     Adds 'rule', 'substep', and optionally 'befehl' nodes as DataObjectReference elements below their parents
@@ -4037,6 +4034,7 @@ def add_special_nodes_and_annotations(
     creates text annotations with full labels below the diagram.
 
     Args:
+        laid_out_xml (str): The BPMN XML laid out by bpmn-auto-layout
         split_diagrams (bool): Whether to split the diagram for page fit
         include_legend (bool): Whether to include text annotations/legend below the diagram
         include_befehl (bool): Whether to include befehl (parameter) nodes
@@ -4045,16 +4043,6 @@ def add_special_nodes_and_annotations(
     Returns:
         tuple: (updated BPMN XML string, legend DataFrame) or (None, None) if processing fails
     """
-    # Check if the laid-out BPMN XML is available
-    if (
-        "bpmn_layout_result" not in st.session_state
-        or st.session_state["bpmn_layout_result"] is None
-    ):
-        st.error("No BPMN layout result is available. Please process the layout first.")
-        return None, None
-
-    # Load the laid-out BPMN XML from session state
-    laid_out_xml = st.session_state["bpmn_layout_result"]
     try:
         root = ET.fromstring(laid_out_xml)
 
@@ -4086,8 +4074,6 @@ def add_special_nodes_and_annotations(
             root = ET.fromstring(laid_out_xml)  # Always update root from laid_out_xml
             process = root.find(".//bpmn:process", namespaces)
             plane = root.find(".//bpmndi:BPMNPlane", namespaces)
-            # Ensure the updated XML is stored for consistent use
-            st.session_state["bpmn_layout_result"] = laid_out_xml
 
         # Step 1: Identify "rule", "substep", and optionally "befehl" nodes
         node_types_to_include = ["rule", "substeps"]
@@ -4673,15 +4659,36 @@ def show():
     with tab1:
         st.subheader("Upload Prozess Export")
         xls = upload_dossier()
-        st.segmented_control(
-            "Layout Engine",
-            list(LAYOUT_ENGINES),
-            default="v1",
-            required=True,
-            key="layout_engine",
-            help="v1 = bpmn-auto-layout 1.3.0 (stable), "
-            "v2 (alpha) = bpmn-auto-layout 2.0.0-alpha.2",
-        )
+        col1, col2, col3, col4 = st.columns([2, 1, 1, 2], vertical_alignment="bottom")
+        with col1:
+            st.segmented_control(
+                "Layout Engine",
+                list(LAYOUT_ENGINES),
+                default="v1",
+                required=True,
+                key="layout_engine",
+                help="v1 = bpmn-auto-layout 1.3.0 (stable), "
+                "v2 (alpha) = bpmn-auto-layout 2.0.0-alpha.2",
+            )
+        with col2:
+            row_number = st.number_input(
+                r"\# rows",
+                value=1,
+                min_value=1,
+                max_value=10,
+                key="row_number",
+                help="1 = no split",
+            )
+        with col3:
+            include_legend = st.checkbox(
+                "Include legend", value=False, key="include_legend"
+            )
+        with col4:
+            include_befehl = st.checkbox(
+                "Show Parameters in Service activities",
+                value=False,
+                key="include_befehl",
+            )
 
         if xls is not None:
             activities_table = build_activities_table(xls)
@@ -4745,39 +4752,15 @@ def show():
                     st.subheader("Workflow Diagram")
 
                     basic_xml = create_main_flow_bpmn_xml(updated_nodes, edges_table)
+                    laid_out_xml = layout_bpmn(basic_xml)
 
-                    process_bpmn_layout(basic_xml)
-
-                    col1, col2, col3, _ = st.columns(4)
-                    with col1:
-                        # Create nested columns to control the width of number_input
-                        num_col1, num_col2 = st.columns([1, 1])
-                        with num_col1:
-                            row_number = st.number_input(
-                                "\# rows",
-                                value=1,
-                                min_value=1,
-                                max_value=10,
-                                key="row_number",
-                                help="1 = no split",
-                            )
-                    with col2:
-                        include_legend = st.checkbox(
-                            "Include legend", value=False, key="include_legend"
-                        )
-                    with col3:
-                        include_befehl = st.checkbox(
-                            "Show Parameters in Service activities",
-                            value=False,
-                            key="include_befehl",
-                        )
-                    if st.button("Generate Laid-Out BPMN XML"):
-                        row_number = st.session_state.get("row_number", 1)
-                        split_diagrams = row_number > 1  # Split only if row_number > 1
-                        include_legend = st.session_state.get("include_legend", False)
-                        include_befehl = st.session_state.get("include_befehl", False)
+                    if laid_out_xml is not None:
                         result_xml, legend_df = add_special_nodes_and_annotations(
-                            split_diagrams, include_legend, include_befehl, row_number
+                            laid_out_xml,
+                            split_diagrams=row_number > 1,
+                            include_legend=include_legend,
+                            include_befehl=include_befehl,
+                            row_number=row_number,
                         )
                         if result_xml is not None:
                             bpmn_modeler_component(result_xml)
@@ -4788,10 +4771,6 @@ def show():
                                 st.dataframe(
                                     legend_df, use_container_width=True, hide_index=True
                                 )
-                        else:
-                            st.info(
-                                "Please wait for the layout processing to complete and then try again."
-                            )
                 except Exception as e:
                     st.error(f"Error generating workflow diagram: {str(e)}")
                     st.exception(e)
