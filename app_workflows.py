@@ -3007,6 +3007,64 @@ def layout_bpmn(basic_xml):
     return cached["xml"]
 
 
+def _di_anchor(di_element, namespaces):
+    """Reference point of a diagram element: top-left of a shape, midpoint of an edge."""
+    bounds = di_element.find("dc:Bounds", namespaces)
+    if bounds is not None:
+        return float(bounds.get("x")), float(bounds.get("y"))
+
+    points = [
+        (float(wp.get("x")), float(wp.get("y")))
+        for wp in di_element.findall("di:waypoint", namespaces)
+    ]
+    if not points:
+        return None
+    segments = list(zip(points, points[1:]))
+    lengths = [abs(x2 - x1) + abs(y2 - y1) for (x1, y1), (x2, y2) in segments]
+    remaining = sum(lengths) / 2
+    for ((x1, y1), (x2, y2)), length in zip(segments, lengths):
+        if length and remaining <= length:
+            t = remaining / length
+            return x1 + (x2 - x1) * t, y1 + (y2 - y1) * t
+        remaining -= length
+    return points[0]
+
+
+def _capture_label_offsets(plane, namespaces):
+    """
+    Record where each label sits relative to its shape or edge.
+
+    Layout engines that write explicit label positions (bpmn-auto-layout v2) need them
+    moved along with their element; v1 writes none, so bpmn-js places them itself.
+    """
+    offsets = []
+    for di_element in list(plane):
+        label_bounds = di_element.find("bpmndi:BPMNLabel/dc:Bounds", namespaces)
+        anchor = _di_anchor(di_element, namespaces)
+        if label_bounds is None or anchor is None:
+            continue
+        offsets.append(
+            (
+                di_element,
+                label_bounds,
+                float(label_bounds.get("x")) - anchor[0],
+                float(label_bounds.get("y")) - anchor[1],
+            )
+        )
+    return offsets
+
+
+def _restore_label_offsets(plane, namespaces, offsets):
+    """Move each label back to its recorded offset after its element was moved."""
+    remaining_elements = set(plane)
+    for di_element, label_bounds, dx, dy in offsets:
+        anchor = _di_anchor(di_element, namespaces)
+        if di_element not in remaining_elements or anchor is None:
+            continue
+        label_bounds.set("x", str(anchor[0] + dx))
+        label_bounds.set("y", str(anchor[1] + dy))
+
+
 def split_diagram_for_page_fit(laid_out_xml, namespaces, split_number=2):
     """
     Splits a BPMN diagram into multiple lines for page fit, ensuring proper arrow connections
@@ -3034,6 +3092,7 @@ def split_diagram_for_page_fit(laid_out_xml, namespaces, split_number=2):
     shapes = plane.findall(".//bpmndi:BPMNShape", namespaces)
     if not shapes:
         return laid_out_xml, False
+    label_offsets = _capture_label_offsets(plane, namespaces)
 
     # Extract node positions
     original_positions = {}
@@ -4029,6 +4088,8 @@ def split_diagram_for_page_fit(laid_out_xml, namespaces, split_number=2):
                             "y",
                             str(target_y + (y - original_positions[target_ref]["y"])),
                         )
+
+    _restore_label_offsets(plane, namespaces, label_offsets)
 
     # Serialize and return updated XML
     updated_xml = ET.tostring(root, encoding="utf-8").decode("utf-8")
